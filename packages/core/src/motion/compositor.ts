@@ -32,7 +32,7 @@ export class Timeline {
       { piece: opts.enter, start: 0, end: enterEnd, loop: false },
       { piece: opts.active, start: enterEnd, end: activeEnd, loop: true },
       { piece: opts.exit, start: activeEnd, end: this.duration, loop: false },
-    ];
+    ].filter((seg) => seg.end > seg.start);
   }
 
   isFinished(elapsed: number): boolean {
@@ -40,27 +40,35 @@ export class Timeline {
   }
 
   poseAt(elapsed: number, letter: LetterInfo): Pose {
-    const offsets: PoseOffset[] = [];
+    const parts: { seg: Segment; weight: number }[] = [];
+    let total = 0;
 
     for (const seg of this.segments) {
-      const w = this.weight(seg, elapsed);
-      if (w <= 0) continue;
-      offsets.push(scaleOffset(seg.piece.offset(this.localT(seg, elapsed), letter), w));
+      const weight = this.weight(seg, elapsed);
+      if (weight <= 0) continue;
+      parts.push({ seg, weight });
+      total += weight;
     }
+
+    // Pairwise-complementary ramps sum to 1, but a `hold` shorter than `blendMs` overlaps all
+    // three phases at once and the total runs past 1 — which reads as the word lurching.
+    const norm = total > 1 ? 1 / total : 1;
+    const offsets: PoseOffset[] = parts.map(({ seg, weight }) =>
+      scaleOffset(seg.piece.offset(this.localT(seg, elapsed), letter), weight * norm),
+    );
 
     return accumulate(REST, offsets);
   }
 
   /** Ramps 0→1 over the blend window at the segment's leading edge and back down at its trailing. */
   private weight(seg: Segment, elapsed: number): number {
-    if (seg.end <= seg.start) return 0;
-
     const half = this.blend / 2;
     const head = seg.start - half;
     const tail = seg.end + half;
     if (elapsed < head || elapsed >= tail) return 0;
 
-    // First and last segments hold full weight at the outer edges rather than fading to nothing.
+    // Whichever phase starts at 0 and whichever ends at `duration` hold full weight there rather
+    // than fading in from or out to nothing; a zero-length enter makes `active` the former.
     const inW = seg.start === 0 ? 1 : this.ramp(elapsed - head);
     const outW = seg.end === this.duration ? 1 : this.ramp(tail - elapsed);
     return Math.min(inW, outW);
@@ -79,8 +87,6 @@ export class Timeline {
       return (((into % d) + d) % d) / d;
     }
 
-    const span = seg.end - seg.start;
-    if (span <= 0) return 1;
-    return Math.max(0, Math.min(1, into / span));
+    return Math.max(0, Math.min(1, into / (seg.end - seg.start)));
   }
 }

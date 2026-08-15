@@ -19,6 +19,26 @@ const build = (hold = 100) =>
 
 const L = { index: 0, count: 1 };
 
+/** Every phase contributes 1, so `poseAt(t).position[0]` reads back the total phase weight. */
+const unit = (duration: number): MotionPiece => ({
+  duration,
+  offset: () => ({ position: [1, 0, 0] }),
+});
+
+const expectUnitWeight = (over: Partial<TimelineOptions> = {}) => {
+  const tl = new Timeline({
+    enter: unit(100),
+    active: unit(50),
+    exit: unit(100),
+    hold: 100,
+    blendMs: 20,
+    ...over,
+  });
+  for (let t = 0; t < tl.duration; t += 1) {
+    expect(tl.poseAt(t, L).position[0], `t=${t}`).toBeCloseTo(1);
+  }
+};
+
 describe('Timeline', () => {
   it('reports total duration as enter + hold + exit', () => {
     expect(build(100).duration).toBe(300);
@@ -38,18 +58,14 @@ describe('Timeline', () => {
     expect(build().poseAt(150, L).position[0]).toBe(10);
   });
 
-  it('blends both phases inside the crossfade window', () => {
-    // 10ms into the 20ms window straddling the enter/active boundary at t=100.
-    const x = build().poseAt(100, L).position[0];
-    expect(x).toBeGreaterThan(1);
-    expect(x).toBeLessThan(10);
+  it('blends both phases evenly at the midpoint of the crossfade window', () => {
+    // Halfway through the 20ms window straddling the enter/active boundary at t=100:
+    // 0.5 of enter's 1, plus 0.5 of active's 10 sampled at its loop start.
+    expect(build().poseAt(100, L).position[0]).toBeCloseTo(5.5);
   });
 
-  it('never leaves a gap: some phase is always contributing', () => {
-    const tl = build();
-    for (let t = 0; t < tl.duration; t += 1) {
-      expect(tl.poseAt(t, L).position[0], `t=${t}`).not.toBe(0);
-    }
+  it('holds total phase weight at 1 for the whole timeline', () => {
+    expectUnitWeight();
   });
 
   it('loops the active piece rather than running it once', () => {
@@ -83,28 +99,26 @@ describe('Timeline with degenerate durations', () => {
       ...over,
     });
 
-  const expectNoGap = (tl: Timeline) => {
-    for (let t = 0; t < tl.duration; t += 1) {
-      expect(tl.poseAt(t, L).position[0], `t=${t}`).not.toBe(0);
-    }
-  };
-
   it('gives a zero-length phase no weight at all', () => {
     const tl = degenerate({ enter: piece(0, 1) });
     expect(tl.duration).toBe(200);
     expect(tl.poseAt(0, L).position[0]).toBe(10);
-    expectNoGap(tl);
+    expectUnitWeight({ enter: unit(0) });
   });
 
   it('covers the whole timeline when the hold is zero', () => {
     const tl = degenerate({ hold: 0 });
     expect(tl.duration).toBe(200);
-    expectNoGap(tl);
+    expectUnitWeight({ hold: 0 });
+  });
+
+  it('does not overshoot when the hold is shorter than the blend window', () => {
+    expectUnitWeight({ hold: 10 });
   });
 
   it('hands over cleanly at every boundary with no blend window', () => {
     const tl = degenerate({ blendMs: 0 });
-    expectNoGap(tl);
+    expectUnitWeight({ blendMs: 0 });
     expect(tl.poseAt(99, L).position[0]).toBe(1);
     expect(tl.poseAt(100, L).position[0]).toBe(10);
     expect(tl.poseAt(199, L).position[0]).toBe(10);
