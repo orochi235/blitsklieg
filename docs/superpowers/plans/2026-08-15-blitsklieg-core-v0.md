@@ -1914,12 +1914,15 @@ git commit -m "add kerned text layout and two-axis viewport fit"
 
 **Files:**
 - Create: `packages/core/src/text/font.ts`, `packages/core/src/text/glyphs.ts`
-- Test: `packages/core/test/text/glyphs.test.ts`
+- Test: `packages/core/test/text/font.test.ts`, `packages/core/test/text/glyphs.test.ts`
 
 - [ ] **Step 1: Write font.ts**
 
+`@types/opentype.js` declares named ES exports with no default, and the repo does not enable
+`esModuleInterop`, so `import opentype from 'opentype.js'` does not typecheck — import `parse`.
+
 ```ts
-import opentype, { type Font } from 'opentype.js';
+import { type Font, parse } from 'opentype.js';
 import type { GlyphMetrics } from './layout.js';
 
 export interface LoadedFont {
@@ -1931,11 +1934,10 @@ export interface LoadedFont {
 export async function loadFont(url: string): Promise<LoadedFont> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`blitsklieg: failed to load font ${url} (${res.status})`);
-  const font = opentype.parse(await res.arrayBuffer());
+  const font = parse(await res.arrayBuffer());
 
   const metrics: GlyphMetrics = {
     advanceOf: (ch) => font.charToGlyph(ch).advanceWidth ?? 0,
-    // opentype.js exposes kerning through the font's kern table / GPOS.
     kernOf: (a, b) => font.getKerningValue(font.charToGlyph(a), font.charToGlyph(b)),
   };
 
@@ -1943,16 +1945,102 @@ export async function loadFont(url: string): Promise<LoadedFont> {
 }
 ```
 
-- [ ] **Step 2: Write the failing test for the glyph cache**
+- [ ] **Step 2: Write font.test.ts**
+
+`parse` is mocked so the adapter can be pinned without shipping a font file.
 
 ```ts
+import type { Font, Glyph } from 'opentype.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { parse } = vi.hoisted(() => ({ parse: vi.fn() }));
+vi.mock('opentype.js', () => ({ parse }));
+
+import { loadFont } from '../../src/text/font.js';
+
+function stubFont(glyphs: Record<string, Partial<Glyph>>, kern = 0): Font {
+  return {
+    unitsPerEm: 1000,
+    charToGlyph: (ch: string) => glyphs[ch] ?? {},
+    getKerningValue: vi.fn(() => kern),
+  } as unknown as Font;
+}
+
+function stubFetch(res: Partial<Response>): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => res as Response),
+  );
+}
+
+beforeEach(() => {
+  parse.mockReset();
+  stubFetch({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
+});
+
+describe('loadFont', () => {
+  it('names the url and status when the response is not ok', async () => {
+    stubFetch({ ok: false, status: 404 });
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toThrow(
+      'blitsklieg: failed to load font /fonts/x.ttf (404)',
+    );
+  });
+
+  it('exposes the parsed font and its em size', async () => {
+    parse.mockReturnValue(stubFont({}));
+
+    const loaded = await loadFont('/fonts/x.ttf');
+    expect(loaded.unitsPerEm).toBe(1000);
+  });
+
+  it('reads advances in font units off the glyph', async () => {
+    parse.mockReturnValue(stubFont({ A: { advanceWidth: 722 } }));
+
+    const { metrics } = await loadFont('/fonts/x.ttf');
+    expect(metrics.advanceOf('A')).toBe(722);
+  });
+
+  it('treats a glyph with no advance as zero width', async () => {
+    parse.mockReturnValue(stubFont({ A: {} }));
+
+    const { metrics } = await loadFont('/fonts/x.ttf');
+    expect(metrics.advanceOf('A')).toBe(0);
+  });
+
+  it('kerns by glyph, since opentype takes glyphs rather than characters', async () => {
+    const font = stubFont({ A: { index: 1 }, V: { index: 2 } }, -80);
+    parse.mockReturnValue(font);
+
+    const { metrics } = await loadFont('/fonts/x.ttf');
+    expect(metrics.kernOf('A', 'V')).toBe(-80);
+    expect(font.getKerningValue).toHaveBeenCalledWith({ index: 1 }, { index: 2 });
+  });
+});
+```
+
+- [ ] **Step 3: Write the failing test for the glyph cache and contour nesting**
+
+A glyph's counter (the hole in an `O`) is a separate closed contour. `ExtrudeGeometry` only
+subtracts contours listed in a `Shape`'s `holes`, so making every contour a top-level `Shape`
+renders counters solid. Winding cannot classify them: Skia's `%` ends with two counters whose
+outer contours are not the ones immediately preceding them. Nesting depth can.
+
+```ts
+import type { Font, PathCommand } from 'opentype.js';
+import type * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { GlyphCache } from '../../src/text/glyphs.js';
+import {
+  DEFAULT_GLYPH_OPTIONS,
+  GlyphCache,
+  buildGlyphGeometry,
+  glyphToShapes,
+} from '../../src/text/glyphs.js';
 
 describe('GlyphCache', () => {
   it('builds a geometry once per distinct key', () => {
     const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
-    const cache = new GlyphCache(build as never);
+    const cache = new GlyphCache(build);
 
     cache.get('A', 0.3);
     cache.get('A', 0.3);
@@ -1961,7 +2049,7 @@ describe('GlyphCache', () => {
 
   it('treats a different depth as a different geometry', () => {
     const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
-    const cache = new GlyphCache(build as never);
+    const cache = new GlyphCache(build);
 
     cache.get('A', 0.3);
     cache.get('A', 0.5);
@@ -1970,7 +2058,7 @@ describe('GlyphCache', () => {
 
   it('reuses one geometry across repeated letters in a word', () => {
     const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
-    const cache = new GlyphCache(build as never);
+    const cache = new GlyphCache(build);
 
     for (const ch of 'BONUS ROUND') cache.get(ch, 0.3);
     expect(build).toHaveBeenCalledTimes(new Set('BONUS ROUND').size);
@@ -1978,11 +2066,11 @@ describe('GlyphCache', () => {
 
   it('disposes every cached geometry on dispose and empties itself', () => {
     const made: { dispose: ReturnType<typeof vi.fn> }[] = [];
-    const cache = new GlyphCache(((char: string) => {
+    const cache = new GlyphCache((char: string) => {
       const g = { char, dispose: vi.fn() };
       made.push(g);
       return g;
-    }) as never);
+    });
 
     cache.get('A', 0.3);
     cache.get('B', 0.3);
@@ -1993,14 +2081,94 @@ describe('GlyphCache', () => {
     expect(cache.size).toBe(0);
   });
 });
+
+/** A font whose only glyph draws the given commands, so contour nesting is exercised exactly. */
+function fontDrawing(commands: PathCommand[]): Font {
+  return { charToGlyph: () => ({ getPath: () => ({ commands }) }) } as unknown as Font;
+}
+
+function box(x: number, y: number, w: number, h: number): PathCommand[] {
+  return [
+    { type: 'M', x, y },
+    { type: 'L', x: x + w, y },
+    { type: 'L', x: x + w, y: y + h },
+    { type: 'L', x, y: y + h },
+    { type: 'Z' },
+  ];
+}
+
+/** Highest y a shape's own outline reaches, ignoring its holes. */
+function topOf(shape: THREE.Shape): number {
+  return Math.max(...shape.getPoints(1).map((p) => p.y));
+}
+
+describe('glyphToShapes', () => {
+  it('negates y, because opentype paths are y-down and three is y-up', () => {
+    const [shape] = glyphToShapes(fontDrawing(box(0, 0, 10, 10)), 'A', 1);
+
+    expect(topOf(shape as THREE.Shape)).toBe(0);
+    expect(Math.min(...(shape as THREE.Shape).getPoints(1).map((p) => p.y))).toBe(-10);
+  });
+
+  it('nests a counter as a hole instead of a second solid shape', () => {
+    const shapes = glyphToShapes(fontDrawing([...box(0, 0, 10, 10), ...box(3, 3, 4, 4)]), 'O', 1);
+
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0]?.holes).toHaveLength(1);
+  });
+
+  it('keeps disjoint contours as separate shapes', () => {
+    const shapes = glyphToShapes(fontDrawing([...box(0, 0, 4, 4), ...box(10, 0, 4, 4)]), 'i', 1);
+
+    expect(shapes).toHaveLength(2);
+    expect(shapes.every((s) => s.holes.length === 0)).toBe(true);
+  });
+
+  it('attaches a counter to the contour containing it, not the one preceding it', () => {
+    const shapes = glyphToShapes(
+      fontDrawing([...box(0, 0, 10, 10), ...box(20, 0, 10, 10), ...box(3, 3, 4, 4)]),
+      '%',
+      1,
+    );
+
+    expect(shapes).toHaveLength(2);
+    const withHole = shapes.filter((s) => s.holes.length > 0);
+    expect(withHole).toHaveLength(1);
+    expect(topOf(withHole[0] as THREE.Shape)).toBe(0);
+    expect(Math.min(...(withHole[0] as THREE.Shape).getPoints(1).map((p) => p.x))).toBe(0);
+  });
+
+  it('makes a contour nested two deep solid again', () => {
+    const shapes = glyphToShapes(
+      fontDrawing([...box(0, 0, 20, 20), ...box(2, 2, 16, 16), ...box(6, 6, 8, 8)]),
+      '@',
+      1,
+    );
+
+    expect(shapes).toHaveLength(2);
+  });
+
+  it('returns nothing for a glyph with no outline', () => {
+    expect(glyphToShapes(fontDrawing([]), ' ', 1)).toEqual([]);
+  });
+});
+
+describe('buildGlyphGeometry', () => {
+  it('computes a bounding box, which callers use to center a word', () => {
+    const geo = buildGlyphGeometry(fontDrawing(box(0, 0, 10, 10)), 'A', 1, DEFAULT_GLYPH_OPTIONS);
+
+    expect(geo.boundingBox).not.toBeNull();
+    expect(geo.boundingBox?.max.y).toBeGreaterThan(0);
+  });
+});
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 4: Run tests to verify they fail**
 
-Run: `npx vitest run packages/core/test/text/glyphs.test.ts`
-Expected: FAIL — cannot find module `../../src/text/glyphs.js`.
+Run: `npx vitest run packages/core/test/text/`
+Expected: FAIL — cannot find modules `../../src/text/font.js` and `../../src/text/glyphs.js`.
 
-- [ ] **Step 4: Implement glyphs.ts**
+- [ ] **Step 5: Implement glyphs.ts**
 
 ```ts
 import type { Font } from 'opentype.js';
@@ -2050,13 +2218,12 @@ export class GlyphCache<T extends Buildable = THREE.ExtrudeGeometry> {
   }
 }
 
-/**
- * opentype.js emits Y-down path commands; three expects Y-up, so every y is negated.
- * Skipping this silently renders every glyph upside down.
- */
-export function glyphToShapes(font: Font, char: string, size: number): THREE.Shape[] {
+const NESTING_SEGMENTS = 12;
+
+/** opentype.js emits y-down path commands; three is y-up, so every y is negated. */
+function contoursOf(font: Font, char: string, size: number): THREE.Shape[] {
   const path = font.charToGlyph(char).getPath(0, 0, size);
-  const shapes: THREE.Shape[] = [];
+  const contours: THREE.Shape[] = [];
   let current: THREE.Shape | null = null;
 
   for (const cmd of path.commands) {
@@ -2064,7 +2231,7 @@ export function glyphToShapes(font: Font, char: string, size: number): THREE.Sha
       case 'M':
         current = new THREE.Shape();
         current.moveTo(cmd.x, -cmd.y);
-        shapes.push(current);
+        contours.push(current);
         break;
       case 'L':
         current?.lineTo(cmd.x, -cmd.y);
@@ -2080,7 +2247,52 @@ export function glyphToShapes(font: Font, char: string, size: number): THREE.Sha
         break;
     }
   }
+  return contours;
+}
+
+function containsPoint(polygon: THREE.Vector2[], point: THREE.Vector2): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i] as THREE.Vector2;
+    const b = polygon[j] as THREE.Vector2;
+    const straddles = a.y > point.y !== b.y > point.y;
+    if (straddles && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x)
+      inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Winding cannot decide this: a font may list a counter after an unrelated contour (Skia's `%`
+ * ends with two counters belonging to earlier contours), so nesting depth does it instead.
+ */
+function nest(contours: THREE.Shape[]): THREE.Shape[] {
+  const closed = contours
+    .map((contour) => ({ contour, polygon: contour.getPoints(NESTING_SEGMENTS) }))
+    .filter((c) => c.polygon.length >= 3);
+  const anchors = closed.map((c) => c.polygon[0] as THREE.Vector2);
+  const depths = anchors.map((anchor, i) =>
+    closed.reduce((n, o, j) => (j !== i && containsPoint(o.polygon, anchor) ? n + 1 : n), 0),
+  );
+
+  const shapes: THREE.Shape[] = [];
+  closed.forEach(({ contour }, i) => {
+    const depth = depths[i] as number;
+    const container =
+      depth % 2 === 1
+        ? closed.find(
+            (o, j) =>
+              depths[j] === depth - 1 && containsPoint(o.polygon, anchors[i] as THREE.Vector2),
+          )
+        : undefined;
+    if (container) container.contour.holes.push(contour);
+    else shapes.push(contour);
+  });
   return shapes;
+}
+
+export function glyphToShapes(font: Font, char: string, size: number): THREE.Shape[] {
+  return nest(contoursOf(font, char, size));
 }
 
 export function buildGlyphGeometry(
@@ -2104,15 +2316,15 @@ export function buildGlyphGeometry(
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 6: Run tests to verify they pass**
 
-Run: `npx vitest run packages/core/test/text/glyphs.test.ts`
-Expected: PASS, 4 tests.
+Run: `npx vitest run packages/core/test/text/`
+Expected: PASS, 27 tests (11 layout, 5 font, 11 glyphs).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add packages/core/src/text/ packages/core/test/text/glyphs.test.ts
+git add packages/core/src/text/ packages/core/test/text/glyphs.test.ts packages/core/test/text/font.test.ts
 git commit -m "add opentype font loading and cached extruded glyph geometry"
 ```
 
