@@ -3183,38 +3183,36 @@ git commit -m "add stage with lazy webgl context, resize, and idle teardown"
 
 **Files:**
 - Create: `packages/core/src/render/word.ts`
+- Create: `packages/core/test/render/word.test.ts`
 
 - [ ] **Step 1: Implement**
 
 ```ts
 import * as THREE from 'three';
 import type { Timeline } from '../motion/compositor.js';
-import { DEFAULT_GLYPH_OPTIONS, GlyphCache, buildGlyphGeometry } from '../text/glyphs.js';
 import type { LoadedFont } from '../text/font.js';
-import { fitScale, layoutLine } from '../text/layout.js';
+import { DEFAULT_GLYPH_OPTIONS, GlyphCache, buildGlyphGeometry } from '../text/glyphs.js';
 import type { Budget } from '../text/layout.js';
-import { applyLook, createMaterial, type LookName } from './looks.js';
+import { fitScale, layoutLine } from '../text/layout.js';
+import { type LookName, applyLook, createMaterial } from './looks.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
 /** One mesh per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
 export class Word {
   readonly group = new THREE.Group();
-  private readonly letters: THREE.Mesh[] = [];
+  /** null where the glyph drew no outline (space, U+00A0, ZWJ); the slot still holds its index. */
+  private readonly letters: (THREE.Mesh | null)[] = [];
   /** Layout x per letter. Pose x is an OFFSET onto this — overwriting it collapses the word. */
   private readonly baseX: number[] = [];
   private readonly material: THREE.MeshPhysicalMaterial;
   private readonly cache: GlyphCache;
-  private baseScale = 1;
 
-  constructor(
-    private readonly text: string,
-    font: LoadedFont,
-    look: LookName,
-    budget: Budget,
-  ) {
+  constructor(text: string, font: LoadedFont, look: LookName, budget: Budget) {
     this.material = createMaterial();
     applyLook(this.material, look);
+    // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
+    this.material.transparent = true;
     this.cache = new GlyphCache((char, depth) =>
       buildGlyphGeometry(font.font, char, EM, { ...DEFAULT_GLYPH_OPTIONS, depth }),
     );
@@ -3223,29 +3221,36 @@ export class Word {
     const line = layoutLine(text, font.metrics);
 
     let maxY = 0;
+    let inkStart: number | null = null;
+    let inkEnd = 0;
+
     for (const g of line.glyphs) {
       const x = g.x * scaleToEm;
-      if (g.char === ' ') {
-        this.letters.push(new THREE.Mesh()); // placeholder keeps indices aligned with the string
-        this.baseX.push(x);
+      this.baseX.push(x);
+
+      const geo = this.cache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
+      if (!geo.attributes.position?.count) {
+        this.letters.push(null);
         continue;
       }
-      const geo = this.cache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
+
       const mesh = new THREE.Mesh(geo, this.material);
       mesh.position.x = x;
       this.letters.push(mesh);
-      this.baseX.push(x);
       this.group.add(mesh);
+
       maxY = Math.max(maxY, geo.boundingBox?.max.y ?? 0);
+      inkStart ??= x;
+      inkEnd = x + font.metrics.advanceOf(g.char) * scaleToEm;
     }
 
-    const width = line.width * scaleToEm;
-    this.baseScale = fitScale(width, maxY, budget);
-    this.group.scale.setScalar(this.baseScale);
+    // Spanning the drawn glyphs, not line.width — its trailing advance would push a word ending
+    // in whitespace off center.
+    const left = inkStart ?? 0;
+    const scale = fitScale(inkEnd - left, maxY, budget);
+    this.group.scale.setScalar(scale);
     // Center on both axes so rotation pivots through the word, not its left edge.
-    this.group.position.set((-width / 2) * this.baseScale, (-maxY / 2) * this.baseScale, 0);
-
-    this.material.transparent = true;
+    this.group.position.set((-(left + inkEnd) / 2) * scale, (-maxY / 2) * scale, 0);
   }
 
   get letterCount(): number {
@@ -3253,10 +3258,10 @@ export class Word {
   }
 
   apply(timeline: Timeline, elapsed: number): void {
-    let opacity = 1;
+    let opacity = 0;
     for (let i = 0; i < this.letters.length; i++) {
       const mesh = this.letters[i];
-      if (!mesh?.geometry.attributes.position) continue;
+      if (!mesh) continue;
 
       const pose = timeline.poseAt(elapsed, { index: i, count: this.letters.length });
       mesh.position.x = (this.baseX[i] as number) + pose.position[0];
@@ -3264,9 +3269,10 @@ export class Word {
       mesh.position.z = pose.position[2];
       mesh.rotation.set(...pose.rotation);
       mesh.scale.setScalar(pose.scale);
-      opacity = pose.opacity;
+      opacity = Math.max(opacity, pose.opacity);
     }
-    // One shared material, so opacity is a word-level property in v0.
+    // One shared material: the word wears its most visible letter, so a staggered fade never
+    // hides a letter that is still meant to be on screen.
     this.material.opacity = opacity;
   }
 
@@ -3278,15 +3284,259 @@ export class Word {
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [ ] **Step 2: Test**
 
-Run: `npx tsc -b packages/core`
-Expected: no errors.
+Everything here is CPU-side, so the whole class runs in the `node` environment against a stub
+font. `packages/core/test/render/word.test.ts`:
 
-- [ ] **Step 3: Commit**
+```ts
+import type { Font, PathCommand } from 'opentype.js';
+import type * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
+import { Timeline } from '../../src/motion/compositor.js';
+import { NONE } from '../../src/motion/types.js';
+import type { LetterInfo, MotionPiece } from '../../src/motion/types.js';
+import type { PoseOffset } from '../../src/pose.js';
+import { Word } from '../../src/render/word.js';
+import type { LoadedFont } from '../../src/text/font.js';
+import type { Budget } from '../../src/text/layout.js';
+
+const UPEM = 1000;
+const ADVANCE = 600;
+/** One advance in em units — the layout gap between two adjacent letters. */
+const STEP = ADVANCE / UPEM;
+const NBSP = '\u00a0';
+const ZWJ = '\u200d';
+const BLANK = new Set([' ', NBSP, ZWJ]);
+
+/** A box hanging below the baseline, because opentype paths are y-down. */
+function boxPath(w: number, h: number): PathCommand[] {
+  return [
+    { type: 'M', x: 0, y: 0 },
+    { type: 'L', x: w, y: 0 },
+    { type: 'L', x: w, y: -h },
+    { type: 'L', x: 0, y: -h },
+    { type: 'Z' },
+  ];
+}
+
+/** Every char is a 0.5 x 0.7 em box except the blanks, which draw nothing at all. */
+function stubFont(): LoadedFont {
+  const font = {
+    charToGlyph: (char: string) => ({
+      advanceWidth: ADVANCE,
+      getPath: (_x: number, _y: number, size: number) => ({
+        commands: BLANK.has(char) ? [] : boxPath(0.5 * size, 0.7 * size),
+      }),
+    }),
+  } as unknown as Font;
+
+  return {
+    font,
+    unitsPerEm: UPEM,
+    metrics: { advanceOf: () => ADVANCE, kernOf: () => 0 },
+  };
+}
+
+const ROOMY: Budget = { width: 100, height: 100 };
+
+function timelineOf(offset: MotionPiece['offset']): Timeline {
+  return new Timeline({
+    enter: { duration: 100, offset },
+    active: NONE,
+    exit: NONE,
+    hold: 0,
+    blendMs: 0,
+  });
+}
+
+const REST_TIMELINE = timelineOf(() => ({}));
+
+function meshes(word: Word): THREE.Mesh[] {
+  return word.group.children as THREE.Mesh[];
+}
+
+function materialOf(word: Word): THREE.MeshPhysicalMaterial {
+  return (meshes(word)[0] as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
+}
+
+/** World-space midpoint of the advance span the drawn glyphs occupy. */
+function inkCenter(word: Word): number {
+  const drawn = meshes(word);
+  const first = drawn[0] as THREE.Mesh;
+  const last = drawn[drawn.length - 1] as THREE.Mesh;
+  const span = (first.position.x + last.position.x + STEP) / 2;
+  return word.group.position.x + word.group.scale.x * span;
+}
+
+describe('Word', () => {
+  it('gives every code point a slot but only the drawn glyphs a mesh', () => {
+    const word = new Word('A B', stubFont(), 'gold', ROOMY);
+
+    expect(word.letterCount).toBe(3);
+    expect(meshes(word)).toHaveLength(2);
+  });
+
+  it('treats any outline-less glyph as blank, not just the space character', () => {
+    const word = new Word(`A${NBSP}B${ZWJ}C`, stubFont(), 'gold', ROOMY);
+
+    expect(word.letterCount).toBe(5);
+    expect(meshes(word)).toHaveLength(3);
+  });
+
+  it('shares one cached geometry across repeated letters', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const [a, b] = meshes(word);
+
+    expect(a?.geometry).toBe(b?.geometry);
+  });
+
+  it('lays letters out one advance apart', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const [a, b] = meshes(word);
+
+    expect((b?.position.x ?? 0) - (a?.position.x ?? 0)).toBeCloseTo(STEP, 10);
+  });
+
+  it('adds pose x onto the layout x instead of replacing it', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    word.apply(
+      timelineOf(() => ({ position: [1, 0, 0] })),
+      50,
+    );
+    const [a, b] = meshes(word);
+
+    expect(a?.position.x).toBeCloseTo(1, 10);
+    expect(b?.position.x).toBeCloseTo(1 + STEP, 10);
+  });
+
+  it('takes pose y, z, rotation and scale absolutely', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+    word.apply(
+      timelineOf(() => ({ position: [0, 2, 3], rotation: [0.1, 0.2, 0.3], scale: 4 })),
+      50,
+    );
+    const [a] = meshes(word);
+
+    expect(a?.position.y).toBeCloseTo(2, 10);
+    expect(a?.position.z).toBeCloseTo(3, 10);
+    expect([a?.rotation.x, a?.rotation.y, a?.rotation.z]).toEqual([0.1, 0.2, 0.3]);
+    expect(a?.scale.x).toBeCloseTo(4, 10);
+  });
+
+  it('hands the timeline each letter index including the blanks it skips', () => {
+    const seen: LetterInfo[] = [];
+    const word = new Word('A B', stubFont(), 'gold', ROOMY);
+
+    word.apply(
+      timelineOf((_t, letter) => {
+        seen.push({ ...letter });
+        return {};
+      }),
+      50,
+    );
+
+    expect(seen).toEqual([
+      { index: 0, count: 3 },
+      { index: 2, count: 3 },
+    ]);
+  });
+
+  it('centers the word on both axes', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const [a] = meshes(word);
+    const top = (a?.geometry.boundingBox?.max.y ?? 0) * word.group.scale.x;
+
+    expect(inkCenter(word)).toBeCloseTo(0, 10);
+    expect(word.group.position.y).toBeCloseTo(-top / 2, 10);
+  });
+
+  it('centers on the drawn glyphs, so surrounding whitespace does not shift the word', () => {
+    const font = stubFont();
+    const plain = new Word('AA', font, 'gold', ROOMY);
+    const trailing = new Word('AA  ', font, 'gold', ROOMY);
+    const leading = new Word('  AA', font, 'gold', ROOMY);
+
+    expect(inkCenter(trailing)).toBeCloseTo(0, 10);
+    expect(inkCenter(leading)).toBeCloseTo(0, 10);
+    expect(trailing.group.scale.x).toBeCloseTo(plain.group.scale.x, 10);
+    expect(leading.group.scale.x).toBeCloseTo(plain.group.scale.x, 10);
+  });
+
+  it('scales the word down to the budget it is given', () => {
+    // Two letters span two advances, so a budget of one advance has to halve them.
+    const word = new Word('AA', stubFont(), 'gold', { width: STEP, height: 100 });
+
+    expect(word.group.scale.x).toBeCloseTo(0.5, 10);
+    expect(inkCenter(word)).toBeCloseTo(0, 10);
+  });
+
+  it('falls back to the fit cap for a word with nothing to draw', () => {
+    const word = new Word('  ', stubFont(), 'gold', ROOMY);
+
+    expect(word.letterCount).toBe(2);
+    expect(meshes(word)).toHaveLength(0);
+    expect(word.group.scale.x).toBe(2.2);
+    expect(word.group.position.x).toBeCloseTo(0, 10);
+  });
+
+  it('renders through the transparent path so an exit can fade', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+
+    expect(materialOf(word).transparent).toBe(true);
+  });
+
+  it('wears the most visible letter opacity, not the last letter to be posed', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const fadeByIndex = (_t: number, letter: LetterInfo): PoseOffset => ({
+      opacity: letter.index === 0 ? 1 : 0,
+    });
+
+    word.apply(timelineOf(fadeByIndex), 50);
+
+    expect(materialOf(word).opacity).toBe(1);
+  });
+
+  it('applies the look to the shared material', () => {
+    const word = new Word('A', stubFont(), 'chrome', ROOMY);
+
+    expect(materialOf(word).metalness).toBe(1);
+    expect(materialOf(word).roughness).toBeCloseTo(0.05, 10);
+  });
+
+  it('disposes the glyph geometry and the material, and empties the group', () => {
+    const word = new Word('AB', stubFont(), 'gold', ROOMY);
+    const [a, b] = meshes(word);
+    const geoA = vi.spyOn(a?.geometry as THREE.BufferGeometry, 'dispose');
+    const geoB = vi.spyOn(b?.geometry as THREE.BufferGeometry, 'dispose');
+    const material = vi.spyOn(materialOf(word), 'dispose');
+
+    word.dispose();
+
+    expect(geoA).toHaveBeenCalled();
+    expect(geoB).toHaveBeenCalled();
+    expect(material).toHaveBeenCalled();
+    expect(word.group.children).toHaveLength(0);
+  });
+
+  it('poses without touching the disposed cache', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+    word.dispose();
+
+    expect(() => word.apply(REST_TIMELINE, 50)).not.toThrow();
+  });
+});
+```
+
+- [ ] **Step 3: Verify**
+
+Run: `npm run check`
+Expected: lint and typecheck clean, 171 tests across 15 files (16 new in word).
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add packages/core/src/render/word.ts
+git add packages/core/src/render/word.ts packages/core/test/render/word.test.ts
 git commit -m "add word with per-letter meshes driven by the timeline"
 ```
 
