@@ -159,6 +159,18 @@ describe('glyphToShapes', () => {
     expect(leftOf(shapes[0] as THREE.Shape)).toBe(0);
   });
 
+  it('skips a contour closed without drawing rather than letting three throw', () => {
+    const commands: PathCommand[] = [
+      ...box(0, 0, 10, 10),
+      { type: 'M', x: 50, y: 50 },
+      { type: 'Z' },
+    ];
+
+    const shapes = glyphToShapes(fontDrawing(commands), 'A', 1);
+    expect(shapes).toHaveLength(1);
+    expect(leftOf(shapes[0] as THREE.Shape)).toBe(0);
+  });
+
   it('returns nothing for a glyph with no outline', () => {
     expect(glyphToShapes(fontDrawing([]), ' ', 1)).toEqual([]);
   });

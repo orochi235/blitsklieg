@@ -70,7 +70,8 @@ function contoursOf(font: Font, char: string, size: number): THREE.Shape[] {
         current?.bezierCurveTo(cmd.x1, -cmd.y1, cmd.x2, -cmd.y2, cmd.x, -cmd.y);
         break;
       case 'Z':
-        current?.closePath();
+        // three closes a contour by reading its first curve, so a contour that never drew one throws.
+        if (current?.curves.length) current.closePath();
         break;
     }
   }
