@@ -1,0 +1,260 @@
+import type { Font } from 'opentype.js';
+import type * as THREE from 'three';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ManualClock } from '../src/clock.js';
+import { type BlitskliegOptions, createBlitsklieg } from '../src/index.js';
+import { Stage } from '../src/render/stage.js';
+
+const { parse } = vi.hoisted(() => ({ parse: vi.fn() }));
+vi.mock('opentype.js', () => ({ parse }));
+
+const UPEM = 1000;
+const ADVANCE = 600;
+const TAU = Math.PI * 2;
+/** Every letter is a 0.5 em box, so each one gets a real mesh. */
+const BOX = (size: number) => [
+  { type: 'M', x: 0, y: 0 },
+  { type: 'L', x: 0.5 * size, y: 0 },
+  { type: 'L', x: 0.5 * size, y: -0.7 * size },
+  { type: 'Z' },
+];
+
+function stubFont(): Font {
+  return {
+    unitsPerEm: UPEM,
+    charToGlyph: () => ({
+      advanceWidth: ADVANCE,
+      getPath: (_x: number, _y: number, size: number) => ({ commands: BOX(size) }),
+    }),
+    getKerningValue: () => 0,
+  } as unknown as Font;
+}
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+let clock: ManualClock;
+let calls: string[];
+let mounted: Stage | null;
+let renderer: THREE.WebGLRenderer;
+let renders: number;
+let peakWords: number;
+
+function stubStage(): void {
+  vi.spyOn(Stage.prototype, 'mount').mockImplementation(function (this: Stage) {
+    mounted = this;
+    calls.push('mount');
+    return renderer;
+  });
+  vi.spyOn(Stage.prototype, 'scheduleIdleTeardown').mockImplementation(() => {
+    calls.push('idle');
+  });
+  vi.spyOn(Stage.prototype, 'unmount').mockImplementation(() => {
+    calls.push('unmount');
+  });
+}
+
+/** All webglSupported() probes for; every other GL path is stubbed at Stage.mount. */
+function stubWebgl(available: boolean): void {
+  vi.stubGlobal('document', {
+    createElement: () => ({ getContext: () => (available ? { getExtension: () => null } : null) }),
+  });
+}
+
+function stubFetch(
+  res: Partial<Response> = { ok: true, arrayBuffer: async () => new ArrayBuffer(8) },
+): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => res as Response),
+  );
+}
+
+function create(opts: Partial<BlitskliegOptions> = {}) {
+  // `target` is never read: Stage.mount is the only thing that appends to it.
+  return createBlitsklieg({ fontUrl: '/f.ttf', clock, target: {} as HTMLElement, ...opts });
+}
+
+function stage(): Stage {
+  if (!mounted) throw new Error('the stage was never mounted');
+  return mounted;
+}
+
+function words(): THREE.Object3D[] {
+  return stage().scene.children;
+}
+
+function firstMesh(): THREE.Mesh {
+  const group = words()[0] as THREE.Group;
+  return group.children[0] as THREE.Mesh;
+}
+
+beforeEach(() => {
+  clock = new ManualClock();
+  calls = [];
+  mounted = null;
+  renders = 0;
+  peakWords = 0;
+  renderer = {
+    setRenderTarget: vi.fn(),
+    clear: vi.fn(),
+    render: vi.fn(() => {
+      renders++;
+      peakWords = Math.max(peakWords, words().length);
+    }),
+  } as unknown as THREE.WebGLRenderer;
+
+  parse.mockReturnValue(stubFont());
+  stubFetch();
+  stubWebgl(true);
+  stubStage();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+/** Enter, active and exit all zero-length, so the effect finishes on its first tick. */
+const INSTANT = { enter: 'none', active: 'none', exit: 'none', hold: 0 } as const;
+
+describe('createBlitsklieg', () => {
+  it('mounts, renders and tears the word down when the timeline finishes', async () => {
+    const bk = create();
+    expect(bk.supported).toBe(true);
+
+    const done = bk.fire('HI', INSTANT);
+    await flush();
+    clock.advance(16);
+    await done;
+
+    expect(calls).toEqual(['mount', 'idle']);
+    expect(renders).toBe(1);
+    expect(words()).toHaveLength(0);
+  });
+
+  it('reports unsupported and touches neither the stage nor the font', async () => {
+    stubWebgl(false);
+    const bk = create();
+
+    expect(bk.supported).toBe(false);
+    await bk.fire('HELLO');
+
+    expect(calls).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('ignores fire after destroy', async () => {
+    const bk = create();
+    bk.destroy();
+
+    await bk.fire('HELLO');
+    await flush();
+
+    expect(calls).toEqual(['unmount']);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('unmounts only once the running effect has torn down', async () => {
+    const bk = create();
+    const done = bk.fire('HELLO', { hold: 5000 });
+    await flush();
+    clock.advance(16);
+    expect(calls).toEqual(['mount']);
+
+    bk.destroy();
+    await flush();
+    // The effect only sees the abort on its next tick; unmounting now would strand its teardown.
+    expect(calls).toEqual(['mount']);
+
+    clock.advance(16);
+    await done;
+    await flush();
+
+    expect(calls).toEqual(['mount', 'idle', 'unmount']);
+    expect(words()).toHaveLength(0);
+  });
+
+  it('runs queued effects one at a time', async () => {
+    const bk = create();
+    const a = bk.fire('A', { ...INSTANT, hold: 32 });
+    const b = bk.fire('B', INSTANT);
+
+    await flush();
+    clock.advance(32);
+    await a;
+    await flush();
+    clock.advance(16);
+    await b;
+
+    expect(calls).toEqual(['mount', 'idle', 'mount', 'idle']);
+    expect(peakWords).toBe(1);
+  });
+
+  it('surfaces a font failure and still loads the font on the next fire', async () => {
+    stubFetch({ ok: false, status: 404 });
+    const bk = create();
+
+    await expect(bk.fire('HI', INSTANT)).rejects.toThrow('blitsklieg: failed to load font');
+
+    stubFetch();
+    const done = bk.fire('HI', INSTANT);
+    await flush();
+    clock.advance(16);
+    await done;
+
+    expect(calls).toEqual(['mount', 'idle']);
+  });
+
+  it('holds the pose the enter settles into under reduced motion', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const bk = create();
+    const done = bk.fire('HI', { enter: 'slam', active: 'sweep', exit: 'fade', hold: 100 });
+
+    await flush();
+    clock.advance(16);
+    const mesh = firstMesh();
+    const material = mesh.material as THREE.MeshPhysicalMaterial;
+
+    // The end of the exit would leave a faded-out word on screen for the whole hold.
+    expect(material.opacity).toBeCloseTo(1, 6);
+    expect(mesh.position.z).toBeCloseTo(0, 6);
+    expect(mesh.scale.x).toBeCloseTo(1, 6);
+
+    clock.advance(100);
+    await done;
+    expect(calls).toEqual(['mount', 'idle']);
+  });
+
+  it('turns the environment once per sweep pass', async () => {
+    const bk = create();
+    const done = bk.fire('HI', { ...INSTANT, active: 'sweep', hold: 3400 });
+
+    await flush();
+    clock.advance(850);
+    expect(stage().scene.environmentRotation.y).toBeCloseTo(TAU / 4, 6);
+
+    clock.advance(2550);
+    await done;
+  });
+
+  it('restarts the sweep per effect and zeroes the environment for pieces that do not drive it', async () => {
+    const bk = create();
+    const first = bk.fire('HI', { ...INSTANT, active: 'sweep', hold: 1700 });
+    await flush();
+    clock.advance(1700);
+    await first;
+
+    const second = bk.fire('HI', { ...INSTANT, active: 'sweep', hold: 16 });
+    await flush();
+    clock.advance(16);
+    // Absolute clock time would land near TAU / 2 here, wherever the last effect left off.
+    expect(stage().scene.environmentRotation.y).toBeCloseTo((16 / 3400) * TAU, 6);
+    await second;
+
+    const third = bk.fire('HI', { ...INSTANT, active: 'float' });
+    await flush();
+    clock.advance(16);
+    await third;
+    expect(stage().scene.environmentRotation.y).toBe(0);
+  });
+});
