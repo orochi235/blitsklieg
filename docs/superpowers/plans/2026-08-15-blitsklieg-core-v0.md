@@ -783,14 +783,31 @@ word visibly jumps once per cycle.
 ```ts
 import { describe, expect, it } from 'vitest';
 import { ACTIVE } from '../../src/motion/active.js';
+import type { MotionPiece } from '../../src/motion/types.js';
 
 const L = { index: 2, count: 6 };
 
-describe('active pieces', () => {
-  it('loop seamlessly: offset(0) equals offset(1)', () => {
-    for (const [name, piece] of Object.entries(ACTIVE)) {
-      expect(piece.offset(0, L), `${name} must not jump on loop`).toEqual(piece.offset(1, L));
+// Seamlessness must be checked with a tolerance, not toEqual. Math.sin(2*PI) is -2.45e-16,
+// not 0, so exact comparison fails for every sine-driven piece — which is most of them.
+function expectSeamless(name: string, piece: MotionPiece): void {
+  const a = piece.offset(0, L);
+  const b = piece.offset(1, L);
+  expect(Object.keys(a).sort(), `${name} contributes different keys at 0 and 1`).toEqual(
+    Object.keys(b).sort(),
+  );
+  for (const k of ['position', 'rotation'] as const) {
+    for (let i = 0; i < 3; i++) {
+      expect(a[k]?.[i] ?? 0, `${name}.${k}[${i}]`).toBeCloseTo(b[k]?.[i] ?? 0, 9);
     }
+  }
+  for (const k of ['scale', 'opacity'] as const) {
+    expect(a[k] ?? 1, `${name}.${k}`).toBeCloseTo(b[k] ?? 1, 9);
+  }
+}
+
+describe('active pieces', () => {
+  it('loop seamlessly: offset(0) matches offset(1)', () => {
+    for (const [name, piece] of Object.entries(ACTIVE)) expectSeamless(name, piece);
   });
 
   it('stay near rest — active is an idle, not a journey', () => {
