@@ -43,6 +43,7 @@ export class Stage {
     if (this.renderer) return this.renderer;
 
     const canvas = document.createElement('canvas');
+    // Inline because a library ships no stylesheet, and host page CSS must not reach the overlay.
     canvas.style.cssText =
       'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483000';
 
@@ -53,7 +54,6 @@ export class Stage {
       premultipliedAlpha: false,
       antialias: true,
     });
-    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -76,6 +76,10 @@ export class Stage {
     if (!this.renderer) return;
     const w = Math.max(1, globalThis.innerWidth);
     const h = Math.max(1, globalThis.innerHeight);
+    // Zoom and a move to another display change devicePixelRatio and fire resize; setPixelRatio
+    // reallocates the framebuffer, so only pay for it when the ratio actually moved.
+    const ratio = Math.min(globalThis.devicePixelRatio ?? 1, 2);
+    if (this.renderer.getPixelRatio() !== ratio) this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -106,11 +110,14 @@ export class Stage {
     this.detachResize = null;
     this.scene.environment = null;
 
-    detachResize?.();
-    environment?.dispose();
-    renderer?.dispose();
-    // dispose() drops three's caches but keeps the GL context; only loseContext returns it.
-    renderer?.forceContextLoss();
-    canvas?.remove();
+    try {
+      detachResize?.();
+      environment?.dispose();
+      renderer?.dispose();
+    } finally {
+      // dispose() drops three's caches but keeps the GL context; only loseContext returns it.
+      renderer?.forceContextLoss();
+      canvas?.remove();
+    }
   }
 }

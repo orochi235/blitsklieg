@@ -1,3 +1,4 @@
+import type * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Stage, prefersReducedMotion, webglSupported } from '../../src/render/stage.js';
 
@@ -11,6 +12,15 @@ function frustumHeight(stage: Stage): number {
 }
 
 describe('viewportBudget', () => {
+  // 2 * tan(38deg / 2) * 11 = 7.5752075 visible units tall at the word's depth.
+  it('matches an extent computed by hand from the constructor fov and distance', () => {
+    const stage = headlessStage();
+
+    expect(stage.viewportBudget(1, 1).height).toBeCloseTo(7.5752075, 6);
+    expect(stage.viewportBudget().width).toBeCloseTo(4.6966286, 6);
+    expect(stage.viewportBudget().height).toBeCloseTo(2.2725622, 6);
+  });
+
   it('matches the frustum extent at the camera distance', () => {
     const stage = headlessStage();
     stage.camera.aspect = 1.5;
@@ -113,6 +123,22 @@ describe('unmount', () => {
     expect(stage.renderer).toBeNull();
     expect(stage.environment).toBeNull();
     expect(stage.scene.environment).toBeNull();
+  });
+
+  it('detaches the canvas even when disposal throws, so no context is stranded', () => {
+    const stage = headlessStage();
+    const remove = vi.fn();
+    stage.canvas = { remove } as unknown as HTMLCanvasElement;
+    stage.environment = {
+      dispose: () => {
+        throw new Error('dispose failed');
+      },
+    } as unknown as THREE.WebGLRenderTarget;
+
+    expect(() => stage.unmount()).toThrow('dispose failed');
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(stage.canvas).toBeNull();
+    expect(stage.environment).toBeNull();
   });
 });
 
