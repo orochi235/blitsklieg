@@ -4161,7 +4161,7 @@ git commit -m "add public createBlitsklieg surface wiring stage, timeline, and q
 - Create: `packages/core/src/render/bloom.ts`
 - Create: `packages/core/test/render/bloom.test.ts`
 - Modify: `packages/core/src/index.ts` — select the path from `opts.bloom`
-- Modify: `packages/core/test/index.test.ts` — the wiring, and disposal on every settle path
+- Modify: `packages/core/test/index.test.ts` — the wiring, and disposal on every path out
 
 The overlay is transparent, so a glow written where the scene's alpha is 0 is dropped by the
 page compositor: the composite gives the glow alpha of its own. It also applies the output
@@ -4191,6 +4191,9 @@ export interface BloomOptions {
 export const DEFAULT_BLOOM: BloomOptions = { strength: 1.1, threshold: 0.72, alphaBoost: 0.9 };
 
 type Sampler = THREE.IUniform<THREE.Texture | null>;
+
+/** Half-res texels per tap, one separable pass each: a tight core under a wider halo. */
+const BLUR_RADII = [1, 2.5];
 
 export class BloomPath {
   private sceneRT!: THREE.WebGLRenderTarget;
@@ -4297,7 +4300,7 @@ export class BloomPath {
     this.thresholdSrc.value = this.sceneRT.texture;
     this.blit(this.thresholdMat, this.brightRT);
 
-    for (const radius of [1, 2.5]) {
+    for (const radius of BLUR_RADII) {
       this.blurSrc.value = this.brightRT.texture;
       this.blurDir.value.set(radius / this.brightRT.width, 0);
       this.blit(this.blurMat, this.blurRT);
@@ -4339,6 +4342,7 @@ export class BloomPath {
   private blit(material: THREE.Material, target: THREE.WebGLRenderTarget | null): void {
     this.quad.material = material;
     this.renderer.setRenderTarget(target);
+    // Redundant while autoClear is on and the quad covers every pixel; keep it as the insurance.
     this.renderer.clear();
     this.renderer.render(this.quadScene, this.quadCam);
   }
@@ -4363,10 +4367,20 @@ Add the import:
 import { BloomPath } from './render/bloom.js';
 ```
 
-Create the path just after `const renderer = stage.mount();`:
+Create the path just after `const renderer = stage.mount();`, and guard the `Word` that
+follows it — a throw there rejects `run()` before the promise owning `settle()` exists, and
+the bloom at that point is either `null` or fully disposable:
 
 ```ts
     const bloom = opts.bloom ? new BloomPath(renderer) : null;
+    let word: Word;
+    try {
+      word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget());
+    } catch (err) {
+      // This rejects before the settle() that would otherwise free the bloom's render targets.
+      bloom?.dispose();
+      throw err;
+    }
 ```
 
 Select it in place of the three direct-render lines inside the `clock.subscribe` callback's
@@ -4396,7 +4410,7 @@ the completion path alone strands three render targets whenever an effect fails,
 `BloomPath` needs a real `WebGLRenderer` to draw anything, but a stub renderer that records
 `setRenderTarget`/`render` reveals the whole pass structure, and the render targets and
 materials are plain JS until a frame is submitted. What the shaders compute is not reachable
-in the `node` environment and stays untested.
+in the `node` environment; Task 19 is where the composite's alpha gets verified.
 
 `packages/core/test/render/bloom.test.ts`:
 
@@ -4656,6 +4670,21 @@ added to the `renderer` stub:
       expect(bloom.dispose).toHaveBeenCalledTimes(1);
     });
 
+    it('disposes the bloom path when the word fails to build', async () => {
+      const bloom = stubBloom();
+      parse.mockReturnValue({
+        ...stubFont(),
+        charToGlyph: () => {
+          throw new Error('bad glyph');
+        },
+      } as unknown as Font);
+      const bk = create();
+
+      // The rejection comes out before the promise that owns settle() exists.
+      await expect(bk.fire('HI', { ...INSTANT, bloom: true })).rejects.toThrow('bad glyph');
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
+
     it('disposes the bloom path when a tick throws', async () => {
       const bloom = stubBloom(false);
       onRender = () => {
@@ -4677,7 +4706,7 @@ added to the `renderer` stub:
 - [ ] **Step 4: Verify**
 
 Run: `npm run check`
-Expected: all clean, 199 tests across 17 files.
+Expected: all clean, 200 tests across 17 files.
 
 - [ ] **Step 5: Commit**
 
@@ -4898,6 +4927,12 @@ test('gold slam is fully opaque on the letters and transparent elsewhere', async
   expect(stats.clear).toBeGreaterThan(stats.lit);
 });
 ```
+
+**Assert both paths.** As drafted this only fires with bloom off. The bloom composite computes
+the overlay's alpha itself, in a shader nothing in `packages/core/test` can execute, so a run
+with the bloom checkbox on is the only end-to-end check that the glow is neither invisible nor
+an opaque rectangle. `clear > lit` must hold there too, with a wider `lit` count than the
+direct path since the glow reaches past the letters.
 
 **Note:** `readPixels` returns zeros outside a render callback because the drawing buffer is
 cleared after compositing. If this test reports nothing drew, add `preserveDrawingBuffer: true`
