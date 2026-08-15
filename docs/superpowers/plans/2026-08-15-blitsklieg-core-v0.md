@@ -1,0 +1,2591 @@
+# blitsklieg core v0 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build `@blitsklieg/core` — a transparent WebGL overlay that renders shiny extruded 3D
+type over a host web app, driven by `enter`/`active`/`exit` motion slots.
+
+**Architecture:** A pure-logic layer (clock, easing, pose algebra, phase compositor, queue) with
+no three.js dependency and full unit tests, wrapped by a thin three.js rendering layer (glyph
+geometry, environment, materials, render paths). One mesh per letter so per-letter motion and
+glyph caching both work. Everything reads time from an injected clock, which is what makes the
+motion testable at all.
+
+**Tech Stack:** TypeScript, three.js r170+, opentype.js, Vite, Vitest, Biome, npm workspaces.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-blitsklieg-design.md`
+
+---
+
+## File Structure
+
+```
+packages/core/
+  src/
+    index.ts              public surface: createBlitsklieg, types
+    clock.ts              Clock interface, RafClock, ManualClock
+    easing.ts             easing curves
+    pose.ts               Pose, PoseOffset, algebra
+    motion/
+      types.ts            MotionPiece, LetterInfo
+      enter.ts            slam, spin, flip, assemble, rise
+      active.ts           sweep, float, pulse, shimmer
+      exit.ts             shatter, drop, recede, fade
+      compositor.ts       phase timeline + weighted accumulation
+    queue.ts              serial effect queue
+    text/
+      font.ts             opentype.js loading
+      glyphs.ts           glyph -> ExtrudeGeometry, cached
+      layout.ts           kerned advances, viewport fit
+    render/
+      environment.ts      procedural cubemap
+      looks.ts            material presets
+      stage.ts            renderer, scene, camera, lifecycle
+      direct.ts           direct-to-canvas path
+      bloom.ts            RT chain + alpha-preserving composite
+  test/                   mirrors src/
+apps/lab/                 Vite demo page
+```
+
+Pure logic (`clock`, `easing`, `pose`, `motion/`, `queue`, `text/layout`) never imports three.js.
+That boundary is what keeps the test suite fast and meaningful.
+
+---
+
+## Task 1: Workspace scaffold
+
+**Files:**
+- Create: `package.json`, `tsconfig.base.json`, `biome.json`, `vitest.config.ts`
+- Create: `packages/core/package.json`, `packages/core/tsconfig.json`
+
+- [ ] **Step 1: Root package.json**
+
+```json
+{
+  "name": "blitsklieg-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "lint": "biome check .",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
+```
+
+- [ ] **Step 2: tsconfig.base.json**
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "declaration": true,
+    "composite": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM"]
+  }
+}
+```
+
+- [ ] **Step 3: packages/core/package.json**
+
+```json
+{
+  "name": "@blitsklieg/core",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "opentype.js": "^1.3.4",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0"
+  }
+}
+```
+
+- [ ] **Step 4: packages/core/tsconfig.json**
+
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "dist", "rootDir": "." },
+  "include": ["src", "test"]
+}
+```
+
+- [ ] **Step 5: biome.json**
+
+```json
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "linter": { "enabled": true, "rules": { "recommended": true } },
+  "files": { "ignore": ["dist", "node_modules", "spikes"] }
+}
+```
+
+- [ ] **Step 6: vitest.config.ts**
+
+```ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: { include: ['packages/*/test/**/*.test.ts'], environment: 'node' },
+});
+```
+
+- [ ] **Step 7: Install and verify**
+
+Run: `npm install && npm run lint`
+Expected: biome reports no errors. `npm run test` reports "No test files found" — that is fine.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add -A
+git commit -m "scaffold npm workspace with typescript, biome, vitest"
+```
+
+---
+
+## Task 2: Clock
+
+The injected clock is load-bearing: no motion below is testable without it.
+
+**Files:**
+- Create: `packages/core/src/clock.ts`
+- Test: `packages/core/test/clock.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { ManualClock } from '../src/clock.js';
+
+describe('ManualClock', () => {
+  it('starts at zero', () => {
+    expect(new ManualClock().now()).toBe(0);
+  });
+
+  it('advances by the given delta', () => {
+    const c = new ManualClock();
+    c.advance(16);
+    c.advance(16);
+    expect(c.now()).toBe(32);
+  });
+
+  it('runs subscribed callbacks once per advance, with the current time', () => {
+    const c = new ManualClock();
+    const seen: number[] = [];
+    c.subscribe((t) => seen.push(t));
+    c.advance(10);
+    c.advance(5);
+    expect(seen).toEqual([10, 15]);
+  });
+
+  it('stops calling a callback after unsubscribe', () => {
+    const c = new ManualClock();
+    const seen: number[] = [];
+    const off = c.subscribe((t) => seen.push(t));
+    c.advance(10);
+    off();
+    c.advance(10);
+    expect(seen).toEqual([10]);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/clock.test.ts`
+Expected: FAIL — cannot find module `../src/clock.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+export type Tick = (nowMs: number) => void;
+export type Unsubscribe = () => void;
+
+export interface Clock {
+  now(): number;
+  subscribe(fn: Tick): Unsubscribe;
+}
+
+export class ManualClock implements Clock {
+  private t = 0;
+  private subs = new Set<Tick>();
+
+  now(): number {
+    return this.t;
+  }
+
+  subscribe(fn: Tick): Unsubscribe {
+    this.subs.add(fn);
+    return () => this.subs.delete(fn);
+  }
+
+  advance(deltaMs: number): void {
+    this.t += deltaMs;
+    for (const fn of [...this.subs]) fn(this.t);
+  }
+}
+
+export class RafClock implements Clock {
+  private subs = new Set<Tick>();
+  private raf: number | null = null;
+  private t = 0;
+
+  now(): number {
+    return this.t;
+  }
+
+  subscribe(fn: Tick): Unsubscribe {
+    this.subs.add(fn);
+    if (this.raf === null) this.start();
+    return () => {
+      this.subs.delete(fn);
+      if (this.subs.size === 0) this.stop();
+    };
+  }
+
+  private start(): void {
+    const loop = (t: number) => {
+      this.t = t;
+      for (const fn of [...this.subs]) fn(t);
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  private stop(): void {
+    if (this.raf !== null) cancelAnimationFrame(this.raf);
+    this.raf = null;
+  }
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/clock.test.ts`
+Expected: PASS, 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/clock.ts packages/core/test/clock.test.ts
+git commit -m "add injectable clock with manual and raf implementations"
+```
+
+---
+
+## Task 3: Easing
+
+**Files:**
+- Create: `packages/core/src/easing.ts`
+- Test: `packages/core/test/easing.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { backOut, easeInCubic, easeOutCubic, linear } from '../src/easing.js';
+
+const CURVES = { linear, easeOutCubic, easeInCubic, backOut };
+
+describe('easing', () => {
+  it('every curve is pinned at both endpoints', () => {
+    for (const [name, fn] of Object.entries(CURVES)) {
+      expect(fn(0), `${name}(0)`).toBeCloseTo(0, 6);
+      expect(fn(1), `${name}(1)`).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('backOut overshoots past 1 before settling', () => {
+    const peak = Math.max(...Array.from({ length: 99 }, (_, i) => backOut((i + 1) / 100)));
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it('easeOutCubic is past halfway at t=0.5', () => {
+    expect(easeOutCubic(0.5)).toBeGreaterThan(0.5);
+  });
+
+  it('easeInCubic is short of halfway at t=0.5', () => {
+    expect(easeInCubic(0.5)).toBeLessThan(0.5);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/easing.test.ts`
+Expected: FAIL — cannot find module `../src/easing.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+export type Easing = (t: number) => number;
+
+export const linear: Easing = (t) => t;
+
+export const easeOutCubic: Easing = (t) => 1 - (1 - t) ** 3;
+
+export const easeInCubic: Easing = (t) => t ** 3;
+
+export const easeInOutCubic: Easing = (t) =>
+  t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
+
+// Overshoots past 1 then settles. c tunes how far.
+export const backOut: Easing = (t) => {
+  const c = 1.9;
+  const p = t - 1;
+  return 1 + c * p ** 3 + c * p ** 2;
+};
+
+export const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/easing.test.ts`
+Expected: PASS, 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/easing.ts packages/core/test/easing.test.ts
+git commit -m "add easing curves"
+```
+
+---
+
+## Task 4: Pose algebra
+
+Poses are absolute; offsets are relative contributions from motion pieces. Keeping these two
+types distinct is what prevents a phase from writing absolute transforms.
+
+**Files:**
+- Create: `packages/core/src/pose.ts`
+- Test: `packages/core/test/pose.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { REST, accumulate, scaleOffset } from '../src/pose.js';
+
+describe('pose algebra', () => {
+  it('accumulating no offsets leaves the rest pose untouched', () => {
+    expect(accumulate(REST, [])).toEqual(REST);
+  });
+
+  it('adds positions and rotations, multiplies scale and opacity', () => {
+    const p = accumulate(REST, [
+      { position: [1, 2, 3], rotation: [0, 0.5, 0], scale: 2, opacity: 0.5 },
+      { position: [1, 0, 0], rotation: [0, 0.5, 0], scale: 3, opacity: 0.5 },
+    ]);
+    expect(p.position).toEqual([2, 2, 3]);
+    expect(p.rotation).toEqual([0, 1, 0]);
+    expect(p.scale).toBe(6);
+    expect(p.opacity).toBe(0.25);
+  });
+
+  it('treats omitted fields as identity', () => {
+    expect(accumulate(REST, [{ scale: 2 }])).toEqual({ ...REST, scale: 2 });
+  });
+
+  it('scaleOffset at weight 0 is the identity offset', () => {
+    const o = scaleOffset({ position: [4, 4, 4], scale: 3, opacity: 0 }, 0);
+    expect(accumulate(REST, [o])).toEqual(REST);
+  });
+
+  it('scaleOffset at weight 1 is unchanged', () => {
+    const o = { position: [4, 0, 0] as [number, number, number], scale: 3 };
+    expect(scaleOffset(o, 1)).toEqual(o);
+  });
+
+  it('scaleOffset interpolates scale toward 1, not toward 0', () => {
+    expect(scaleOffset({ scale: 3 }, 0.5).scale).toBe(2);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/pose.test.ts`
+Expected: FAIL — cannot find module `../src/pose.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+export type Vec3 = [number, number, number];
+
+export interface Pose {
+  position: Vec3;
+  rotation: Vec3;
+  scale: number;
+  opacity: number;
+}
+
+/** A relative contribution. Omitted fields mean "no contribution". */
+export interface PoseOffset {
+  position?: Vec3;
+  rotation?: Vec3;
+  scale?: number;
+  opacity?: number;
+}
+
+export const REST: Pose = {
+  position: [0, 0, 0],
+  rotation: [0, 0, 0],
+  scale: 1,
+  opacity: 1,
+};
+
+export function accumulate(base: Pose, offsets: readonly PoseOffset[]): Pose {
+  const position: Vec3 = [...base.position];
+  const rotation: Vec3 = [...base.rotation];
+  let scale = base.scale;
+  let opacity = base.opacity;
+
+  for (const o of offsets) {
+    if (o.position) for (let i = 0; i < 3; i++) position[i] += o.position[i] as number;
+    if (o.rotation) for (let i = 0; i < 3; i++) rotation[i] += o.rotation[i] as number;
+    if (o.scale !== undefined) scale *= o.scale;
+    if (o.opacity !== undefined) opacity *= o.opacity;
+  }
+
+  return { position, rotation, scale, opacity };
+}
+
+/**
+ * Fade an offset toward identity. Additive fields go to 0; multiplicative fields go to 1 —
+ * scaling them toward 0 would collapse the word instead of removing the contribution.
+ */
+export function scaleOffset(o: PoseOffset, weight: number): PoseOffset {
+  const out: PoseOffset = {};
+  if (o.position) out.position = o.position.map((v) => v * weight) as Vec3;
+  if (o.rotation) out.rotation = o.rotation.map((v) => v * weight) as Vec3;
+  if (o.scale !== undefined) out.scale = 1 + (o.scale - 1) * weight;
+  if (o.opacity !== undefined) out.opacity = 1 + (o.opacity - 1) * weight;
+  return out;
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/pose.test.ts`
+Expected: PASS, 6 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/pose.ts packages/core/test/pose.test.ts
+git commit -m "add pose algebra separating absolute poses from relative offsets"
+```
+
+---
+
+## Task 5: Motion piece types
+
+**Files:**
+- Create: `packages/core/src/motion/types.ts`
+
+- [ ] **Step 1: Write the types**
+
+No test — this file is types only and is exercised by Tasks 6–9.
+
+```ts
+import type { PoseOffset } from '../pose.js';
+
+export interface LetterInfo {
+  /** 0-based position in the word, whitespace included. */
+  index: number;
+  /** Total letters in the word. */
+  count: number;
+}
+
+export interface MotionPiece {
+  /** Milliseconds for one pass. `active` pieces loop; `enter`/`exit` run once. */
+  duration: number;
+  /** `t` is normalized 0..1 within this pass. */
+  offset(t: number, letter: LetterInfo): PoseOffset;
+}
+
+export type EnterName = 'slam' | 'spin' | 'flip' | 'assemble' | 'rise' | 'none';
+export type ActiveName = 'sweep' | 'float' | 'pulse' | 'shimmer' | 'none';
+export type ExitName = 'shatter' | 'drop' | 'recede' | 'fade' | 'none';
+
+/** Stagger helper: returns 0..1 for how far along letter `index` should be at word-time `t`. */
+export function stagger(t: number, letter: LetterInfo, spread = 0.5): number {
+  const count = Math.max(1, letter.count);
+  const start = (letter.index / count) * spread;
+  const span = 1 - spread;
+  return Math.max(0, Math.min(1, (t - start) / span));
+}
+
+export const NONE: MotionPiece = { duration: 0, offset: () => ({}) };
+```
+
+- [ ] **Step 2: Typecheck**
+
+Run: `npx tsc -b packages/core`
+Expected: no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/core/src/motion/types.ts
+git commit -m "add motion piece types and stagger helper"
+```
+
+---
+
+## Task 6: Enter pieces
+
+**Files:**
+- Create: `packages/core/src/motion/enter.ts`
+- Test: `packages/core/test/motion/enter.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { ENTER } from '../../src/motion/enter.js';
+import { REST, accumulate } from '../../src/pose.js';
+
+const L = { index: 0, count: 6 };
+const LAST = { index: 5, count: 6 };
+
+describe('enter pieces', () => {
+  it('every piece lands on the rest pose at t=1', () => {
+    for (const [name, piece] of Object.entries(ENTER)) {
+      for (const letter of [L, LAST]) {
+        const p = accumulate(REST, [piece.offset(1, letter)]);
+        expect(p.position, `${name} position`).toEqual([0, 0, 0]);
+        expect(p.scale, `${name} scale`).toBeCloseTo(1, 5);
+        expect(p.opacity, `${name} opacity`).toBeCloseTo(1, 5);
+      }
+    }
+  });
+
+  it('every piece starts displaced from rest at t=0', () => {
+    for (const [name, piece] of Object.entries(ENTER)) {
+      const o = piece.offset(0, L);
+      const moved =
+        (o.position?.some((v) => v !== 0) ?? false) ||
+        (o.rotation?.some((v) => v !== 0) ?? false) ||
+        (o.scale !== undefined && o.scale !== 1) ||
+        (o.opacity !== undefined && o.opacity !== 1);
+      expect(moved, `${name} should displace at t=0`).toBe(true);
+    }
+  });
+
+  it('slam approaches from behind the camera and overshoots', () => {
+    expect(ENTER.slam.offset(0, L).position?.[2]).toBeLessThan(0);
+    const zs = Array.from({ length: 50 }, (_, i) => ENTER.slam.offset(i / 49, L).position?.[2] ?? 0);
+    expect(Math.max(...zs)).toBeGreaterThan(0);
+  });
+
+  it('spin staggers: the last letter lags the first', () => {
+    const first = Math.abs(ENTER.spin.offset(0.4, L).rotation?.[1] ?? 0);
+    const last = Math.abs(ENTER.spin.offset(0.4, LAST).rotation?.[1] ?? 0);
+    expect(last).toBeGreaterThan(first);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/motion/enter.test.ts`
+Expected: FAIL — cannot find module `../../src/motion/enter.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+import { backOut, easeOutCubic } from '../easing.js';
+import type { PoseOffset } from '../pose.js';
+import { type EnterName, type MotionPiece, NONE, stagger } from './types.js';
+
+const slam: MotionPiece = {
+  duration: 900,
+  offset(t): PoseOffset {
+    const e = backOut(t);
+    return { position: [0, 0, (e - 1) * 26], scale: 0.55 + 0.45 * e };
+  },
+};
+
+const spin: MotionPiece = {
+  duration: 1100,
+  offset(t, letter): PoseOffset {
+    const s = stagger(t, letter, 0.55);
+    const e = easeOutCubic(s);
+    return { rotation: [0, (1 - e) * Math.PI * 2, 0], opacity: e };
+  },
+};
+
+const flip: MotionPiece = {
+  duration: 1000,
+  offset(t, letter): PoseOffset {
+    const s = stagger(t, letter, 0.6);
+    const e = easeOutCubic(s);
+    return { rotation: [(1 - e) * -Math.PI, 0, 0], opacity: e < 0.05 ? 0 : 1 };
+  },
+};
+
+const assemble: MotionPiece = {
+  duration: 1200,
+  offset(t, letter): PoseOffset {
+    const e = easeOutCubic(t);
+    // Deterministic per-letter scatter: no RNG, so tests and screenshots stay stable.
+    const a = letter.index * 2.399963;
+    return {
+      position: [(1 - e) * Math.cos(a) * 9, (1 - e) * Math.sin(a) * 6, (1 - e) * Math.sin(a * 2) * 5],
+      rotation: [(1 - e) * a, (1 - e) * a * 0.7, 0],
+      opacity: easeOutCubic(Math.min(1, t * 2)),
+    };
+  },
+};
+
+const rise: MotionPiece = {
+  duration: 900,
+  offset(t, letter): PoseOffset {
+    const s = stagger(t, letter, 0.35);
+    const e = backOut(s);
+    return { position: [0, (e - 1) * 5, 0], opacity: Math.min(1, s * 3) };
+  },
+};
+
+export const ENTER: Record<EnterName, MotionPiece> = {
+  slam,
+  spin,
+  flip,
+  assemble,
+  rise,
+  none: NONE,
+};
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/motion/enter.test.ts`
+Expected: PASS, 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/motion/enter.ts packages/core/test/motion/enter.test.ts
+git commit -m "add five enter motion pieces"
+```
+
+---
+
+## Task 7: Active pieces
+
+Active pieces loop, so they must be **seamless**: `offset(0)` and `offset(1)` have to match, or the
+word visibly jumps once per cycle.
+
+**Files:**
+- Create: `packages/core/src/motion/active.ts`
+- Test: `packages/core/test/motion/active.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { ACTIVE } from '../../src/motion/active.js';
+
+const L = { index: 2, count: 6 };
+
+describe('active pieces', () => {
+  it('loop seamlessly: offset(0) equals offset(1)', () => {
+    for (const [name, piece] of Object.entries(ACTIVE)) {
+      expect(piece.offset(0, L), `${name} must not jump on loop`).toEqual(piece.offset(1, L));
+    }
+  });
+
+  it('stay near rest — active is an idle, not a journey', () => {
+    for (const [name, piece] of Object.entries(ACTIVE)) {
+      for (let i = 0; i <= 20; i++) {
+        const o = piece.offset(i / 20, L);
+        for (const v of o.position ?? []) {
+          expect(Math.abs(v), `${name} position`).toBeLessThan(0.6);
+        }
+        if (o.scale !== undefined) expect(Math.abs(o.scale - 1), `${name} scale`).toBeLessThan(0.15);
+      }
+    }
+  });
+
+  it('none contributes nothing', () => {
+    expect(ACTIVE.none.offset(0.5, L)).toEqual({});
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/motion/active.test.ts`
+Expected: FAIL — cannot find module `../../src/motion/active.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+import type { PoseOffset } from '../pose.js';
+import { type ActiveName, type MotionPiece, NONE } from './types.js';
+
+const TAU = Math.PI * 2;
+
+// `sweep` contributes no transform. It exists so the stage knows to rotate the environment,
+// which is what actually rakes the highlight across the letters.
+const sweep: MotionPiece = {
+  duration: 3400,
+  offset(): PoseOffset {
+    return {};
+  },
+};
+
+const float: MotionPiece = {
+  duration: 5200,
+  offset(t): PoseOffset {
+    return {
+      position: [0, Math.sin(t * TAU) * 0.12, 0],
+      rotation: [Math.sin(t * TAU * 2) * 0.03, Math.sin(t * TAU) * 0.1, 0],
+    };
+  },
+};
+
+const pulse: MotionPiece = {
+  duration: 1600,
+  offset(t): PoseOffset {
+    return { scale: 1 + Math.sin(t * TAU) * 0.035 };
+  },
+};
+
+const shimmer: MotionPiece = {
+  duration: 2600,
+  offset(t, letter): PoseOffset {
+    const phase = t * TAU + (letter.index / Math.max(1, letter.count)) * TAU;
+    return { rotation: [0, Math.sin(phase) * 0.05, 0] };
+  },
+};
+
+export const ACTIVE: Record<ActiveName, MotionPiece> = {
+  sweep,
+  float,
+  pulse,
+  shimmer,
+  none: NONE,
+};
+
+/** Active pieces that drive the environment rather than the transform. */
+export const ENV_DRIVEN: ReadonlySet<ActiveName> = new Set<ActiveName>(['sweep']);
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/motion/active.test.ts`
+Expected: PASS, 3 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/motion/active.ts packages/core/test/motion/active.test.ts
+git commit -m "add four looping active motion pieces"
+```
+
+---
+
+## Task 8: Exit pieces
+
+**Files:**
+- Create: `packages/core/src/motion/exit.ts`
+- Test: `packages/core/test/motion/exit.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { EXIT } from '../../src/motion/exit.js';
+import { REST, accumulate } from '../../src/pose.js';
+
+const L = { index: 1, count: 6 };
+
+describe('exit pieces', () => {
+  it('every piece starts at the rest pose at t=0', () => {
+    for (const [name, piece] of Object.entries(EXIT)) {
+      const p = accumulate(REST, [piece.offset(0, L)]);
+      expect(p.position, `${name} position`).toEqual([0, 0, 0]);
+      expect(p.scale, `${name} scale`).toBeCloseTo(1, 5);
+      expect(p.opacity, `${name} opacity`).toBeCloseTo(1, 5);
+    }
+  });
+
+  it('every piece except none is fully invisible at t=1', () => {
+    for (const [name, piece] of Object.entries(EXIT)) {
+      if (name === 'none') continue;
+      expect(accumulate(REST, [piece.offset(1, L)]).opacity, `${name}`).toBeCloseTo(0, 5);
+    }
+  });
+
+  it('drop accelerates downward rather than moving linearly', () => {
+    const first = Math.abs(EXIT.drop.offset(0.25, L).position?.[1] ?? 0);
+    const later = Math.abs(EXIT.drop.offset(0.75, L).position?.[1] ?? 0);
+    expect(later).toBeGreaterThan(first * 3);
+  });
+
+  it('shatter throws letters apart in different directions', () => {
+    const a = EXIT.shatter.offset(1, { index: 0, count: 6 }).position?.[0] ?? 0;
+    const b = EXIT.shatter.offset(1, { index: 3, count: 6 }).position?.[0] ?? 0;
+    expect(a).not.toBeCloseTo(b, 2);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/motion/exit.test.ts`
+Expected: FAIL — cannot find module `../../src/motion/exit.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+import { easeInCubic, easeOutCubic } from '../easing.js';
+import type { PoseOffset } from '../pose.js';
+import { type ExitName, type MotionPiece, NONE } from './types.js';
+
+const shatter: MotionPiece = {
+  duration: 800,
+  offset(t, letter): PoseOffset {
+    const e = easeOutCubic(t);
+    const a = letter.index * 2.399963;
+    return {
+      position: [Math.cos(a) * 10 * e, Math.sin(a) * 7 * e, Math.sin(a * 3) * 6 * e],
+      rotation: [a * e * 3, a * e * 2, a * e],
+      opacity: 1 - easeInCubic(t),
+    };
+  },
+};
+
+const drop: MotionPiece = {
+  duration: 700,
+  offset(t, letter): PoseOffset {
+    const g = t * t; // gravity
+    return {
+      position: [0, -22 * g, 0],
+      rotation: [0, 0, g * (letter.index % 2 === 0 ? 0.9 : -0.9)],
+      opacity: 1 - easeInCubic(t),
+    };
+  },
+};
+
+const recede: MotionPiece = {
+  duration: 650,
+  offset(t): PoseOffset {
+    const e = easeInCubic(t);
+    return { position: [0, 0, -30 * e], scale: 1 - 0.5 * e, opacity: 1 - e };
+  },
+};
+
+const fade: MotionPiece = {
+  duration: 500,
+  offset(t): PoseOffset {
+    return { opacity: 1 - t, scale: 1 + 0.06 * t };
+  },
+};
+
+export const EXIT: Record<ExitName, MotionPiece> = {
+  shatter,
+  drop,
+  recede,
+  fade,
+  none: NONE,
+};
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/motion/exit.test.ts`
+Expected: PASS, 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/motion/exit.ts packages/core/test/motion/exit.test.ts
+git commit -m "add four exit motion pieces"
+```
+
+---
+
+## Task 9: Phase compositor
+
+The spec's central motion decision. Phases contribute weighted offsets over the rest pose, with a
+crossfade window so a phase's tail overlaps the next phase's head.
+
+**Files:**
+- Create: `packages/core/src/motion/compositor.ts`
+- Test: `packages/core/test/motion/compositor.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { Timeline } from '../../src/motion/compositor.js';
+import type { MotionPiece } from '../../src/motion/types.js';
+
+const piece = (duration: number, x: number): MotionPiece => ({
+  duration,
+  offset: () => ({ position: [x, 0, 0] }),
+});
+
+const build = (hold = 100) =>
+  new Timeline({
+    enter: piece(100, 1),
+    active: piece(50, 10),
+    exit: piece(100, 100),
+    hold,
+    blendMs: 20,
+  });
+
+const L = { index: 0, count: 1 };
+
+describe('Timeline', () => {
+  it('reports total duration as enter + hold + exit', () => {
+    expect(build(100).duration).toBe(300);
+  });
+
+  it('is finished only past the end', () => {
+    const tl = build();
+    expect(tl.isFinished(299)).toBe(false);
+    expect(tl.isFinished(300)).toBe(true);
+  });
+
+  it('applies only enter in the middle of the enter phase', () => {
+    expect(build().poseAt(50, L).position[0]).toBe(1);
+  });
+
+  it('applies only active in the middle of the hold', () => {
+    expect(build().poseAt(150, L).position[0]).toBe(10);
+  });
+
+  it('blends both phases inside the crossfade window', () => {
+    // 10ms into the 20ms window straddling the enter/active boundary at t=100.
+    const x = build().poseAt(100, L).position[0];
+    expect(x).toBeGreaterThan(1);
+    expect(x).toBeLessThan(10);
+  });
+
+  it('never leaves a gap: some phase is always contributing', () => {
+    const tl = build();
+    for (let t = 0; t < tl.duration; t += 1) {
+      expect(tl.poseAt(t, L).position[0], `t=${t}`).not.toBe(0);
+    }
+  });
+
+  it('loops the active piece rather than running it once', () => {
+    const tl = build(200);
+    // active duration is 50ms, so 120ms and 170ms into the hold are the same phase point
+    expect(tl.poseAt(220, L)).toEqual(tl.poseAt(270, L));
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/motion/compositor.test.ts`
+Expected: FAIL — cannot find module `../../src/motion/compositor.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+import { type Pose, type PoseOffset, REST, accumulate, scaleOffset } from '../pose.js';
+import type { LetterInfo, MotionPiece } from './types.js';
+
+export interface TimelineOptions {
+  enter: MotionPiece;
+  active: MotionPiece;
+  exit: MotionPiece;
+  /** Milliseconds spent in the active phase. */
+  hold: number;
+  /** Crossfade window straddling each phase boundary. */
+  blendMs: number;
+}
+
+interface Segment {
+  piece: MotionPiece;
+  start: number;
+  end: number;
+  loop: boolean;
+}
+
+export class Timeline {
+  readonly duration: number;
+  private readonly segments: Segment[];
+  private readonly blend: number;
+
+  constructor(private readonly opts: TimelineOptions) {
+    const enterEnd = opts.enter.duration;
+    const activeEnd = enterEnd + opts.hold;
+    this.duration = activeEnd + opts.exit.duration;
+    this.blend = opts.blendMs;
+    this.segments = [
+      { piece: opts.enter, start: 0, end: enterEnd, loop: false },
+      { piece: opts.active, start: enterEnd, end: activeEnd, loop: true },
+      { piece: opts.exit, start: activeEnd, end: this.duration, loop: false },
+    ];
+  }
+
+  isFinished(elapsed: number): boolean {
+    return elapsed >= this.duration;
+  }
+
+  poseAt(elapsed: number, letter: LetterInfo): Pose {
+    const offsets: PoseOffset[] = [];
+
+    for (const seg of this.segments) {
+      const w = this.weight(seg, elapsed);
+      if (w <= 0) continue;
+      offsets.push(scaleOffset(seg.piece.offset(this.localT(seg, elapsed), letter), w));
+    }
+
+    return accumulate(REST, offsets);
+  }
+
+  /** Ramps 0→1 over the blend window at the segment's leading edge and back down at its trailing. */
+  private weight(seg: Segment, elapsed: number): number {
+    const half = this.blend / 2;
+    if (elapsed <= seg.start - half || elapsed >= seg.end + half) return 0;
+    if (this.blend === 0) return elapsed >= seg.start && elapsed < seg.end ? 1 : 0;
+
+    const rampIn = Math.min(1, (elapsed - (seg.start - half)) / this.blend);
+    const rampOut = Math.min(1, ((seg.end + half) - elapsed) / this.blend);
+    // First and last segments hold full weight at the outer edges rather than fading to nothing.
+    const inW = seg.start === 0 ? 1 : rampIn;
+    const outW = seg.end === this.duration ? 1 : rampOut;
+    return Math.max(0, Math.min(inW, outW));
+  }
+
+  private localT(seg: Segment, elapsed: number): number {
+    const span = seg.end - seg.start;
+    if (span <= 0) return 1;
+    const into = elapsed - seg.start;
+
+    if (seg.loop) {
+      const d = seg.piece.duration;
+      if (d <= 0) return 0;
+      return ((into % d) + d) % d / d;
+    }
+    return Math.max(0, Math.min(1, into / span));
+  }
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/motion/compositor.test.ts`
+Expected: PASS, 7 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/motion/compositor.ts packages/core/test/motion/compositor.test.ts
+git commit -m "add phase compositor with weighted crossfade between motion slots"
+```
+
+---
+
+## Task 10: Effect queue
+
+**Files:**
+- Create: `packages/core/src/queue.ts`
+- Test: `packages/core/test/queue.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { EffectQueue } from '../src/queue.js';
+
+describe('EffectQueue', () => {
+  it('runs one effect at a time and reports what is current', async () => {
+    const q = new EffectQueue('queue');
+    const order: string[] = [];
+    const a = q.push('a', async () => {
+      order.push('a');
+    });
+    const b = q.push('b', async () => {
+      order.push('b');
+    });
+    await Promise.all([a, b]);
+    expect(order).toEqual(['a', 'b']);
+    expect(q.current).toBeNull();
+  });
+
+  it('replace policy cancels the running effect', async () => {
+    const q = new EffectQueue('replace');
+    const cancelled = vi.fn();
+    const a = q.push('a', (signal) => {
+      signal.addEventListener('abort', cancelled);
+      return new Promise<void>((r) => setTimeout(r, 50));
+    });
+    await Promise.resolve();
+    const b = q.push('b', async () => {});
+    await Promise.all([a, b]);
+    expect(cancelled).toHaveBeenCalled();
+  });
+
+  it('concurrent policy runs effects simultaneously', async () => {
+    const q = new EffectQueue('concurrent');
+    let peak = 0;
+    let live = 0;
+    const run = async () => {
+      live++;
+      peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 10));
+      live--;
+    };
+    await Promise.all([q.push('a', run), q.push('b', run)]);
+    expect(peak).toBe(2);
+  });
+
+  it('a rejecting effect does not stall the queue', async () => {
+    const q = new EffectQueue('queue');
+    const failed = q.push('bad', async () => {
+      throw new Error('boom');
+    });
+    await expect(failed).rejects.toThrow('boom');
+    await expect(q.push('good', async () => {})).resolves.toBeUndefined();
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/queue.test.ts`
+Expected: FAIL — cannot find module `../src/queue.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+export type QueuePolicy = 'queue' | 'replace' | 'concurrent';
+export type EffectRunner = (signal: AbortSignal) => Promise<void>;
+
+interface Entry {
+  id: string;
+  run: EffectRunner;
+  resolve: () => void;
+  reject: (e: unknown) => void;
+}
+
+export class EffectQueue {
+  private pending: Entry[] = [];
+  private running: { id: string; controller: AbortController } | null = null;
+
+  constructor(private policy: QueuePolicy = 'queue') {}
+
+  get current(): string | null {
+    return this.running?.id ?? null;
+  }
+
+  push(id: string, run: EffectRunner): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const entry: Entry = { id, run, resolve, reject };
+
+      if (this.policy === 'concurrent') {
+        void this.execute(entry);
+        return;
+      }
+      if (this.policy === 'replace') this.running?.controller.abort();
+
+      this.pending.push(entry);
+      if (!this.running) void this.drain();
+    });
+  }
+
+  cancelAll(): void {
+    this.running?.controller.abort();
+    this.pending = [];
+  }
+
+  private async drain(): Promise<void> {
+    while (this.pending.length > 0) {
+      const entry = this.pending.shift() as Entry;
+      await this.execute(entry);
+    }
+  }
+
+  private async execute(entry: Entry): Promise<void> {
+    const controller = new AbortController();
+    const slot = { id: entry.id, controller };
+    if (this.policy !== 'concurrent') this.running = slot;
+
+    try {
+      await entry.run(controller.signal);
+      entry.resolve();
+    } catch (e) {
+      entry.reject(e);
+    } finally {
+      if (this.running === slot) this.running = null;
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/queue.test.ts`
+Expected: PASS, 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/queue.ts packages/core/test/queue.test.ts
+git commit -m "add effect queue with queue, replace, and concurrent policies"
+```
+
+---
+
+## Task 11: Text layout with kerning
+
+Pure math, no three.js. This is where the opentype.js decision pays off.
+
+**Files:**
+- Create: `packages/core/src/text/layout.ts`
+- Test: `packages/core/test/text/layout.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { fitScale, layoutLine } from '../../src/text/layout.js';
+
+// Every glyph is 10 wide; the pair A|V is kerned 3 tighter.
+const metrics = {
+  advanceOf: (ch: string) => (ch === ' ' ? 5 : 10),
+  kernOf: (a: string, b: string) => (a === 'A' && b === 'V' ? -3 : 0),
+};
+
+describe('layoutLine', () => {
+  it('places glyphs at cumulative advances', () => {
+    const line = layoutLine('AB', metrics);
+    expect(line.glyphs.map((g) => g.x)).toEqual([0, 10]);
+    expect(line.width).toBe(20);
+  });
+
+  it('applies kerning between a kerned pair', () => {
+    const line = layoutLine('AV', metrics);
+    expect(line.glyphs[1]?.x).toBe(7);
+    expect(line.width).toBe(17);
+  });
+
+  it('keeps spaces as positioned entries so letter indices match the string', () => {
+    const line = layoutLine('A B', metrics);
+    expect(line.glyphs).toHaveLength(3);
+    expect(line.glyphs[1]?.char).toBe(' ');
+    expect(line.glyphs[2]?.x).toBe(15);
+  });
+
+  it('an empty string has zero width and no glyphs', () => {
+    expect(layoutLine('', metrics)).toEqual({ glyphs: [], width: 0 });
+  });
+});
+
+describe('fitScale', () => {
+  it('fits to width when the word is wide', () => {
+    expect(fitScale(100, 10, { width: 62, height: 100 })).toBeCloseTo(0.62, 5);
+  });
+
+  it('fits to height when the word is tall', () => {
+    expect(fitScale(10, 100, { width: 100, height: 30 })).toBeCloseTo(0.3, 5);
+  });
+
+  it('never scales past the cap', () => {
+    expect(fitScale(1, 1, { width: 1000, height: 1000 }, 2.2)).toBe(2.2);
+  });
+
+  it('returns the cap for an empty word rather than dividing by zero', () => {
+    expect(Number.isFinite(fitScale(0, 0, { width: 10, height: 10 }))).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/text/layout.test.ts`
+Expected: FAIL — cannot find module `../../src/text/layout.js`.
+
+- [ ] **Step 3: Implement**
+
+```ts
+export interface GlyphMetrics {
+  advanceOf(char: string): number;
+  kernOf(left: string, right: string): number;
+}
+
+export interface PlacedGlyph {
+  char: string;
+  /** Pen x at this glyph's origin, in font units. */
+  x: number;
+  index: number;
+}
+
+export interface Line {
+  glyphs: PlacedGlyph[];
+  width: number;
+}
+
+export function layoutLine(text: string, metrics: GlyphMetrics): Line {
+  const glyphs: PlacedGlyph[] = [];
+  let pen = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i] as string;
+    if (i > 0) pen += metrics.kernOf(text[i - 1] as string, char);
+    glyphs.push({ char, x: pen, index: i });
+    pen += metrics.advanceOf(char);
+  }
+
+  return { glyphs, width: pen };
+}
+
+export interface Budget {
+  width: number;
+  height: number;
+}
+
+/**
+ * Uniform scale fitting the word inside the budget on both axes. Height matters as much as
+ * width: idle rotation swings the word toward the camera, so a width-only fit overflows.
+ */
+export function fitScale(width: number, height: number, budget: Budget, cap = 2.2): number {
+  const byWidth = width > 0 ? budget.width / width : Number.POSITIVE_INFINITY;
+  const byHeight = height > 0 ? budget.height / height : Number.POSITIVE_INFINITY;
+  return Math.min(byWidth, byHeight, cap);
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/text/layout.test.ts`
+Expected: PASS, 8 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/text/layout.ts packages/core/test/text/layout.test.ts
+git commit -m "add kerned text layout and two-axis viewport fit"
+```
+
+---
+
+## Task 12: Font loading and glyph geometry
+
+**Files:**
+- Create: `packages/core/src/text/font.ts`, `packages/core/src/text/glyphs.ts`
+- Test: `packages/core/test/text/glyphs.test.ts`
+
+- [ ] **Step 1: Write font.ts**
+
+```ts
+import opentype, { type Font } from 'opentype.js';
+import type { GlyphMetrics } from './layout.js';
+
+export interface LoadedFont {
+  font: Font;
+  unitsPerEm: number;
+  metrics: GlyphMetrics;
+}
+
+export async function loadFont(url: string): Promise<LoadedFont> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`blitsklieg: failed to load font ${url} (${res.status})`);
+  const font = opentype.parse(await res.arrayBuffer());
+
+  const metrics: GlyphMetrics = {
+    advanceOf: (ch) => font.charToGlyph(ch).advanceWidth ?? 0,
+    // opentype.js exposes kerning through the font's kern table / GPOS.
+    kernOf: (a, b) => font.getKerningValue(font.charToGlyph(a), font.charToGlyph(b)),
+  };
+
+  return { font, unitsPerEm: font.unitsPerEm, metrics };
+}
+```
+
+- [ ] **Step 2: Write the failing test for the glyph cache**
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { GlyphCache } from '../../src/text/glyphs.js';
+
+describe('GlyphCache', () => {
+  it('builds a geometry once per distinct key', () => {
+    const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
+    const cache = new GlyphCache(build as never);
+
+    cache.get('A', 0.3);
+    cache.get('A', 0.3);
+    expect(build).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a different depth as a different geometry', () => {
+    const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
+    const cache = new GlyphCache(build as never);
+
+    cache.get('A', 0.3);
+    cache.get('A', 0.5);
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses one geometry across repeated letters in a word', () => {
+    const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
+    const cache = new GlyphCache(build as never);
+
+    for (const ch of 'BONUS ROUND') cache.get(ch, 0.3);
+    expect(build).toHaveBeenCalledTimes(new Set('BONUS ROUND').size);
+  });
+
+  it('disposes every cached geometry on dispose and empties itself', () => {
+    const made: { dispose: ReturnType<typeof vi.fn> }[] = [];
+    const cache = new GlyphCache(((char: string) => {
+      const g = { char, dispose: vi.fn() };
+      made.push(g);
+      return g;
+    }) as never);
+
+    cache.get('A', 0.3);
+    cache.get('B', 0.3);
+    cache.dispose();
+
+    expect(made).toHaveLength(2);
+    for (const g of made) expect(g.dispose).toHaveBeenCalled();
+    expect(cache.size).toBe(0);
+  });
+});
+```
+
+- [ ] **Step 3: Run test to verify it fails**
+
+Run: `npx vitest run packages/core/test/text/glyphs.test.ts`
+Expected: FAIL — cannot find module `../../src/text/glyphs.js`.
+
+- [ ] **Step 4: Implement glyphs.ts**
+
+```ts
+import type { Font } from 'opentype.js';
+import * as THREE from 'three';
+
+export interface GlyphOptions {
+  depth: number;
+  bevelThickness: number;
+  bevelSize: number;
+  bevelSegments: number;
+  curveSegments: number;
+}
+
+export const DEFAULT_GLYPH_OPTIONS: GlyphOptions = {
+  depth: 0.3,
+  bevelThickness: 0.055,
+  bevelSize: 0.038,
+  bevelSegments: 5,
+  curveSegments: 10,
+};
+
+type Buildable = { dispose(): void };
+
+/** Letters repeat heavily, so geometry is built once per (char, depth) and shared. */
+export class GlyphCache<T extends Buildable = THREE.ExtrudeGeometry> {
+  private cache = new Map<string, T>();
+
+  constructor(private readonly build: (char: string, depth: number) => T) {}
+
+  get size(): number {
+    return this.cache.size;
+  }
+
+  get(char: string, depth: number): T {
+    const key = `${char}|${depth}`;
+    let g = this.cache.get(key);
+    if (!g) {
+      g = this.build(char, depth);
+      this.cache.set(key, g);
+    }
+    return g;
+  }
+
+  dispose(): void {
+    for (const g of this.cache.values()) g.dispose();
+    this.cache.clear();
+  }
+}
+
+/**
+ * opentype.js emits Y-down path commands; three expects Y-up, so every y is negated.
+ * Skipping this silently renders every glyph upside down.
+ */
+export function glyphToShapes(font: Font, char: string, size: number): THREE.Shape[] {
+  const path = font.charToGlyph(char).getPath(0, 0, size);
+  const shapes: THREE.Shape[] = [];
+  let current: THREE.Shape | null = null;
+
+  for (const cmd of path.commands) {
+    switch (cmd.type) {
+      case 'M':
+        current = new THREE.Shape();
+        current.moveTo(cmd.x, -cmd.y);
+        shapes.push(current);
+        break;
+      case 'L':
+        current?.lineTo(cmd.x, -cmd.y);
+        break;
+      case 'Q':
+        current?.quadraticCurveTo(cmd.x1, -cmd.y1, cmd.x, -cmd.y);
+        break;
+      case 'C':
+        current?.bezierCurveTo(cmd.x1, -cmd.y1, cmd.x2, -cmd.y2, cmd.x, -cmd.y);
+        break;
+      case 'Z':
+        current?.closePath();
+        break;
+    }
+  }
+  return shapes;
+}
+
+export function buildGlyphGeometry(
+  font: Font,
+  char: string,
+  size: number,
+  opts: GlyphOptions,
+): THREE.ExtrudeGeometry {
+  const shapes = glyphToShapes(font, char, size);
+  const geo = new THREE.ExtrudeGeometry(shapes, {
+    depth: opts.depth,
+    bevelEnabled: true,
+    bevelThickness: opts.bevelThickness,
+    bevelSize: opts.bevelSize,
+    bevelOffset: 0,
+    bevelSegments: opts.bevelSegments,
+    curveSegments: opts.curveSegments,
+  });
+  geo.computeBoundingBox();
+  return geo;
+}
+```
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `npx vitest run packages/core/test/text/glyphs.test.ts`
+Expected: PASS, 4 tests.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/core/src/text/ packages/core/test/text/glyphs.test.ts
+git commit -m "add opentype font loading and cached extruded glyph geometry"
+```
+
+---
+
+## Task 13: Procedural environment and looks
+
+**Files:**
+- Create: `packages/core/src/render/environment.ts`, `packages/core/src/render/looks.ts`
+
+- [ ] **Step 1: Write environment.ts**
+
+```ts
+import * as THREE from 'three';
+
+interface Bar {
+  pos: [number, number, number];
+  size: [number, number];
+  rot: number;
+  rgb: [number, number, number];
+}
+
+// RGB values above 1.0 are the point — these are lights, not surfaces.
+const BARS: Bar[] = [
+  { pos: [-9, 7, -6], size: [26, 2.2], rot: 0.3, rgb: [9, 9, 10] },
+  { pos: [11, 4, -4], size: [20, 1.4], rot: -0.22, rgb: [7, 7.6, 9] },
+  { pos: [-6, -8, 6], size: [22, 3.0], rot: 0.12, rgb: [2.4, 2.6, 3.4] },
+  { pos: [14, -3, 8], size: [14, 5.0], rot: -0.55, rgb: [6, 4.4, 2.2] },
+  { pos: [-14, -1, -9], size: [12, 4.0], rot: 0.48, rgb: [2.4, 4.0, 7] },
+  { pos: [0, 13, 4], size: [16, 2.0], rot: 0, rgb: [10, 10, 10] },
+];
+
+/** A synthetic photo studio: dark shell plus bright bars, turned into a reflection probe. */
+export function buildEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const scene = new THREE.Scene();
+
+  scene.add(
+    new THREE.Mesh(
+      new THREE.SphereGeometry(40, 32, 32),
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        uniforms: {
+          top: { value: new THREE.Color(0.05, 0.06, 0.12) },
+          bottom: { value: new THREE.Color(0.01, 0.01, 0.02) },
+        },
+        vertexShader: `
+          varying vec3 vP;
+          void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader: `
+          uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
+          void main(){ gl_FragColor = vec4(mix(bottom, top, smoothstep(-20.0, 20.0, vP.y)), 1.0); }`,
+      }),
+    ),
+  );
+
+  for (const bar of BARS) {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(bar.size[0], bar.size[1]),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color().setRGB(...bar.rgb),
+        side: THREE.DoubleSide,
+      }),
+    );
+    m.position.set(...bar.pos);
+    m.lookAt(0, 0, 0);
+    m.rotateZ(bar.rot);
+    scene.add(m);
+  }
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const texture = pmrem.fromScene(scene, 0.03).texture;
+  pmrem.dispose();
+  scene.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.geometry.dispose();
+      (o.material as THREE.Material).dispose();
+    }
+  });
+  return texture;
+}
+```
+
+- [ ] **Step 2: Write looks.ts**
+
+```ts
+import * as THREE from 'three';
+
+export type LookName = 'gold' | 'chrome' | 'oil' | 'ruby';
+
+interface LookParams {
+  color: number;
+  metalness: number;
+  roughness: number;
+  clearcoat: number;
+  clearcoatRoughness: number;
+  transmission: number;
+  thickness: number;
+  ior: number;
+  attenuationColor: number;
+  attenuationDistance: number;
+  iridescence: number;
+  iridescenceIOR: number;
+  iridescenceThicknessRange: [number, number];
+}
+
+const DEFAULTS: LookParams = {
+  color: 0xffffff,
+  metalness: 0,
+  roughness: 0.2,
+  clearcoat: 1,
+  clearcoatRoughness: 0.06,
+  transmission: 0,
+  thickness: 0,
+  ior: 1.5,
+  attenuationColor: 0xffffff,
+  attenuationDistance: Number.POSITIVE_INFINITY,
+  iridescence: 0,
+  iridescenceIOR: 1.3,
+  iridescenceThicknessRange: [100, 400],
+};
+
+// Every look is applied over DEFAULTS, never over the previous look, so switching cannot
+// leave a stale transmission or iridescence behind.
+export const LOOKS: Record<LookName, Partial<LookParams>> = {
+  gold: { color: 0xffc44d, metalness: 1, roughness: 0.16, clearcoatRoughness: 0.08 },
+  chrome: { color: 0xf2f5fa, metalness: 1, roughness: 0.05, clearcoatRoughness: 0.03 },
+  oil: {
+    color: 0x0a0a12,
+    metalness: 1,
+    roughness: 0.12,
+    clearcoatRoughness: 0.05,
+    // clearcoat sits ABOVE the thin film and flattens it; iridescence needs it off.
+    clearcoat: 0,
+    iridescence: 1,
+    iridescenceIOR: 1.8,
+    iridescenceThicknessRange: [100, 640],
+  },
+  ruby: {
+    color: 0xffffff,
+    roughness: 0.06,
+    transmission: 1,
+    thickness: 1.4,
+    ior: 2.2,
+    attenuationColor: 0xd4143c,
+    attenuationDistance: 0.6,
+    clearcoatRoughness: 0.03,
+  },
+};
+
+const COLOR_KEYS = new Set(['color', 'attenuationColor']);
+
+export function createMaterial(): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
+}
+
+/**
+ * Color-valued params are THREE.Color objects. Assigning a hex number over one replaces the
+ * object and the material silently stops working, so they must go through .set().
+ */
+export function applyLook(material: THREE.MeshPhysicalMaterial, name: LookName): void {
+  const params = { ...DEFAULTS, ...LOOKS[name] } as Record<string, unknown>;
+  const target = material as unknown as Record<string, unknown>;
+
+  for (const [key, value] of Object.entries(params)) {
+    if (COLOR_KEYS.has(key)) (target[key] as THREE.Color).set(value as number);
+    else target[key] = value;
+  }
+  material.needsUpdate = true;
+}
+```
+
+- [ ] **Step 3: Typecheck**
+
+Run: `npx tsc -b packages/core`
+Expected: no errors.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/core/src/render/environment.ts packages/core/src/render/looks.ts
+git commit -m "add procedural environment map and four material looks"
+```
+
+---
+
+## Task 14: Stage — renderer, lifecycle, guardrails
+
+**Files:**
+- Create: `packages/core/src/render/stage.ts`
+
+- [ ] **Step 1: Implement**
+
+```ts
+import * as THREE from 'three';
+import { buildEnvironment } from './environment.js';
+
+export interface StageOptions {
+  target: HTMLElement;
+  /** Idle milliseconds before the WebGL context is torn down. Browsers cap contexts near 16. */
+  idleTimeoutMs: number;
+}
+
+export function webglSupported(): boolean {
+  try {
+    return !!document.createElement('canvas').getContext('webgl2');
+  } catch {
+    return false;
+  }
+}
+
+export function prefersReducedMotion(): boolean {
+  return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+}
+
+export class Stage {
+  readonly scene = new THREE.Scene();
+  readonly camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+  canvas: HTMLCanvasElement | null = null;
+  renderer: THREE.WebGLRenderer | null = null;
+  environment: THREE.Texture | null = null;
+
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+
+  constructor(private readonly opts: StageOptions) {
+    this.camera.position.set(0, 0, 11);
+  }
+
+  /** Idempotent: repeated fires reuse one context rather than allocating a new one. */
+  mount(): THREE.WebGLRenderer {
+    this.cancelIdle();
+    if (this.renderer) return this.renderer;
+
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText =
+      'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483000';
+    this.opts.target.appendChild(canvas);
+
+    // premultipliedAlpha:false so a straight-alpha composite does not produce bright halos.
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      premultipliedAlpha: false,
+      antialias: true,
+    });
+    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
+    renderer.setClearColor(0x000000, 0);
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    this.canvas = canvas;
+    this.renderer = renderer;
+    this.environment = buildEnvironment(renderer);
+    this.scene.environment = this.environment;
+
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(document.documentElement);
+    this.resize();
+
+    return renderer;
+  }
+
+  resize(): void {
+    if (!this.renderer) return;
+    const w = globalThis.innerWidth;
+    const h = globalThis.innerHeight;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Visible extent at the word's depth, used by fitScale. */
+  viewportBudget(widthFrac = 0.62, heightFrac = 0.3): { width: number; height: number } {
+    const vh = 2 * Math.tan((this.camera.fov * Math.PI) / 360) * this.camera.position.z;
+    return { width: vh * this.camera.aspect * widthFrac, height: vh * heightFrac };
+  }
+
+  scheduleIdleTeardown(): void {
+    this.cancelIdle();
+    this.idleTimer = setTimeout(() => this.unmount(), this.opts.idleTimeoutMs);
+  }
+
+  private cancelIdle(): void {
+    if (this.idleTimer !== null) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+  }
+
+  unmount(): void {
+    this.cancelIdle();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.environment?.dispose();
+    this.environment = null;
+    this.scene.environment = null;
+    this.renderer?.dispose();
+    this.renderer = null;
+    this.canvas?.remove();
+    this.canvas = null;
+  }
+}
+```
+
+- [ ] **Step 2: Typecheck**
+
+Run: `npx tsc -b packages/core`
+Expected: no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/core/src/render/stage.ts
+git commit -m "add stage with lazy webgl context, resize, and idle teardown"
+```
+
+---
+
+## Task 15: Word — per-letter meshes driven by the timeline
+
+**Files:**
+- Create: `packages/core/src/render/word.ts`
+
+- [ ] **Step 1: Implement**
+
+```ts
+import * as THREE from 'three';
+import type { Timeline } from '../motion/compositor.js';
+import { DEFAULT_GLYPH_OPTIONS, GlyphCache, buildGlyphGeometry } from '../text/glyphs.js';
+import type { LoadedFont } from '../text/font.js';
+import { fitScale, layoutLine } from '../text/layout.js';
+import type { Budget } from '../text/layout.js';
+import { applyLook, createMaterial, type LookName } from './looks.js';
+
+const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
+
+/** One mesh per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
+export class Word {
+  readonly group = new THREE.Group();
+  private readonly letters: THREE.Mesh[] = [];
+  /** Layout x per letter. Pose x is an OFFSET onto this — overwriting it collapses the word. */
+  private readonly baseX: number[] = [];
+  private readonly material: THREE.MeshPhysicalMaterial;
+  private readonly cache: GlyphCache;
+  private baseScale = 1;
+
+  constructor(
+    private readonly text: string,
+    font: LoadedFont,
+    look: LookName,
+    budget: Budget,
+  ) {
+    this.material = createMaterial();
+    applyLook(this.material, look);
+    this.cache = new GlyphCache((char, depth) =>
+      buildGlyphGeometry(font.font, char, EM, { ...DEFAULT_GLYPH_OPTIONS, depth }),
+    );
+
+    const scaleToEm = EM / font.unitsPerEm;
+    const line = layoutLine(text, font.metrics);
+
+    let maxY = 0;
+    for (const g of line.glyphs) {
+      const x = g.x * scaleToEm;
+      if (g.char === ' ') {
+        this.letters.push(new THREE.Mesh()); // placeholder keeps indices aligned with the string
+        this.baseX.push(x);
+        continue;
+      }
+      const geo = this.cache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
+      const mesh = new THREE.Mesh(geo, this.material);
+      mesh.position.x = x;
+      this.letters.push(mesh);
+      this.baseX.push(x);
+      this.group.add(mesh);
+      maxY = Math.max(maxY, geo.boundingBox?.max.y ?? 0);
+    }
+
+    const width = line.width * scaleToEm;
+    this.baseScale = fitScale(width, maxY, budget);
+    this.group.scale.setScalar(this.baseScale);
+    // Center on both axes so rotation pivots through the word, not its left edge.
+    this.group.position.set((-width / 2) * this.baseScale, (-maxY / 2) * this.baseScale, 0);
+
+    this.material.transparent = true;
+  }
+
+  get letterCount(): number {
+    return this.letters.length;
+  }
+
+  apply(timeline: Timeline, elapsed: number): void {
+    let opacity = 1;
+    for (let i = 0; i < this.letters.length; i++) {
+      const mesh = this.letters[i];
+      if (!mesh?.geometry.attributes.position) continue;
+
+      const pose = timeline.poseAt(elapsed, { index: i, count: this.letters.length });
+      mesh.position.x = (this.baseX[i] as number) + pose.position[0];
+      mesh.position.y = pose.position[1];
+      mesh.position.z = pose.position[2];
+      mesh.rotation.set(...pose.rotation);
+      mesh.scale.setScalar(pose.scale);
+      opacity = pose.opacity;
+    }
+    // One shared material, so opacity is a word-level property in v0.
+    this.material.opacity = opacity;
+  }
+
+  dispose(): void {
+    this.cache.dispose();
+    this.material.dispose();
+    this.group.clear();
+  }
+}
+```
+
+- [ ] **Step 2: Typecheck**
+
+Run: `npx tsc -b packages/core`
+Expected: no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/core/src/render/word.ts
+git commit -m "add word with per-letter meshes driven by the timeline"
+```
+
+---
+
+## Task 16: Public surface
+
+**Files:**
+- Create: `packages/core/src/index.ts`
+
+- [ ] **Step 1: Implement**
+
+```ts
+import { type Clock, RafClock } from './clock.js';
+import { ACTIVE, ENV_DRIVEN } from './motion/active.js';
+import { Timeline } from './motion/compositor.js';
+import { ENTER } from './motion/enter.js';
+import { EXIT } from './motion/exit.js';
+import type { ActiveName, EnterName, ExitName } from './motion/types.js';
+import { EffectQueue, type QueuePolicy } from './queue.js';
+import type { LookName } from './render/looks.js';
+import { Stage, prefersReducedMotion, webglSupported } from './render/stage.js';
+import { Word } from './render/word.js';
+import { type LoadedFont, loadFont } from './text/font.js';
+
+export type { EnterName, ActiveName, ExitName, LookName, QueuePolicy, Clock };
+
+export interface BlitskliegOptions {
+  target?: HTMLElement;
+  fontUrl: string;
+  clock?: Clock;
+  policy?: QueuePolicy;
+  idleTimeoutMs?: number;
+}
+
+/** Closed union so element-anchoring can arrive in v1.2 without an API break. */
+export type Placement = { kind: 'fullscreen' };
+
+export interface FireOptions {
+  enter?: EnterName;
+  active?: ActiveName;
+  exit?: ExitName;
+  look?: LookName;
+  hold?: number;
+  bloom?: boolean;
+  blendMs?: number;
+  placement?: Placement;
+}
+
+export interface Blitsklieg {
+  readonly supported: boolean;
+  fire(text: string, options?: FireOptions): Promise<void>;
+  destroy(): void;
+}
+
+export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
+  const supported = webglSupported();
+  const clock = options.clock ?? new RafClock();
+  const queue = new EffectQueue(options.policy ?? 'queue');
+  const stage = new Stage({
+    target: options.target ?? document.body,
+    idleTimeoutMs: options.idleTimeoutMs ?? 8000,
+  });
+
+  let fontPromise: Promise<LoadedFont> | null = null;
+  const font = () => (fontPromise ??= loadFont(options.fontUrl));
+
+  async function run(text: string, opts: FireOptions, signal: AbortSignal): Promise<void> {
+    const loaded = await font();
+    if (signal.aborted) return;
+
+    const renderer = stage.mount();
+    const word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget());
+    stage.scene.add(word.group);
+
+    const activeName = opts.active ?? 'sweep';
+    const timeline = new Timeline({
+      enter: ENTER[opts.enter ?? 'slam'],
+      active: ACTIVE[activeName],
+      exit: EXIT[opts.exit ?? 'fade'],
+      hold: opts.hold ?? 1200,
+      blendMs: opts.blendMs ?? 120,
+    });
+
+    // Reduced motion: show the resting pose for the hold, then leave. No travel.
+    const still = prefersReducedMotion();
+    const startedAt = clock.now();
+
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        off();
+        stage.scene.remove(word.group);
+        word.dispose();
+        stage.scheduleIdleTeardown();
+        resolve();
+      };
+
+      const off = clock.subscribe((now) => {
+        if (signal.aborted) return finish();
+
+        const elapsed = still ? timeline.duration - 1 : now - startedAt;
+        word.apply(timeline, Math.min(elapsed, timeline.duration));
+
+        if (ENV_DRIVEN.has(activeName) && 'environmentRotation' in stage.scene) {
+          stage.scene.environmentRotation.y = now / ACTIVE[activeName].duration;
+        }
+
+        renderer.setRenderTarget(null);
+        renderer.clear();
+        renderer.render(stage.scene, stage.camera);
+
+        if (still ? now - startedAt >= (opts.hold ?? 1200) : timeline.isFinished(elapsed)) finish();
+      });
+    });
+  }
+
+  let counter = 0;
+
+  return {
+    supported,
+    fire(text, opts = {}) {
+      if (!supported) return Promise.resolve();
+      return queue.push(`${counter++}:${text}`, (signal) => run(text, opts, signal));
+    },
+    destroy() {
+      queue.cancelAll();
+      stage.unmount();
+    },
+  };
+}
+```
+
+- [ ] **Step 2: Typecheck and full check**
+
+Run: `npm run check`
+Expected: biome clean, tsc clean, all tests pass.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/core/src/index.ts
+git commit -m "add public createBlitsklieg surface wiring stage, timeline, and queue"
+```
+
+---
+
+## Task 17: Bloom path
+
+**Files:**
+- Create: `packages/core/src/render/bloom.ts`
+- Modify: `packages/core/src/index.ts` — select the path from `opts.bloom`
+
+- [ ] **Step 1: Implement bloom.ts**
+
+```ts
+import * as THREE from 'three';
+
+const QUAD_VS = `
+  varying vec2 vUv;
+  void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+export interface BloomOptions {
+  strength: number;
+  threshold: number;
+  alphaBoost: number;
+}
+
+export const DEFAULT_BLOOM: BloomOptions = { strength: 1.1, threshold: 0.72, alphaBoost: 0.9 };
+
+export class BloomPath {
+  private sceneRT!: THREE.WebGLRenderTarget;
+  private brightRT!: THREE.WebGLRenderTarget;
+  private blurRT!: THREE.WebGLRenderTarget;
+
+  private readonly quadScene = new THREE.Scene();
+  private readonly quadCam = new THREE.Camera();
+  private readonly quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+
+  private readonly thresholdMat: THREE.ShaderMaterial;
+  private readonly blurMat: THREE.ShaderMaterial;
+  private readonly compositeMat: THREE.ShaderMaterial;
+
+  constructor(private readonly renderer: THREE.WebGLRenderer, opts = DEFAULT_BLOOM) {
+    this.quad.frustumCulled = false;
+    this.quadScene.add(this.quad);
+
+    const common = { depthTest: false, depthWrite: false, blending: THREE.NoBlending };
+
+    this.thresholdMat = new THREE.ShaderMaterial({
+      ...common,
+      uniforms: { tDiffuse: { value: null }, threshold: { value: opts.threshold } },
+      vertexShader: QUAD_VS,
+      fragmentShader: `
+        uniform sampler2D tDiffuse; uniform float threshold; varying vec2 vUv;
+        void main(){
+          vec4 c = texture2D(tDiffuse, vUv);
+          float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+          gl_FragColor = vec4(c.rgb * smoothstep(threshold, threshold + 0.35, l) * c.a, 1.0);
+        }`,
+    });
+
+    this.blurMat = new THREE.ShaderMaterial({
+      ...common,
+      uniforms: { tDiffuse: { value: null }, dir: { value: new THREE.Vector2() } },
+      vertexShader: QUAD_VS,
+      fragmentShader: `
+        uniform sampler2D tDiffuse; uniform vec2 dir; varying vec2 vUv;
+        void main(){
+          vec4 s = vec4(0.0);
+          s += texture2D(tDiffuse, vUv + dir * -4.0) * 0.0162;
+          s += texture2D(tDiffuse, vUv + dir * -3.0) * 0.0540;
+          s += texture2D(tDiffuse, vUv + dir * -2.0) * 0.1216;
+          s += texture2D(tDiffuse, vUv + dir * -1.0) * 0.1946;
+          s += texture2D(tDiffuse, vUv)              * 0.2270;
+          s += texture2D(tDiffuse, vUv + dir *  1.0) * 0.1946;
+          s += texture2D(tDiffuse, vUv + dir *  2.0) * 0.1216;
+          s += texture2D(tDiffuse, vUv + dir *  3.0) * 0.0540;
+          s += texture2D(tDiffuse, vUv + dir *  4.0) * 0.0162;
+          gl_FragColor = s;
+        }`,
+    });
+
+    this.compositeMat = new THREE.ShaderMaterial({
+      ...common,
+      transparent: true,
+      uniforms: {
+        tBase: { value: null },
+        tBloom: { value: null },
+        strength: { value: opts.strength },
+        alphaBoost: { value: opts.alphaBoost },
+      },
+      vertexShader: QUAD_VS,
+      fragmentShader: `
+        uniform sampler2D tBase, tBloom;
+        uniform float strength, alphaBoost;
+        varying vec2 vUv;
+        void main(){
+          vec4 base  = texture2D(tBase,  vUv);
+          vec3 bloom = texture2D(tBloom, vUv).rgb * strength;
+          // The glow lives outside the letters' silhouette where base.a is 0. Without giving
+          // it alpha of its own it renders into a transparent region and is never seen.
+          float bl = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
+          gl_FragColor = vec4(base.rgb + bloom, clamp(max(base.a, bl * alphaBoost), 0.0, 1.0));
+        }`,
+    });
+
+    this.resize();
+  }
+
+  resize(): void {
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const w = Math.max(2, size.x);
+    const h = Math.max(2, size.y);
+    const opts = {
+      type: THREE.HalfFloatType,
+      depthBuffer: false,
+      stencilBuffer: false,
+    } as const;
+
+    this.sceneRT?.dispose();
+    this.brightRT?.dispose();
+    this.blurRT?.dispose();
+
+    // samples>0 is the ONLY thing that antialiases a render target. The renderer's
+    // `antialias: true` applies to the default framebuffer and is ignored here.
+    this.sceneRT = new THREE.WebGLRenderTarget(w, h, { ...opts, depthBuffer: true, samples: 4 });
+    this.brightRT = new THREE.WebGLRenderTarget(w >> 1, h >> 1, opts);
+    this.blurRT = new THREE.WebGLRenderTarget(w >> 1, h >> 1, opts);
+  }
+
+  render(scene: THREE.Scene, camera: THREE.Camera): void {
+    const r = this.renderer;
+
+    r.setRenderTarget(this.sceneRT);
+    r.clear();
+    r.render(scene, camera);
+
+    this.thresholdMat.uniforms.tDiffuse.value = this.sceneRT.texture;
+    this.blit(this.thresholdMat, this.brightRT);
+
+    for (const radius of [1, 2.5]) {
+      this.blurMat.uniforms.tDiffuse.value = this.brightRT.texture;
+      this.blurMat.uniforms.dir.value.set(radius / this.brightRT.width, 0);
+      this.blit(this.blurMat, this.blurRT);
+      this.blurMat.uniforms.tDiffuse.value = this.blurRT.texture;
+      this.blurMat.uniforms.dir.value.set(0, radius / this.brightRT.height);
+      this.blit(this.blurMat, this.brightRT);
+    }
+
+    this.compositeMat.uniforms.tBase.value = this.sceneRT.texture;
+    this.compositeMat.uniforms.tBloom.value = this.brightRT.texture;
+    this.blit(this.compositeMat, null);
+  }
+
+  private blit(material: THREE.Material, target: THREE.WebGLRenderTarget | null): void {
+    this.quad.material = material;
+    this.renderer.setRenderTarget(target);
+    this.renderer.clear();
+    this.renderer.render(this.quadScene, this.quadCam);
+  }
+
+  dispose(): void {
+    this.sceneRT.dispose();
+    this.brightRT.dispose();
+    this.blurRT.dispose();
+    this.quad.geometry.dispose();
+    this.thresholdMat.dispose();
+    this.blurMat.dispose();
+    this.compositeMat.dispose();
+  }
+}
+```
+
+- [ ] **Step 2: Wire it into index.ts**
+
+Replace the three direct-render lines in the `clock.subscribe` callback:
+
+```ts
+        renderer.setRenderTarget(null);
+        renderer.clear();
+        renderer.render(stage.scene, stage.camera);
+```
+
+with:
+
+```ts
+        if (bloom) {
+          bloom.render(stage.scene, stage.camera);
+        } else {
+          renderer.setRenderTarget(null);
+          renderer.clear();
+          renderer.render(stage.scene, stage.camera);
+        }
+```
+
+And create it just after `const renderer = stage.mount();`:
+
+```ts
+    const bloom = opts.bloom ? new BloomPath(renderer) : null;
+```
+
+Dispose it inside `finish()`, before `stage.scheduleIdleTeardown()`:
+
+```ts
+        bloom?.dispose();
+```
+
+Add the import at the top of `index.ts`:
+
+```ts
+import { BloomPath } from './render/bloom.js';
+```
+
+- [ ] **Step 3: Typecheck**
+
+Run: `npm run check`
+Expected: all clean.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add packages/core/src/render/bloom.ts packages/core/src/index.ts
+git commit -m "add opt-in bloom path with alpha-preserving composite"
+```
+
+---
+
+## Task 18: Lab app
+
+**Files:**
+- Create: `apps/lab/package.json`, `apps/lab/index.html`, `apps/lab/src/main.ts`, `apps/lab/vite.config.ts`
+- Create: `apps/lab/public/font.ttf` — download any bold TTF (Inter Bold, Archivo Black)
+
+- [ ] **Step 1: apps/lab/package.json**
+
+```json
+{
+  "name": "@blitsklieg/lab",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "dependencies": { "@blitsklieg/core": "*" },
+  "devDependencies": { "vite": "^6.0.3" }
+}
+```
+
+- [ ] **Step 2: apps/lab/vite.config.ts**
+
+```ts
+import { defineConfig } from 'vite';
+
+export default defineConfig({ server: { port: 5180 } });
+```
+
+- [ ] **Step 3: apps/lab/index.html**
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>blitsklieg lab</title>
+    <style>
+      body { margin: 0; font: 15px/1.6 system-ui; background: #10131a; color: #e6e9f0; }
+      main { max-width: 900px; margin: 0 auto; padding: 24px 24px 60vh; }
+      .panel { position: fixed; top: 12px; right: 12px; display: grid; gap: 6px;
+               background: #0c0f16e8; border: 1px solid #2a3142; border-radius: 10px;
+               padding: 12px; font: 12px ui-monospace, monospace; z-index: 10; }
+      select, button { font: 12px ui-monospace, monospace; padding: 5px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>blitsklieg lab</h1>
+      <p>The overlay renders above this page. Scroll — the type holds position and the text
+         stays readable through it.</p>
+      <p id="filler"></p>
+    </main>
+    <div class="panel">
+      <select id="text">
+        <option>JACKPOT!</option><option>WINNER</option><option>BONUS ROUND</option>
+      </select>
+      <select id="enter">
+        <option>slam</option><option>spin</option><option>flip</option>
+        <option>assemble</option><option>rise</option><option>none</option>
+      </select>
+      <select id="active">
+        <option>sweep</option><option>float</option><option>pulse</option>
+        <option>shimmer</option><option>none</option>
+      </select>
+      <select id="exit">
+        <option>fade</option><option>shatter</option><option>drop</option>
+        <option>recede</option><option>none</option>
+      </select>
+      <select id="look">
+        <option>gold</option><option>chrome</option><option>oil</option><option>ruby</option>
+      </select>
+      <label><input type="checkbox" id="bloom" /> bloom</label>
+      <button id="fire">FIRE</button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+```
+
+- [ ] **Step 4: apps/lab/src/main.ts**
+
+```ts
+import {
+  type ActiveName,
+  type EnterName,
+  type ExitName,
+  type LookName,
+  createBlitsklieg,
+} from '@blitsklieg/core';
+
+document.getElementById('filler')!.textContent =
+  'Filler copy so the page scrolls. '.repeat(60);
+
+const bk = createBlitsklieg({ fontUrl: '/font.ttf' });
+const pick = <T extends string>(id: string) =>
+  (document.getElementById(id) as HTMLSelectElement).value as T;
+
+document.getElementById('fire')!.addEventListener('click', () => {
+  void bk.fire(pick('text'), {
+    enter: pick<EnterName>('enter'),
+    active: pick<ActiveName>('active'),
+    exit: pick<ExitName>('exit'),
+    look: pick<LookName>('look'),
+    bloom: (document.getElementById('bloom') as HTMLInputElement).checked,
+  });
+});
+
+addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    (document.getElementById('fire') as HTMLButtonElement).click();
+  }
+});
+```
+
+- [ ] **Step 5: Run it**
+
+Run: `npm install && npm run dev -w @blitsklieg/lab`
+Expected: server on `http://localhost:5180`. Clicking FIRE renders gold type over the page;
+the page scrolls behind it and stays readable.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add apps/lab
+git commit -m "add lab app exercising every motion slot and look"
+```
+
+---
+
+## Task 19: Visual regression
+
+**Files:**
+- Create: `apps/lab/test/visual.spec.ts`, `playwright.config.ts`
+
+- [ ] **Step 1: playwright.config.ts**
+
+```ts
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './apps/lab/test',
+  webServer: { command: 'npm run dev -w @blitsklieg/lab', port: 5180, reuseExistingServer: true },
+  use: { baseURL: 'http://localhost:5180' },
+});
+```
+
+- [ ] **Step 2: Write the test**
+
+A ManualClock makes frames deterministic — without it screenshots differ every run.
+
+```ts
+import { expect, test } from '@playwright/test';
+
+test('gold slam is fully opaque on the letters and transparent elsewhere', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'FIRE' }).click();
+  await page.waitForTimeout(1000);
+
+  const stats = await page.evaluate(() => {
+    const c = document.querySelector('canvas') as HTMLCanvasElement;
+    const gl = c.getContext('webgl2') as WebGL2RenderingContext;
+    const px = new Uint8Array(c.width * c.height * 4);
+    gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let clear = 0;
+    let lit = 0;
+    for (let i = 3; i < px.length; i += 4) {
+      if (px[i] === 0) clear++;
+      else lit++;
+    }
+    return { clear, lit };
+  });
+
+  // Letters drew, and the overlay did not become an opaque rectangle.
+  expect(stats.lit).toBeGreaterThan(0);
+  expect(stats.clear).toBeGreaterThan(stats.lit);
+});
+```
+
+**Note:** `readPixels` returns zeros outside a render callback because the drawing buffer is
+cleared after compositing. If this test reports nothing drew, add `preserveDrawingBuffer: true`
+to the renderer in `stage.ts` behind a test-only option rather than assuming the render broke.
+
+- [ ] **Step 3: Run**
+
+Run: `npx playwright test`
+Expected: PASS.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add playwright.config.ts apps/lab/test
+git commit -m "add visual regression asserting the overlay stays transparent"
+```
+
+---
+
+## Deferred
+
+Not in this plan, by decision in the spec:
+
+- `@blitsklieg/react` — thin binding, its own plan once core is judged visually.
+- Particles (v1.1), element-anchored placement (v1.2), `hold: 'until-dismissed'` with `dismiss()`.
+- Per-letter opacity — v0 shares one material across letters, so `shatter` fades the word as a
+  unit rather than per letter. Fixing this means cloning the material per letter; revisit only if
+  it reads wrong in the lab.
