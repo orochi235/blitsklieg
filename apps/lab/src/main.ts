@@ -42,7 +42,10 @@ const bloomInput = el<HTMLInputElement>('bloom');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
 
 function create(): Blitsklieg {
-  const instance = createBlitsklieg({ fontUrl: '/font.ttf', policy: policy.get() });
+  const instance = createBlitsklieg({
+    fontUrl: `${import.meta.env.BASE_URL}font.ttf`,
+    policy: policy.get(),
+  });
   log(`instance up (policy ${policy.get()}${instance.supported ? '' : ', webgl2 UNSUPPORTED'})`);
   return instance;
 }

@@ -2,7 +2,12 @@
   "name": "@blitsklieg/lab",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:pages": "vite build --base=/blitsklieg/",
+    "preview:pages": "vite preview --base=/blitsklieg/"
+  },
   "dependencies": { "@blitsklieg/core": "*" },
   "devDependencies": { "vite": "^6.0.3" }
 }
