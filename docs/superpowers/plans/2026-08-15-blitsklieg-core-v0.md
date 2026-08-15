@@ -1937,9 +1937,11 @@ export async function loadFont(url: string): Promise<LoadedFont> {
   });
   if (!res.ok) throw new Error(`blitsklieg: failed to load font ${url} (${res.status})`);
 
+  const bytes = await res.arrayBuffer();
+
   let font: Font;
   try {
-    font = parse(await res.arrayBuffer());
+    font = parse(bytes);
   } catch (cause) {
     // A server that answers 200 with an HTML error page lands here, not on the status check.
     throw new Error(`blitsklieg: ${url} is not a font opentype.js can parse`, { cause });
@@ -2009,6 +2011,15 @@ describe('loadFont', () => {
     });
   });
 
+  it('does not blame the font file when the body read fails', async () => {
+    stubFetch({
+      ok: true,
+      arrayBuffer: () => Promise.reject(new TypeError('terminated')),
+    });
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toThrow('terminated');
+  });
+
   it('names the url when the bytes are not a parseable font', async () => {
     const cause = new Error('Unsupported OpenType signature 0x3c21444f');
     parse.mockImplementation(() => {
@@ -2022,9 +2033,11 @@ describe('loadFont', () => {
   });
 
   it('exposes the parsed font and its em size', async () => {
-    parse.mockReturnValue(stubFont({}));
+    const font = stubFont({});
+    parse.mockReturnValue(font);
 
     const loaded = await loadFont('/fonts/x.ttf');
+    expect(loaded.font).toBe(font);
     expect(loaded.unitsPerEm).toBe(1000);
   });
 
@@ -2120,6 +2133,18 @@ describe('GlyphCache', () => {
     for (const g of made) expect(g.dispose).toHaveBeenCalled();
     expect(cache.size).toBe(0);
   });
+
+  it('refuses to build after dispose instead of leaking an unowned geometry', () => {
+    const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
+    const cache = new GlyphCache(build);
+
+    cache.get('A', 0.3);
+    cache.dispose();
+
+    expect(() => cache.get('A', 0.3)).toThrow('blitsklieg: GlyphCache used after dispose');
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(cache.size).toBe(0);
+  });
 });
 
 /** A font whose only glyph draws the given commands, so contour nesting is exercised exactly. */
@@ -2137,17 +2162,20 @@ function box(x: number, y: number, w: number, h: number): PathCommand[] {
   ];
 }
 
+/** Enough to catch a curve's bulge; three samples a straight edge at its endpoints regardless. */
+const SAMPLES = 16;
+
 /** Extents of a contour's own outline, ignoring any holes hanging off it. */
 function topOf(contour: THREE.Path): number {
-  return Math.max(...contour.getPoints(1).map((p) => p.y));
+  return Math.max(...contour.getPoints(SAMPLES).map((p) => p.y));
 }
 
 function bottomOf(contour: THREE.Path): number {
-  return Math.min(...contour.getPoints(1).map((p) => p.y));
+  return Math.min(...contour.getPoints(SAMPLES).map((p) => p.y));
 }
 
 function leftOf(contour: THREE.Path): number {
-  return Math.min(...contour.getPoints(1).map((p) => p.x));
+  return Math.min(...contour.getPoints(SAMPLES).map((p) => p.x));
 }
 
 describe('glyphToShapes', () => {
@@ -2156,6 +2184,34 @@ describe('glyphToShapes', () => {
 
     expect(topOf(shape as THREE.Shape)).toBe(0);
     expect(bottomOf(shape as THREE.Shape)).toBe(-10);
+  });
+
+  it('negates the control point of a quadratic, not just its endpoints', () => {
+    const [shape] = glyphToShapes(
+      fontDrawing([
+        { type: 'M', x: 0, y: 0 },
+        { type: 'Q', x1: 5, y1: 10, x: 10, y: 0 },
+      ]),
+      'o',
+      1,
+    );
+
+    expect(bottomOf(shape as THREE.Shape)).toBeLessThan(0);
+    expect(topOf(shape as THREE.Shape)).toBeLessThanOrEqual(0);
+  });
+
+  it('negates both control points of a cubic', () => {
+    const [shape] = glyphToShapes(
+      fontDrawing([
+        { type: 'M', x: 0, y: 0 },
+        { type: 'C', x1: 3, y1: 10, x2: 7, y2: 10, x: 10, y: 0 },
+      ]),
+      'o',
+      1,
+    );
+
+    expect(bottomOf(shape as THREE.Shape)).toBeLessThan(0);
+    expect(topOf(shape as THREE.Shape)).toBeLessThanOrEqual(0);
   });
 
   it('nests a counter as a hole instead of a second solid shape', () => {
@@ -2252,6 +2308,15 @@ describe('buildGlyphGeometry', () => {
     expect(geo.boundingBox).not.toBeNull();
     expect(geo.boundingBox?.max.y).toBeGreaterThan(0);
   });
+
+  it('leaves an empty bounding box for a glyph with no outline', () => {
+    const geo = buildGlyphGeometry(fontDrawing([]), ' ', 1, DEFAULT_GLYPH_OPTIONS);
+
+    expect(geo.attributes.position?.count).toBe(0);
+    expect(geo.boundingBox?.isEmpty()).toBe(true);
+    // Callers seeding a running max from 0 absorb this; assigning it straight does not.
+    expect(geo.boundingBox?.max.y).toBe(Number.NEGATIVE_INFINITY);
+  });
 });
 ```
 
@@ -2285,9 +2350,13 @@ export const DEFAULT_GLYPH_OPTIONS: GlyphOptions = {
 
 type Buildable = { dispose(): void };
 
-/** Letters repeat heavily, so geometry is built once per (char, depth) and shared. */
+/**
+ * Letters repeat heavily, so geometry is built once per (char, depth) and shared. Hold one cache
+ * per (font, size, options) — the key discriminates what `build` varies, not what it captures.
+ */
 export class GlyphCache<T extends Buildable = THREE.ExtrudeGeometry> {
   private cache = new Map<string, T>();
+  private disposed = false;
 
   constructor(private readonly build: (char: string, depth: number) => T) {}
 
@@ -2296,6 +2365,7 @@ export class GlyphCache<T extends Buildable = THREE.ExtrudeGeometry> {
   }
 
   get(char: string, depth: number): T {
+    if (this.disposed) throw new Error('blitsklieg: GlyphCache used after dispose');
     const key = `${char}|${depth}`;
     let g = this.cache.get(key);
     if (!g) {
@@ -2308,6 +2378,7 @@ export class GlyphCache<T extends Buildable = THREE.ExtrudeGeometry> {
   dispose(): void {
     for (const g of this.cache.values()) g.dispose();
     this.cache.clear();
+    this.disposed = true;
   }
 }
 
@@ -2336,7 +2407,7 @@ function contoursOf(font: Font, char: string, size: number): THREE.Shape[] {
         current?.bezierCurveTo(cmd.x1, -cmd.y1, cmd.x2, -cmd.y2, cmd.x, -cmd.y);
         break;
       case 'Z':
-        // three closes a contour by reading its first curve, so a contour that never drew one throws.
+        // three closes a contour by reading its first curve; one that never drew throws.
         if (current?.curves.length) current.closePath();
         break;
     }
@@ -2361,27 +2432,26 @@ function containsPoint(polygon: THREE.Vector2[], point: THREE.Vector2): boolean 
  * ends with two counters belonging to earlier contours), so nesting depth does it instead.
  */
 function nest(contours: THREE.Shape[]): THREE.Shape[] {
-  const closed = contours
+  const drawn = contours
     .map((contour) => ({ contour, polygon: contour.getPoints(NESTING_SEGMENTS) }))
-    .filter((c) => c.polygon.length >= 3);
-  const anchors = closed.map((c) => c.polygon[0] as THREE.Vector2);
-  const depths = anchors.map((anchor, i) =>
-    closed.reduce((n, o, j) => (j !== i && containsPoint(o.polygon, anchor) ? n + 1 : n), 0),
-  );
+    .filter((c) => c.polygon.length >= 3)
+    .map((c) => ({ ...c, anchor: c.polygon[0] as THREE.Vector2 }));
+  const outlines = drawn.map((o) => ({
+    ...o,
+    level: drawn.filter((other) => other !== o && containsPoint(other.polygon, o.anchor)).length,
+  }));
 
   const shapes: THREE.Shape[] = [];
-  closed.forEach(({ contour }, i) => {
-    const depth = depths[i] as number;
+  for (const outline of outlines) {
     const container =
-      depth % 2 === 1
-        ? closed.find(
-            (o, j) =>
-              depths[j] === depth - 1 && containsPoint(o.polygon, anchors[i] as THREE.Vector2),
+      outline.level % 2 === 1
+        ? outlines.find(
+            (o) => o.level === outline.level - 1 && containsPoint(o.polygon, outline.anchor),
           )
         : undefined;
-    if (container) container.contour.holes.push(contour);
-    else shapes.push(contour);
-  });
+    if (container) container.contour.holes.push(outline.contour);
+    else shapes.push(outline.contour);
+  }
   return shapes;
 }
 
@@ -2413,7 +2483,7 @@ export function buildGlyphGeometry(
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `npx vitest run packages/core/test/text/`
-Expected: PASS, 32 tests (11 layout, 7 font, 14 glyphs).
+Expected: PASS, 37 tests (11 layout, 8 font, 18 glyphs).
 
 - [ ] **Step 7: Commit**
 
