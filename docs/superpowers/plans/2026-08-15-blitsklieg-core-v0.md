@@ -2657,7 +2657,7 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
   },
 };
 
-const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor']);
+export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor']);
 
 export function createMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
@@ -2690,6 +2690,7 @@ and has no test.
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
+  COLOR_KEYS,
   LOOKS,
   type LookName,
   type LookParams,
@@ -2746,6 +2747,14 @@ describe('LOOKS', () => {
   it('turns clearcoat off for oil, since a coat above the thin film flattens it', () => {
     expect(withLook('oil').clearcoat).toBe(0);
     expect(withLook('oil').iridescence).toBe(1);
+  });
+});
+
+describe('COLOR_KEYS', () => {
+  it('names exactly the params three stores as Color objects', () => {
+    const fresh = new THREE.MeshPhysicalMaterial();
+    const colorValued = KEYS.filter((key) => fresh[key] instanceof THREE.Color);
+    expect([...COLOR_KEYS].sort()).toEqual(colorValued.sort());
   });
 });
 
@@ -2824,7 +2833,7 @@ describe('applyLook', () => {
 - [ ] **Step 4: Verify**
 
 Run: `npm run check`
-Expected: lint and typecheck clean, 140 tests across 13 files (13 new in looks).
+Expected: lint and typecheck clean, 141 tests across 13 files (14 new in looks).
 
 - [ ] **Step 5: Commit**
 
