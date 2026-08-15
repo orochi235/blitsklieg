@@ -4799,7 +4799,7 @@ not to a repo that will be published. Any OFL face works; commit its license nex
     <title>blitsklieg lab</title>
     <style>
       body { margin: 0; font: 15px/1.6 system-ui; background: #10131a; color: #e6e9f0; }
-      main { max-width: 900px; margin: 0 auto; padding: 24px 24px 60vh; }
+      main { max-width: 900px; margin: 0 auto; padding: 24px; min-height: 150vh; }
       .panel { position: fixed; top: 12px; right: 12px; width: 250px; display: grid; gap: 6px;
                background: #0c0f16e8; border: 1px solid #2a3142; border-radius: 10px;
                padding: 12px; font: 12px ui-monospace, monospace; z-index: 10; }
@@ -4949,7 +4949,7 @@ function fire(text: string): void {
     bloom: bloomInput.checked,
     placement: { kind: 'fullscreen' },
   }).then(
-    () => log(`gone  "${text}"`),
+    () => log(`done  "${text}"`),
     (err: unknown) => {
       log(`FAILED "${text}": ${message(err)}`);
       console.error(err);
@@ -5011,10 +5011,13 @@ async function play(sequence: (typeof SEQUENCES)[number]): Promise<void> {
   // the only cue that a second click would do nothing.
   for (const button of sequenceButtons) button.disabled = true;
   log(`sequence "${sequence.name}"`);
+  // Captured once: bk may be reassigned mid-sequence (DESTROY, policy change), and this
+  // instance's fire() must keep resolving instead of handing later steps to a new one.
+  const instance = bk;
   try {
     for (const { text, ...options } of sequence.steps) {
-      await bk.fire(text, options);
-      log(`  played "${text}"`);
+      await instance.fire(text, options);
+      log(`  done  "${text}"`);
     }
     log(`sequence "${sequence.name}" done`);
   } catch (err) {
@@ -5089,7 +5092,7 @@ What the shape is protecting, if you edit it:
 
 Run: `npm install && npm run dev -w @blitsklieg/lab`
 Expected: server on `http://localhost:5180`. FIRE renders gold type over the page; the page
-scrolls behind it and stays readable; the log gets a `fire` line then a `gone` line. Every
+scrolls behind it and stays readable; the log gets a `fire` line then a `done` line. Every
 enter, active, exit and look fires without error, and `moment` ends on a bloom-lit `JACKPOT!`.
 
 Screenshots of a settled effect come out blank: the canvas is not `preserveDrawingBuffer`, so
