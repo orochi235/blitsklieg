@@ -133,10 +133,14 @@ That boundary is what keeps the test suite fast and meaningful.
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "javascript": { "formatter": { "quoteStyle": "single" } },
   "linter": { "enabled": true, "rules": { "recommended": true } },
   "files": { "ignore": ["dist", "node_modules", "spikes"] }
 }
 ```
+
+The `quoteStyle` line is load-bearing. Biome defaults to double quotes, and every code block in
+this plan is written with single quotes — without it, `npm run lint` rejects every task's output.
 
 - [ ] **Step 6: vitest.config.ts**
 
@@ -148,12 +152,32 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 7: Install and verify**
+- [ ] **Step 7: Root tsconfig.json**
+
+`tsc -b` with no arguments needs a solution-style root that references the composite project.
+Without it, `npm run typecheck` fails with TS5083 no matter how much source exists.
+
+```json
+{
+  "files": [],
+  "references": [{ "path": "packages/core" }]
+}
+```
+
+`apps/lab` appends a second reference in Task 18.
+
+- [ ] **Step 8: Install and verify**
 
 Run: `npm install && npm run lint`
-Expected: biome reports no errors. `npm run test` reports "No test files found" — that is fine.
+Expected: biome reports no errors.
 
-- [ ] **Step 8: Commit**
+**`npm run test` and `npm run typecheck` are both expected to FAIL after this task, and that is
+correct.** Vitest exits nonzero with no test files; `tsc -b` reports TS18003 because
+`packages/core` has no inputs yet. Task 2 creates the first source and test file, which turns
+both green. Do not create empty directories, `.gitkeep`, or placeholder source files to force
+them green — empty directories are not tracked by git and would not satisfy TypeScript anyway.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -2436,9 +2460,7 @@ export default defineConfig({ server: { port: 5180 } });
       <p id="filler"></p>
     </main>
     <div class="panel">
-      <select id="text">
-        <option>JACKPOT!</option><option>WINNER</option><option>BONUS ROUND</option>
-      </select>
+      <input id="text" type="text" value="JACKPOT!" autocomplete="off" spellcheck="false" />
       <select id="enter">
         <option>slam</option><option>spin</option><option>flip</option>
         <option>assemble</option><option>rise</option><option>none</option>
@@ -2478,23 +2500,29 @@ document.getElementById('filler')!.textContent =
 
 const bk = createBlitsklieg({ fontUrl: '/font.ttf' });
 const pick = <T extends string>(id: string) =>
-  (document.getElementById(id) as HTMLSelectElement).value as T;
+  (document.getElementById(id) as HTMLInputElement | HTMLSelectElement).value as T;
 
-document.getElementById('fire')!.addEventListener('click', () => {
-  void bk.fire(pick('text'), {
+const textInput = document.getElementById('text') as HTMLInputElement;
+
+const fire = () =>
+  void bk.fire(textInput.value, {
     enter: pick<EnterName>('enter'),
     active: pick<ActiveName>('active'),
     exit: pick<ExitName>('exit'),
     look: pick<LookName>('look'),
     bloom: (document.getElementById('bloom') as HTMLInputElement).checked,
   });
+
+document.getElementById('fire')!.addEventListener('click', fire);
+textInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') fire();
 });
 
 addEventListener('keydown', (e) => {
-  if (e.code === 'Space') {
-    e.preventDefault();
-    (document.getElementById('fire') as HTMLButtonElement).click();
-  }
+  // Space fires, but must not swallow spaces typed into the text field.
+  if (e.code !== 'Space' || e.target === textInput) return;
+  e.preventDefault();
+  fire();
 });
 ```
 
