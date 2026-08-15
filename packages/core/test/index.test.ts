@@ -416,6 +416,21 @@ describe('createBlitsklieg', () => {
       expect(bloom.dispose).toHaveBeenCalledTimes(1);
     });
 
+    it('disposes the bloom path when the word fails to build', async () => {
+      const bloom = stubBloom();
+      parse.mockReturnValue({
+        ...stubFont(),
+        charToGlyph: () => {
+          throw new Error('bad glyph');
+        },
+      } as unknown as Font);
+      const bk = create();
+
+      // The rejection comes out before the promise that owns settle() exists.
+      await expect(bk.fire('HI', { ...INSTANT, bloom: true })).rejects.toThrow('bad glyph');
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
+
     it('disposes the bloom path when a tick throws', async () => {
       const bloom = stubBloom(false);
       onRender = () => {

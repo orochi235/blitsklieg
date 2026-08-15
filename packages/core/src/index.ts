@@ -75,7 +75,14 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
 
     const renderer = stage.mount();
     const bloom = opts.bloom ? new BloomPath(renderer) : null;
-    const word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget());
+    let word: Word;
+    try {
+      word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget());
+    } catch (err) {
+      // This rejects before the settle() that would otherwise free the bloom's render targets.
+      bloom?.dispose();
+      throw err;
+    }
     stage.scene.add(word.group);
 
     const enter = ENTER[opts.enter ?? 'slam'];

@@ -14,6 +14,9 @@ export const DEFAULT_BLOOM: BloomOptions = { strength: 1.1, threshold: 0.72, alp
 
 type Sampler = THREE.IUniform<THREE.Texture | null>;
 
+/** Half-res texels per tap, one separable pass each: a tight core under a wider halo. */
+const BLUR_RADII = [1, 2.5];
+
 export class BloomPath {
   private sceneRT!: THREE.WebGLRenderTarget;
   private brightRT!: THREE.WebGLRenderTarget;
@@ -119,7 +122,7 @@ export class BloomPath {
     this.thresholdSrc.value = this.sceneRT.texture;
     this.blit(this.thresholdMat, this.brightRT);
 
-    for (const radius of [1, 2.5]) {
+    for (const radius of BLUR_RADII) {
       this.blurSrc.value = this.brightRT.texture;
       this.blurDir.value.set(radius / this.brightRT.width, 0);
       this.blit(this.blurMat, this.blurRT);
@@ -161,6 +164,7 @@ export class BloomPath {
   private blit(material: THREE.Material, target: THREE.WebGLRenderTarget | null): void {
     this.quad.material = material;
     this.renderer.setRenderTarget(target);
+    // Redundant while autoClear is on and the quad covers every pixel; keep it as the insurance.
     this.renderer.clear();
     this.renderer.render(this.quadScene, this.quadCam);
   }
