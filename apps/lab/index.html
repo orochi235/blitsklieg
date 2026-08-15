@@ -6,6 +6,7 @@
     <style>
       body { margin: 0; font: 15px/1.6 system-ui; background: #10131a; color: #e6e9f0; }
       main { max-width: 900px; margin: 0 auto; padding: 24px; min-height: 150vh; }
+      a { color: #d8b25f; }
       .panel { position: fixed; top: 12px; right: 12px; width: 250px; display: grid; gap: 6px;
                background: #0c0f16e8; border: 1px solid #2a3142; border-radius: 10px;
                padding: 12px; font: 12px ui-monospace, monospace; z-index: 10; }
@@ -22,10 +23,15 @@
   <body>
     <main>
       <h1>blitsklieg lab</h1>
-      <p>The overlay renders above this page. Scroll — the type holds position and the text
-         stays readable through it.</p>
-      <p>Space fires. The selects are built from the exported name unions, so every motion slot
-         and look the package ships is reachable here.</p>
+      <p><a href="https://github.com/orochi235/blitsklieg">blitsklieg</a> slams shiny extruded 3D
+         type over the web app you already have. This page is its lab: every effect it ships,
+         behind pickers.</p>
+      <p>Press <b>FIRE</b> in the panel, or hit space anywhere outside it. An effect is three
+         motion slots — <b>enter</b>, <b>active</b>, <b>exit</b> — plus a material <b>look</b>,
+         and each select lists everything available for that slot. <b>moment</b> plays a canned
+         countdown if you would rather just watch one.</p>
+      <p>Scroll while it plays: the type holds position, and the page underneath stays readable
+         and clickable through it.</p>
       <p id="filler"></p>
     </main>
     <div class="panel">

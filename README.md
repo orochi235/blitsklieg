@@ -7,6 +7,9 @@ The host page is not touched.
 
 An effect is three motion slots — `enter`, `active`, `exit` — plus a material `look`.
 
+Every effect is playable at **[the lab](https://orochi235.github.io/blitsklieg/)**, which is
+deployed from `main`.
+
 ## Usage
 
 Not published yet: v0 is consumed as the workspace package `@blitsklieg/core`.
@@ -129,3 +132,6 @@ Under `prefers-reduced-motion: reduce` the word holds the pose its enter settles
 - `npm run check` — biome, tsc and the unit suite (202 tests).
 - `npm run test:visual` — Playwright specs asserting the overlay composites over a live page
   without tinting or blocking it.
+- `npm run build:pages -w @blitsklieg/lab && npm run preview:pages -w @blitsklieg/lab` — the
+  lab exactly as GitHub Pages serves it, under the `/blitsklieg/` subpath the workflow builds
+  for. Plain `npm run build` produces a root-served build instead.
