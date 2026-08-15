@@ -1,7 +1,7 @@
 import type { Font } from 'opentype.js';
 import type * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ManualClock } from '../src/clock.js';
+import { type Clock, ManualClock, type Tick } from '../src/clock.js';
 import { type BlitskliegOptions, createBlitsklieg } from '../src/index.js';
 import { Stage } from '../src/render/stage.js';
 
@@ -32,12 +32,34 @@ function stubFont(): Font {
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** Ignores unsubscribe, so a tick still reaches an effect that has already settled. */
+class LeakyClock implements Clock {
+  private t = 0;
+  private readonly subs = new Set<Tick>();
+
+  now(): number {
+    return this.t;
+  }
+
+  subscribe(fn: Tick): () => void {
+    this.subs.add(fn);
+    return () => {};
+  }
+
+  advance(deltaMs: number): void {
+    this.t += deltaMs;
+    for (const fn of [...this.subs]) fn(this.t);
+  }
+}
+
 let clock: ManualClock;
 let calls: string[];
 let mounted: Stage | null;
 let renderer: THREE.WebGLRenderer;
 let renders: number;
 let peakWords: number;
+/** Hook for the one test that needs a tick to blow up the way a lost context does. */
+let onRender: () => void;
 
 function stubStage(): void {
   vi.spyOn(Stage.prototype, 'mount').mockImplementation(function (this: Stage) {
@@ -94,12 +116,14 @@ beforeEach(() => {
   mounted = null;
   renders = 0;
   peakWords = 0;
+  onRender = () => {};
   renderer = {
     setRenderTarget: vi.fn(),
     clear: vi.fn(),
     render: vi.fn(() => {
       renders++;
       peakWords = Math.max(peakWords, words().length);
+      onRender();
     }),
   } as unknown as THREE.WebGLRenderer;
 
@@ -154,7 +178,7 @@ describe('createBlitsklieg', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('unmounts only once the running effect has torn down', async () => {
+  it('tears the running effect down on abort rather than on the next tick', async () => {
     const bk = create();
     const done = bk.fire('HELLO', { hold: 5000 });
     await flush();
@@ -162,16 +186,94 @@ describe('createBlitsklieg', () => {
     expect(calls).toEqual(['mount']);
 
     bk.destroy();
-    await flush();
-    // The effect only sees the abort on its next tick; unmounting now would strand its teardown.
-    expect(calls).toEqual(['mount']);
-
-    clock.advance(16);
     await done;
     await flush();
 
+    // No further advance: a hidden tab stops ticking, and destroy() cannot wait for one.
     expect(calls).toEqual(['mount', 'idle', 'unmount']);
     expect(words()).toHaveLength(0);
+  });
+
+  it('ignores a tick that arrives after the effect has settled', async () => {
+    const leaky = new LeakyClock();
+    const bk = create({ clock: leaky });
+    const done = bk.fire('HELLO', { hold: 5000 });
+    await flush();
+    leaky.advance(16);
+
+    bk.destroy();
+    await done;
+    await flush();
+    expect(calls).toEqual(['mount', 'idle', 'unmount']);
+
+    leaky.advance(16);
+    expect(calls).toEqual(['mount', 'idle', 'unmount']);
+    expect(renders).toBe(1);
+  });
+
+  it('unmounts only once a cancelled effect has settled', async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        await gate;
+        return { ok: true, arrayBuffer: async () => new ArrayBuffer(8) } as Response;
+      }),
+    );
+
+    const bk = create();
+    const done = bk.fire('HELLO', INSTANT).then(() => calls.push('settled'));
+    await flush();
+    bk.destroy();
+    await flush();
+    expect(calls).toEqual([]);
+
+    release();
+    await done;
+    await flush();
+    expect(calls).toEqual(['settled', 'unmount']);
+  });
+
+  it('rejects the effect and comes down when a tick throws', async () => {
+    const bk = create();
+    onRender = () => {
+      throw new Error('context lost');
+    };
+    const done = bk.fire('HI', INSTANT);
+    await flush();
+    clock.advance(16);
+
+    await expect(done).rejects.toThrow('context lost');
+    expect(calls).toEqual(['mount', 'idle']);
+    expect(words()).toHaveLength(0);
+
+    // The subscriber is gone, so the throw does not repeat every frame.
+    clock.advance(16);
+    expect(renders).toBe(1);
+
+    bk.destroy();
+    await flush();
+    expect(calls).toEqual(['mount', 'idle', 'unmount']);
+  });
+
+  it('passes the queue policy through', async () => {
+    const bk = create({ policy: 'replace' });
+    const first = bk.fire('A', INSTANT);
+    const second = bk.fire('B', INSTANT);
+
+    await flush();
+    clock.advance(16);
+    await first;
+    await flush();
+    clock.advance(16);
+    await second;
+
+    // Under the default `queue` policy both words would play, in turn.
+    expect(calls).toEqual(['mount', 'idle']);
+    expect(renders).toBe(1);
   });
 
   it('runs queued effects one at a time', async () => {

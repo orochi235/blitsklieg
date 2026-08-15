@@ -18,6 +18,10 @@ export interface BlitskliegOptions {
   target?: HTMLElement;
   fontUrl: string;
   clock?: Clock;
+  /**
+   * `concurrent` is unsound for `sweep`: every live effect writes the shared environment
+   * rotation from its own elapsed time, so the highlight sawtooths between their phases.
+   */
   policy?: QueuePolicy;
   idleTimeoutMs?: number;
 }
@@ -38,6 +42,7 @@ export interface FireOptions {
 
 export interface Blitsklieg {
   readonly supported: boolean;
+  /** Resolves when the effect leaves the screen, whether it played out or was cancelled. */
   fire(text: string, options?: FireOptions): Promise<void>;
   /** Cancels everything in flight; the stage comes down once the running effect has settled. */
   destroy(): void;
@@ -86,35 +91,50 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     const still = prefersReducedMotion();
     const startedAt = clock.now();
 
-    await new Promise<void>((resolve) => {
-      const finish = () => {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const settle = (done: () => void) => {
+        if (settled) return;
+        settled = true;
         off();
         stage.scene.remove(word.group);
         word.dispose();
         stage.scheduleIdleTeardown();
-        resolve();
+        done();
       };
+      const finish = () => settle(resolve);
 
       const off = clock.subscribe((now) => {
         if (signal.aborted) return finish();
 
-        // rAF reports the frame's start time, which can precede a now() sampled moments earlier.
-        const since = now - startedAt;
-        const elapsed = Math.min(Math.max(still ? enter.duration : since, 0), timeline.duration);
-        word.apply(timeline, elapsed);
+        try {
+          // rAF reports the frame's start time, which can precede a now() sampled moments earlier.
+          const since = now - startedAt;
+          const elapsed = Math.min(Math.max(still ? enter.duration : since, 0), timeline.duration);
+          word.apply(timeline, elapsed);
 
-        // Effect-relative and zeroed off-sweep: absolute clock time would start every sweep at an
-        // arbitrary angle and leave the last one's angle behind on the next effect.
-        stage.scene.environmentRotation.y = ENV_DRIVEN.has(activeName)
-          ? (elapsed / ACTIVE[activeName].duration) * TAU
-          : 0;
+          // Effect-relative and zeroed off-sweep: absolute clock time would start every sweep at
+          // an arbitrary angle and leave the last one's angle behind on the next effect.
+          stage.scene.environmentRotation.y = ENV_DRIVEN.has(activeName)
+            ? (elapsed / ACTIVE[activeName].duration) * TAU
+            : 0;
 
-        renderer.setRenderTarget(null);
-        renderer.clear();
-        renderer.render(stage.scene, stage.camera);
+          renderer.setRenderTarget(null);
+          renderer.clear();
+          renderer.render(stage.scene, stage.camera);
 
-        if (still ? since >= hold : timeline.isFinished(since)) finish();
+          if (still ? since >= hold : timeline.isFinished(since)) finish();
+        } catch (err) {
+          // RafClock keeps a throwing subscriber subscribed, so a lost context would otherwise
+          // throw every frame forever with the word still on a stage destroy() can never settle.
+          settle(() => reject(err));
+        }
       });
+
+      // Teardown must not wait for a tick: rAF stops in a hidden tab, and destroy() holds a
+      // scarce GL context until this effect settles.
+      signal.addEventListener('abort', finish);
+      if (signal.aborted) finish();
     });
   }
 
