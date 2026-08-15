@@ -525,9 +525,14 @@ export function accumulate(base: Pose, offsets: readonly PoseOffset[]): Pose {
   let scale = base.scale;
   let opacity = base.opacity;
 
+  // The casts are safe because Vec3 is a fixed 3-tuple. Both sides need one: under
+  // noUncheckedIndexedAccess a compound assignment widens its LHS read too, so `+=` alone
+  // does not compile.
   for (const o of offsets) {
-    if (o.position) for (let i = 0; i < 3; i++) position[i] += o.position[i] as number;
-    if (o.rotation) for (let i = 0; i < 3; i++) rotation[i] += o.rotation[i] as number;
+    if (o.position)
+      for (let i = 0; i < 3; i++) position[i] = (position[i] as number) + (o.position[i] as number);
+    if (o.rotation)
+      for (let i = 0; i < 3; i++) rotation[i] = (rotation[i] as number) + (o.rotation[i] as number);
     if (o.scale !== undefined) scale *= o.scale;
     if (o.opacity !== undefined) opacity *= o.opacity;
   }
