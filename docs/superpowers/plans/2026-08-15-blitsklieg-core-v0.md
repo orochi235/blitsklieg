@@ -2898,6 +2898,7 @@ export class Stage {
     if (this.renderer) return this.renderer;
 
     const canvas = document.createElement('canvas');
+    // Inline because a library ships no stylesheet, and host page CSS must not reach the overlay.
     canvas.style.cssText =
       'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483000';
 
@@ -2908,7 +2909,6 @@ export class Stage {
       premultipliedAlpha: false,
       antialias: true,
     });
-    renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2));
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -2931,6 +2931,10 @@ export class Stage {
     if (!this.renderer) return;
     const w = Math.max(1, globalThis.innerWidth);
     const h = Math.max(1, globalThis.innerHeight);
+    // Zoom and a move to another display change devicePixelRatio and fire resize; setPixelRatio
+    // reallocates the framebuffer, so only pay for it when the ratio actually moved.
+    const ratio = Math.min(globalThis.devicePixelRatio ?? 1, 2);
+    if (this.renderer.getPixelRatio() !== ratio) this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -2961,12 +2965,15 @@ export class Stage {
     this.detachResize = null;
     this.scene.environment = null;
 
-    detachResize?.();
-    environment?.dispose();
-    renderer?.dispose();
-    // dispose() drops three's caches but keeps the GL context; only loseContext returns it.
-    renderer?.forceContextLoss();
-    canvas?.remove();
+    try {
+      detachResize?.();
+      environment?.dispose();
+      renderer?.dispose();
+    } finally {
+      // dispose() drops three's caches but keeps the GL context; only loseContext returns it.
+      renderer?.forceContextLoss();
+      canvas?.remove();
+    }
   }
 }
 ```
@@ -2978,6 +2985,7 @@ Tests run in the `node` environment, so `mount`, `resize` with a live renderer a
 fake the coverage. `packages/core/test/render/stage.test.ts`:
 
 ```ts
+import type * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Stage, prefersReducedMotion, webglSupported } from '../../src/render/stage.js';
 
@@ -2991,6 +2999,15 @@ function frustumHeight(stage: Stage): number {
 }
 
 describe('viewportBudget', () => {
+  // 2 * tan(38deg / 2) * 11 = 7.5752075 visible units tall at the word's depth.
+  it('matches an extent computed by hand from the constructor fov and distance', () => {
+    const stage = headlessStage();
+
+    expect(stage.viewportBudget(1, 1).height).toBeCloseTo(7.5752075, 6);
+    expect(stage.viewportBudget().width).toBeCloseTo(4.6966286, 6);
+    expect(stage.viewportBudget().height).toBeCloseTo(2.2725622, 6);
+  });
+
   it('matches the frustum extent at the camera distance', () => {
     const stage = headlessStage();
     stage.camera.aspect = 1.5;
@@ -3094,6 +3111,22 @@ describe('unmount', () => {
     expect(stage.environment).toBeNull();
     expect(stage.scene.environment).toBeNull();
   });
+
+  it('detaches the canvas even when disposal throws, so no context is stranded', () => {
+    const stage = headlessStage();
+    const remove = vi.fn();
+    stage.canvas = { remove } as unknown as HTMLCanvasElement;
+    stage.environment = {
+      dispose: () => {
+        throw new Error('dispose failed');
+      },
+    } as unknown as THREE.WebGLRenderTarget;
+
+    expect(() => stage.unmount()).toThrow('dispose failed');
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(stage.canvas).toBeNull();
+    expect(stage.environment).toBeNull();
+  });
 });
 
 describe('resize', () => {
@@ -3135,7 +3168,7 @@ describe('prefersReducedMotion', () => {
 - [ ] **Step 3: Verify**
 
 Run: `npm run check`
-Expected: lint and typecheck clean, 153 tests across 14 files (12 new in stage).
+Expected: lint and typecheck clean, 155 tests across 14 files (14 new in stage).
 
 - [ ] **Step 4: Commit**
 
