@@ -1,4 +1,5 @@
-export type QueuePolicy = 'queue' | 'replace' | 'concurrent';
+export const POLICY_NAMES = ['queue', 'replace', 'concurrent'] as const;
+export type QueuePolicy = (typeof POLICY_NAMES)[number];
 export type EffectRunner = (signal: AbortSignal) => Promise<void>;
 
 interface Entry {

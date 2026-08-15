@@ -6,12 +6,21 @@ import { EXIT } from './motion/exit.js';
 import type { ActiveName, EnterName, ExitName } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
 import { BloomPath } from './render/bloom.js';
-import type { LookName } from './render/looks.js';
+import { LOOKS, type LookName } from './render/looks.js';
 import { Stage, prefersReducedMotion, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
 
 export type { EnterName, ActiveName, ExitName, LookName, QueuePolicy, Clock };
+export { ManualClock } from './clock.js';
+export { POLICY_NAMES } from './queue.js';
+
+// Read off the records the effect itself indexes, which the compiler already holds exhaustive,
+// so a name can never be renamed, added or dropped without these following it.
+export const ENTER_NAMES: readonly EnterName[] = Object.keys(ENTER) as EnterName[];
+export const ACTIVE_NAMES: readonly ActiveName[] = Object.keys(ACTIVE) as ActiveName[];
+export const EXIT_NAMES: readonly ExitName[] = Object.keys(EXIT) as ExitName[];
+export const LOOK_NAMES: readonly LookName[] = Object.keys(LOOKS) as LookName[];
 
 const TAU = Math.PI * 2;
 

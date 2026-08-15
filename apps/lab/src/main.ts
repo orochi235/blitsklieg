@@ -1,11 +1,11 @@
 import {
-  type ActiveName,
+  ACTIVE_NAMES,
   type Blitsklieg,
-  type EnterName,
-  type ExitName,
+  ENTER_NAMES,
+  EXIT_NAMES,
   type FireOptions,
-  type LookName,
-  type QueuePolicy,
+  LOOK_NAMES,
+  POLICY_NAMES,
   createBlitsklieg,
 } from '@blitsklieg/core';
 
@@ -24,39 +24,6 @@ function log(line: string): void {
   logEl.textContent = lines.join('\n');
   logEl.scrollTop = logEl.scrollHeight;
 }
-
-/**
- * Names from an exhaustive record rather than a hand-written list: one the package drops or
- * renames fails typecheck here instead of becoming an undefined lookup at fire time.
- */
-function namesOf<T extends string>(names: Record<T, true>): T[] {
-  return Object.keys(names) as T[];
-}
-
-const ENTER_NAMES = namesOf<EnterName>({
-  slam: true,
-  spin: true,
-  flip: true,
-  assemble: true,
-  rise: true,
-  none: true,
-});
-const ACTIVE_NAMES = namesOf<ActiveName>({
-  sweep: true,
-  float: true,
-  pulse: true,
-  shimmer: true,
-  none: true,
-});
-const EXIT_NAMES = namesOf<ExitName>({
-  fade: true,
-  shatter: true,
-  drop: true,
-  recede: true,
-  none: true,
-});
-const LOOK_NAMES = namesOf<LookName>({ gold: true, chrome: true, oil: true, ruby: true });
-const POLICY_NAMES = namesOf<QueuePolicy>({ queue: true, replace: true, concurrent: true });
 
 function choice<T extends string>(id: string, names: readonly T[]) {
   const select = el<HTMLSelectElement>(id);

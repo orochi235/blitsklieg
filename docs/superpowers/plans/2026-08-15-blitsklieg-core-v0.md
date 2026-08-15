@@ -1629,7 +1629,8 @@ Expected: FAIL — cannot find module `../src/queue.js`.
 - [ ] **Step 3: Implement**
 
 ```ts
-export type QueuePolicy = 'queue' | 'replace' | 'concurrent';
+export const POLICY_NAMES = ['queue', 'replace', 'concurrent'] as const;
+export type QueuePolicy = (typeof POLICY_NAMES)[number];
 export type EffectRunner = (signal: AbortSignal) => Promise<void>;
 
 interface Entry {
@@ -3623,12 +3624,21 @@ import { ENTER } from './motion/enter.js';
 import { EXIT } from './motion/exit.js';
 import type { ActiveName, EnterName, ExitName } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
-import type { LookName } from './render/looks.js';
+import { LOOKS, type LookName } from './render/looks.js';
 import { Stage, prefersReducedMotion, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
 
 export type { EnterName, ActiveName, ExitName, LookName, QueuePolicy, Clock };
+export { ManualClock } from './clock.js';
+export { POLICY_NAMES } from './queue.js';
+
+// Read off the records the effect itself indexes, which the compiler already holds exhaustive,
+// so a name can never be renamed, added or dropped without these following it.
+export const ENTER_NAMES: readonly EnterName[] = Object.keys(ENTER) as EnterName[];
+export const ACTIVE_NAMES: readonly ActiveName[] = Object.keys(ACTIVE) as ActiveName[];
+export const EXIT_NAMES: readonly ExitName[] = Object.keys(EXIT) as ExitName[];
+export const LOOK_NAMES: readonly LookName[] = Object.keys(LOOKS) as LookName[];
 
 const TAU = Math.PI * 2;
 
@@ -3782,7 +3792,15 @@ import type { Font } from 'opentype.js';
 import type * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Clock, ManualClock, type Tick } from '../src/clock.js';
-import { type BlitskliegOptions, createBlitsklieg } from '../src/index.js';
+import {
+  ACTIVE_NAMES,
+  type BlitskliegOptions,
+  ENTER_NAMES,
+  EXIT_NAMES,
+  LOOK_NAMES,
+  POLICY_NAMES,
+  createBlitsklieg,
+} from '../src/index.js';
 import { Stage } from '../src/render/stage.js';
 
 const { parse } = vi.hoisted(() => ({ parse: vi.fn() }));
@@ -4152,12 +4170,24 @@ describe('createBlitsklieg', () => {
     expect(stage().scene.environmentRotation.y).toBe(0);
   });
 });
+
+describe('published name lists', () => {
+  // Literal rather than derived: the arrays are already exhaustive by construction, so what is
+  // left to pin is the order a picker shows and the fact that dropping one is a breaking change.
+  it('lists every name a consumer can fire with, motion-first', () => {
+    expect(ENTER_NAMES).toEqual(['slam', 'spin', 'flip', 'assemble', 'rise', 'none']);
+    expect(ACTIVE_NAMES).toEqual(['sweep', 'float', 'pulse', 'shimmer', 'none']);
+    expect(EXIT_NAMES).toEqual(['shatter', 'drop', 'recede', 'fade', 'none']);
+    expect(LOOK_NAMES).toEqual(['gold', 'chrome', 'oil', 'ruby']);
+    expect(POLICY_NAMES).toEqual(['queue', 'replace', 'concurrent']);
+  });
+});
 ```
 
 - [ ] **Step 3: Verify**
 
 Run: `npm run check`
-Expected: lint and typecheck clean, 186 tests across 16 files (13 new in index).
+Expected: lint and typecheck clean, 188 tests across 16 files (15 new in index).
 
 - [ ] **Step 4: Commit**
 
@@ -4719,7 +4749,7 @@ added to the `renderer` stub:
 - [ ] **Step 4: Verify**
 
 Run: `npm run check`
-Expected: all clean, 200 tests across 17 files.
+Expected: all clean, 202 tests across 17 files.
 
 - [ ] **Step 5: Commit**
 
@@ -4859,19 +4889,19 @@ not to a repo that will be published. Any OFL face works; commit its license nex
 ```
 
 The `<select>`s and the sequence row are empty on purpose — `main.ts` fills them from the
-exported name unions, so a renamed name cannot rot into a dead `<option>`.
+package's exported name lists, so a renamed name cannot rot into a dead `<option>`.
 
 - [ ] **Step 4: apps/lab/src/main.ts**
 
 ```ts
 import {
-  type ActiveName,
+  ACTIVE_NAMES,
   type Blitsklieg,
-  type EnterName,
-  type ExitName,
+  ENTER_NAMES,
+  EXIT_NAMES,
   type FireOptions,
-  type LookName,
-  type QueuePolicy,
+  LOOK_NAMES,
+  POLICY_NAMES,
   createBlitsklieg,
 } from '@blitsklieg/core';
 
@@ -4890,39 +4920,6 @@ function log(line: string): void {
   logEl.textContent = lines.join('\n');
   logEl.scrollTop = logEl.scrollHeight;
 }
-
-/**
- * Names from an exhaustive record rather than a hand-written list: one the package drops or
- * renames fails typecheck here instead of becoming an undefined lookup at fire time.
- */
-function namesOf<T extends string>(names: Record<T, true>): T[] {
-  return Object.keys(names) as T[];
-}
-
-const ENTER_NAMES = namesOf<EnterName>({
-  slam: true,
-  spin: true,
-  flip: true,
-  assemble: true,
-  rise: true,
-  none: true,
-});
-const ACTIVE_NAMES = namesOf<ActiveName>({
-  sweep: true,
-  float: true,
-  pulse: true,
-  shimmer: true,
-  none: true,
-});
-const EXIT_NAMES = namesOf<ExitName>({
-  fade: true,
-  shatter: true,
-  drop: true,
-  recede: true,
-  none: true,
-});
-const LOOK_NAMES = namesOf<LookName>({ gold: true, chrome: true, oil: true, ruby: true });
-const POLICY_NAMES = namesOf<QueuePolicy>({ queue: true, replace: true, concurrent: true });
 
 function choice<T extends string>(id: string, names: readonly T[]) {
   const select = el<HTMLSelectElement>(id);
@@ -5163,7 +5160,7 @@ export default defineConfig({
 - [ ] **Step 3: Keep `npm run check` clean**
 
 `vitest.config.ts` includes only `packages/*/test/**/*.test.ts`, so a `.spec.ts` under `apps/`
-is already out of the unit run — 200 tests across 17 files, unchanged.
+is already out of the unit run — 202 tests across 17 files, unchanged.
 
 Three files do need editing. biome does not read `.gitignore`, so Playwright's output
 directories have to join its own ignore list or `npm run lint` fails the moment anyone runs

@@ -2,7 +2,15 @@ import type { Font } from 'opentype.js';
 import type * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Clock, ManualClock, type Tick } from '../src/clock.js';
-import { type BlitskliegOptions, createBlitsklieg } from '../src/index.js';
+import {
+  ACTIVE_NAMES,
+  type BlitskliegOptions,
+  ENTER_NAMES,
+  EXIT_NAMES,
+  LOOK_NAMES,
+  POLICY_NAMES,
+  createBlitsklieg,
+} from '../src/index.js';
 import { BloomPath } from '../src/render/bloom.js';
 import { Stage } from '../src/render/stage.js';
 
@@ -458,5 +466,17 @@ describe('createBlitsklieg', () => {
       // The throw came out of the scene pass, so the composite never ran and the targets are live.
       expect(bloom.dispose).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('published name lists', () => {
+  // Literal rather than derived: the arrays are already exhaustive by construction, so what is
+  // left to pin is the order a picker shows and the fact that dropping one is a breaking change.
+  it('lists every name a consumer can fire with, motion-first', () => {
+    expect(ENTER_NAMES).toEqual(['slam', 'spin', 'flip', 'assemble', 'rise', 'none']);
+    expect(ACTIVE_NAMES).toEqual(['sweep', 'float', 'pulse', 'shimmer', 'none']);
+    expect(EXIT_NAMES).toEqual(['shatter', 'drop', 'recede', 'fade', 'none']);
+    expect(LOOK_NAMES).toEqual(['gold', 'chrome', 'oil', 'ruby']);
+    expect(POLICY_NAMES).toEqual(['queue', 'replace', 'concurrent']);
   });
 });
