@@ -2498,8 +2498,13 @@ git commit -m "add opentype font loading and cached extruded glyph geometry"
 
 **Files:**
 - Create: `packages/core/src/render/environment.ts`, `packages/core/src/render/looks.ts`
+- Test: `packages/core/test/render/looks.test.ts`
 
 - [ ] **Step 1: Write environment.ts**
+
+`buildEnvironment` returns the PMREM render target, not its texture. A render-target texture
+never registers three's texture-dispose listener, so `texture.dispose()` frees nothing; only
+disposing the target releases the framebuffer and the GL texture.
 
 ```ts
 import * as THREE from 'three';
@@ -2521,53 +2526,61 @@ const BARS: Bar[] = [
   { pos: [0, 13, 4], size: [16, 2.0], rot: 0, rgb: [10, 10, 10] },
 ];
 
-/** A synthetic photo studio: dark shell plus bright bars, turned into a reflection probe. */
-export function buildEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
-  const scene = new THREE.Scene();
+/** Radians of blur applied before prefiltering. */
+const BLUR_SIGMA = 0.03;
 
-  scene.add(
-    new THREE.Mesh(
-      new THREE.SphereGeometry(40, 32, 32),
-      new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        uniforms: {
-          top: { value: new THREE.Color(0.05, 0.06, 0.12) },
-          bottom: { value: new THREE.Color(0.01, 0.01, 0.02) },
-        },
-        vertexShader: `
-          varying vec3 vP;
-          void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-        fragmentShader: `
-          uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
-          void main(){ gl_FragColor = vec4(mix(bottom, top, smoothstep(-20.0, 20.0, vP.y)), 1.0); }`,
-      }),
-    ),
+function buildShell(): THREE.Mesh<THREE.BufferGeometry, THREE.Material> {
+  return new THREE.Mesh(
+    new THREE.SphereGeometry(40, 32, 32),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: {
+        top: { value: new THREE.Color(0.05, 0.06, 0.12) },
+        bottom: { value: new THREE.Color(0.01, 0.01, 0.02) },
+      },
+      vertexShader: `
+        varying vec3 vP;
+        void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `
+        uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
+        void main(){ gl_FragColor = vec4(mix(bottom, top, smoothstep(-20.0, 20.0, vP.y)), 1.0); }`,
+    }),
   );
+}
 
-  for (const bar of BARS) {
-    const m = new THREE.Mesh(
-      new THREE.PlaneGeometry(bar.size[0], bar.size[1]),
-      new THREE.MeshBasicMaterial({
-        color: new THREE.Color().setRGB(...bar.rgb),
-        side: THREE.DoubleSide,
-      }),
-    );
-    m.position.set(...bar.pos);
-    m.lookAt(0, 0, 0);
-    m.rotateZ(bar.rot);
-    scene.add(m);
-  }
+function buildBar(bar: Bar): THREE.Mesh<THREE.BufferGeometry, THREE.Material> {
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(bar.size[0], bar.size[1]),
+    new THREE.MeshBasicMaterial({
+      color: new THREE.Color().setRGB(...bar.rgb),
+      side: THREE.DoubleSide,
+    }),
+  );
+  mesh.position.set(...bar.pos);
+  mesh.lookAt(0, 0, 0);
+  mesh.rotateZ(bar.rot);
+  return mesh;
+}
+
+/**
+ * A synthetic photo studio: dark shell plus bright bars, turned into a reflection probe. The
+ * render target is returned rather than its texture — disposing a render target's texture frees
+ * nothing, so only the caller holding the target can release the GPU memory.
+ */
+export function buildEnvironment(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
+  const scene = new THREE.Scene();
+  const meshes = [buildShell(), ...BARS.map(buildBar)];
+  for (const mesh of meshes) scene.add(mesh);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
-  const texture = pmrem.fromScene(scene, 0.03).texture;
+  const target = pmrem.fromScene(scene, BLUR_SIGMA);
   pmrem.dispose();
-  scene.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      o.geometry.dispose();
-      (o.material as THREE.Material).dispose();
-    }
-  });
-  return texture;
+
+  for (const mesh of meshes) {
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+  return target;
 }
 ```
 
@@ -2578,21 +2591,27 @@ import * as THREE from 'three';
 
 export type LookName = 'gold' | 'chrome' | 'oil' | 'ruby';
 
-interface LookParams {
-  color: number;
-  metalness: number;
-  roughness: number;
-  clearcoat: number;
-  clearcoatRoughness: number;
-  transmission: number;
-  thickness: number;
-  ior: number;
-  attenuationColor: number;
-  attenuationDistance: number;
-  iridescence: number;
-  iridescenceIOR: number;
-  iridescenceThicknessRange: [number, number];
-}
+/** Extract silently drops a name that is not a real material property, so a typo fails DEFAULTS. */
+type LookKey = Extract<
+  keyof THREE.MeshPhysicalMaterial,
+  | 'color'
+  | 'metalness'
+  | 'roughness'
+  | 'clearcoat'
+  | 'clearcoatRoughness'
+  | 'transmission'
+  | 'thickness'
+  | 'ior'
+  | 'attenuationColor'
+  | 'attenuationDistance'
+  | 'iridescence'
+  | 'iridescenceIOR'
+  | 'iridescenceThicknessRange'
+>;
+
+export type LookParams = {
+  [K in LookKey]: K extends 'iridescenceThicknessRange' ? [number, number] : number;
+};
 
 const DEFAULTS: LookParams = {
   color: 0xffffff,
@@ -2638,7 +2657,7 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
   },
 };
 
-const COLOR_KEYS = new Set(['color', 'attenuationColor']);
+const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor']);
 
 export function createMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
@@ -2649,26 +2668,168 @@ export function createMaterial(): THREE.MeshPhysicalMaterial {
  * object and the material silently stops working, so they must go through .set().
  */
 export function applyLook(material: THREE.MeshPhysicalMaterial, name: LookName): void {
-  const params = { ...DEFAULTS, ...LOOKS[name] } as Record<string, unknown>;
+  const params = { ...DEFAULTS, ...LOOKS[name] };
   const target = material as unknown as Record<string, unknown>;
 
-  for (const [key, value] of Object.entries(params)) {
-    if (COLOR_KEYS.has(key)) (target[key] as THREE.Color).set(value as number);
+  for (const key of Object.keys(params) as LookKey[]) {
+    const value = params[key];
+    if (COLOR_KEYS.has(key)) (material[key] as THREE.Color).set(value as number);
+    else if (Array.isArray(value)) target[key] = [...value];
     else target[key] = value;
   }
   material.needsUpdate = true;
 }
 ```
 
-- [ ] **Step 3: Typecheck**
+- [ ] **Step 3: Write looks.test.ts**
 
-Run: `npx tsc -b packages/core`
-Expected: no errors.
+`applyLook` runs headless, so it is tested. `buildEnvironment` needs a real `WebGLRenderer`
+and has no test.
 
-- [ ] **Step 4: Commit**
+```ts
+import * as THREE from 'three';
+import { describe, expect, it } from 'vitest';
+import {
+  LOOKS,
+  type LookName,
+  type LookParams,
+  applyLook,
+  createMaterial,
+} from '../../src/render/looks.js';
+
+const KEY_SET: Record<keyof LookParams, true> = {
+  color: true,
+  metalness: true,
+  roughness: true,
+  clearcoat: true,
+  clearcoatRoughness: true,
+  transmission: true,
+  thickness: true,
+  ior: true,
+  attenuationColor: true,
+  attenuationDistance: true,
+  iridescence: true,
+  iridescenceIOR: true,
+  iridescenceThicknessRange: true,
+};
+const KEYS = Object.keys(KEY_SET) as (keyof LookParams)[];
+const NAMES: LookName[] = ['gold', 'chrome', 'oil', 'ruby'];
+
+function snapshot(material: THREE.MeshPhysicalMaterial): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of KEYS) {
+    const value = material[key];
+    out[key] = value instanceof THREE.Color ? value.getHex() : value;
+  }
+  return out;
+}
+
+function withLook(name: LookName): THREE.MeshPhysicalMaterial {
+  const material = createMaterial();
+  applyLook(material, name);
+  return material;
+}
+
+describe('createMaterial', () => {
+  it('is a physical material with the envMap intensity the looks are tuned against', () => {
+    const material = createMaterial();
+    expect(material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+    expect(material.envMapIntensity).toBe(2.2);
+  });
+});
+
+describe('LOOKS', () => {
+  it('has an entry for every name in the union', () => {
+    expect(Object.keys(LOOKS).sort()).toEqual([...NAMES].sort());
+  });
+
+  it('turns clearcoat off for oil, since a coat above the thin film flattens it', () => {
+    expect(withLook('oil').clearcoat).toBe(0);
+    expect(withLook('oil').iridescence).toBe(1);
+  });
+});
+
+describe('applyLook', () => {
+  it('fills unspecified params from the defaults rather than leaving three own values', () => {
+    const gold = withLook('gold');
+    expect(gold.clearcoat).toBe(1);
+    expect(gold.transmission).toBe(0);
+    expect(gold.thickness).toBe(0);
+    expect(gold.iridescence).toBe(0);
+    expect(gold.attenuationDistance).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it.each(NAMES)('%s applied over another look matches a fresh material', (name) => {
+    const reused = createMaterial();
+    for (const previous of NAMES) applyLook(reused, previous);
+    applyLook(reused, name);
+
+    expect(snapshot(reused)).toEqual(snapshot(withLook(name)));
+  });
+
+  it('leaves no transmission, thickness or attenuation behind when ruby is replaced', () => {
+    const material = withLook('ruby');
+    expect(material.transmission).toBe(1);
+    expect(material.thickness).toBe(1.4);
+    expect(material.attenuationDistance).toBe(0.6);
+
+    applyLook(material, 'gold');
+    expect(material.transmission).toBe(0);
+    expect(material.thickness).toBe(0);
+    expect(material.attenuationDistance).toBe(Number.POSITIVE_INFINITY);
+    expect(material.attenuationColor.getHex()).toBe(0xffffff);
+  });
+
+  it('leaves no iridescence behind when oil is replaced', () => {
+    const material = withLook('oil');
+    applyLook(material, 'chrome');
+    expect(material.iridescence).toBe(0);
+    expect(material.iridescenceIOR).toBe(1.3);
+    expect(material.iridescenceThicknessRange).toEqual([100, 400]);
+    expect(material.clearcoat).toBe(1);
+  });
+
+  it('sets color-valued params through .set(), keeping the Color object', () => {
+    const material = withLook('ruby');
+    expect(material.color).toBeInstanceOf(THREE.Color);
+    expect(material.attenuationColor).toBeInstanceOf(THREE.Color);
+    expect(material.color.getHex()).toBe(0xffffff);
+    expect(material.attenuationColor.getHex()).toBe(0xd4143c);
+
+    applyLook(material, 'gold');
+    expect(material.color).toBeInstanceOf(THREE.Color);
+    expect(material.color.getHex()).toBe(0xffc44d);
+  });
+
+  it('gives each material its own thickness range instead of sharing the module constant', () => {
+    const a = withLook('oil');
+    const b = withLook('oil');
+    expect(a.iridescenceThicknessRange).toEqual([100, 640]);
+    expect(a.iridescenceThicknessRange).not.toBe(b.iridescenceThicknessRange);
+
+    a.iridescenceThicknessRange[1] = 999;
+    expect(b.iridescenceThicknessRange[1]).toBe(640);
+    expect(withLook('oil').iridescenceThicknessRange[1]).toBe(640);
+  });
+
+  it('marks the material for recompile, since transmission and iridescence change the program', () => {
+    const material = createMaterial();
+    const before = material.version;
+    applyLook(material, 'ruby');
+    expect(material.version).toBeGreaterThan(before);
+  });
+});
+```
+
+- [ ] **Step 4: Verify**
+
+Run: `npm run check`
+Expected: lint and typecheck clean, 140 tests across 13 files (13 new in looks).
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add packages/core/src/render/environment.ts packages/core/src/render/looks.ts
+git add packages/core/src/render/ packages/core/test/render/
 git commit -m "add procedural environment map and four material looks"
 ```
 
@@ -2708,7 +2869,7 @@ export class Stage {
   readonly camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
   canvas: HTMLCanvasElement | null = null;
   renderer: THREE.WebGLRenderer | null = null;
-  environment: THREE.Texture | null = null;
+  environment: THREE.WebGLRenderTarget | null = null;
 
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -2742,7 +2903,7 @@ export class Stage {
     this.canvas = canvas;
     this.renderer = renderer;
     this.environment = buildEnvironment(renderer);
-    this.scene.environment = this.environment;
+    this.scene.environment = this.environment.texture;
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(document.documentElement);
