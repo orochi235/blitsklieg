@@ -8,7 +8,8 @@ export const easeInCubic: Easing = (t) => t ** 3;
 
 export const easeInOutCubic: Easing = (t) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
 
-// Overshoots past 1 then settles. c1 tunes how far.
+// Overshoots past 1 then settles. The two constants must differ — a single shared c cancels
+// at t=0 and flattens the curve to [1.0, 1.281], an entrance that never enters.
 export const backOut: Easing = (t) => {
   const c1 = 1.70158;
   const c3 = c1 + 1;
@@ -16,4 +17,4 @@ export const backOut: Easing = (t) => {
   return 1 + c3 * p ** 3 + c1 * p ** 2;
 };
 
-export const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
+export const clamp01 = (t: number): number => (t >= 0 ? (t > 1 ? 1 : t) : 0);
