@@ -2,7 +2,12 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './apps/lab/test',
-  webServer: { command: 'npm run dev -w @blitsklieg/lab', port: 5180, reuseExistingServer: true },
+  // Reusing a server in CI can serve stale code from a previous run's leftover process.
+  webServer: {
+    command: 'npm run dev -w @blitsklieg/lab',
+    port: 5180,
+    reuseExistingServer: !process.env.CI,
+  },
   use: {
     baseURL: 'http://localhost:5180',
     // The specs read the whole drawing buffer back every frame; a modest 1x buffer keeps that
