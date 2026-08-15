@@ -22,7 +22,7 @@ motion testable at all.
 ```
 packages/core/
   src/
-    index.ts              public surface: createBlitsklieg, types
+    index.ts              public surface: createBlitsklieg, names, types, direct render path
     clock.ts              Clock interface, RafClock, ManualClock
     easing.ts             easing curves
     pose.ts               Pose, PoseOffset, algebra
@@ -35,20 +35,19 @@ packages/core/
     queue.ts              serial effect queue
     text/
       font.ts             opentype.js loading
-      glyphs.ts           glyph -> ExtrudeGeometry, cached
+      glyphs.ts           glyph -> ExtrudeGeometry, cached (the one three.js file under text/)
       layout.ts           kerned advances, viewport fit
     render/
       environment.ts      procedural cubemap
       looks.ts            material presets
       stage.ts            renderer, scene, camera, lifecycle
-      direct.ts           direct-to-canvas path
       bloom.ts            RT chain + alpha-preserving composite
   test/                   mirrors src/
 apps/lab/                 Vite demo page
 ```
 
-Pure logic (`clock`, `easing`, `pose`, `motion/`, `queue`, `text/layout`) never imports three.js.
-That boundary is what keeps the test suite fast and meaningful.
+Pure logic (`clock`, `easing`, `pose`, `motion/`, `queue`, `text/font`, `text/layout`) never
+imports three.js. That boundary is what keeps the test suite fast and meaningful.
 
 ---
 
@@ -3633,8 +3632,8 @@ export type { EnterName, ActiveName, ExitName, LookName, QueuePolicy, Clock };
 export { ManualClock } from './clock.js';
 export { POLICY_NAMES } from './queue.js';
 
-// Read off the records the effect itself indexes, which the compiler already holds exhaustive,
-// so a name can never be renamed, added or dropped without these following it.
+// Read off the records the effect itself indexes. Those are typed exhaustive over the unions,
+// so a name cannot be added, renamed or dropped without these lists following it.
 export const ENTER_NAMES: readonly EnterName[] = Object.keys(ENTER) as EnterName[];
 export const ACTIVE_NAMES: readonly ActiveName[] = Object.keys(ACTIVE) as ActiveName[];
 export const EXIT_NAMES: readonly ExitName[] = Object.keys(EXIT) as ExitName[];

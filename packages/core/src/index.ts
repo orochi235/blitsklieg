@@ -15,8 +15,8 @@ export type { EnterName, ActiveName, ExitName, LookName, QueuePolicy, Clock };
 export { ManualClock } from './clock.js';
 export { POLICY_NAMES } from './queue.js';
 
-// Read off the records the effect itself indexes, which the compiler already holds exhaustive,
-// so a name can never be renamed, added or dropped without these following it.
+// Read off the records the effect itself indexes. Those are typed exhaustive over the unions,
+// so a name cannot be added, renamed or dropped without these lists following it.
 export const ENTER_NAMES: readonly EnterName[] = Object.keys(ENTER) as EnterName[];
 export const ACTIVE_NAMES: readonly ActiveName[] = Object.keys(ACTIVE) as ActiveName[];
 export const EXIT_NAMES: readonly ExitName[] = Object.keys(EXIT) as ExitName[];
