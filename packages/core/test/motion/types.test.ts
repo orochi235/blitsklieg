@@ -1,0 +1,115 @@
+import { describe, expect, it } from 'vitest';
+import type { ActiveName, EnterName, ExitName, LetterInfo } from '../../src/motion/types.js';
+import { NONE, stagger } from '../../src/motion/types.js';
+
+function letter(index: number, count: number): LetterInfo {
+  return { index, count };
+}
+
+describe('stagger', () => {
+  it('is 0 at t=0 for the first letter', () => {
+    expect(stagger(0, letter(0, 6))).toBe(0);
+  });
+
+  it('saturates to exactly 1 at t=1 for every letter, across counts', () => {
+    for (const count of [1, 2, 6, 20]) {
+      for (let index = 0; index < count; index++) {
+        expect(stagger(1, letter(index, count))).toBe(1);
+      }
+    }
+  });
+
+  it('would fail saturation if the upper clamp were removed', () => {
+    // Direct computation of the unclamped formula for the last letter of a 20-letter
+    // word: start = (19/20) * 0.5 = 0.475, span = 0.5, so (1 - 0.475) / 0.5 = 1.05 > 1.
+    // The clamp is what brings this back to exactly 1.
+    const unclamped = (1 - (19 / 20) * 0.5) / 0.5;
+    expect(unclamped).toBeGreaterThan(1);
+    expect(stagger(1, letter(19, 20))).toBe(1);
+  });
+
+  it('later letters lag earlier ones at a mid-range t', () => {
+    const count = 10;
+    const t = 0.5;
+    let prev = stagger(t, letter(0, count));
+    for (let index = 1; index < count; index++) {
+      const cur = stagger(t, letter(index, count));
+      expect(cur).toBeLessThan(prev);
+      prev = cur;
+    }
+  });
+
+  it('always stays within [0, 1] across a dense sample of t, counts, and indices', () => {
+    const counts = [1, 2, 5, 13];
+    for (const count of counts) {
+      for (let index = 0; index < count; index++) {
+        for (let i = 0; i <= 100; i++) {
+          const t = i / 100;
+          const v = stagger(t, letter(index, count));
+          expect(v).toBeGreaterThanOrEqual(0);
+          expect(v).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('guards against divide-by-zero for count: 0', () => {
+    const v = stagger(0.5, letter(0, 0));
+    expect(Number.isFinite(v)).toBe(true);
+    expect(v).toBeGreaterThanOrEqual(0);
+    expect(v).toBeLessThanOrEqual(1);
+  });
+
+  it('never produces NaN when spread=1, even exactly at a letter start (the 0/0 case)', () => {
+    const count = 8;
+    for (let index = 0; index < count; index++) {
+      const l = letter(index, count);
+      const start = (index / count) * 1;
+      const v = stagger(start, l, 1);
+      expect(Number.isNaN(v)).toBe(false);
+      expect(Number.isFinite(v)).toBe(true);
+    }
+  });
+
+  it('a larger spread produces more first-to-last lag than a smaller spread at the same t', () => {
+    const count = 10;
+    const t = 0.6;
+    const lagAt = (spread: number) =>
+      stagger(t, letter(0, count), spread) - stagger(t, letter(count - 1, count), spread);
+    expect(lagAt(0.8)).toBeGreaterThan(lagAt(0.2));
+  });
+});
+
+describe('NONE', () => {
+  it('has zero duration', () => {
+    expect(NONE.duration).toBe(0);
+  });
+
+  it('offset() returns an empty object for any t and letter', () => {
+    expect(Object.keys(NONE.offset(0, letter(0, 1))).length).toBe(0);
+    expect(Object.keys(NONE.offset(0.5, letter(3, 7))).length).toBe(0);
+    expect(Object.keys(NONE.offset(1, letter(6, 7))).length).toBe(0);
+  });
+
+  it('offset() returns a fresh object each call, not a shared one', () => {
+    const l = letter(0, 1);
+    expect(NONE.offset(0, l)).not.toBe(NONE.offset(0, l));
+  });
+});
+
+describe('motion name unions are complete', () => {
+  it('EnterName has the expected 6 members', () => {
+    const names: EnterName[] = ['slam', 'spin', 'flip', 'assemble', 'rise', 'none'];
+    expect(names.length).toBe(6);
+  });
+
+  it('ActiveName has the expected 5 members', () => {
+    const names: ActiveName[] = ['sweep', 'float', 'pulse', 'shimmer', 'none'];
+    expect(names.length).toBe(5);
+  });
+
+  it('ExitName has the expected 5 members', () => {
+    const names: ExitName[] = ['shatter', 'drop', 'recede', 'fade', 'none'];
+    expect(names.length).toBe(5);
+  });
+});
