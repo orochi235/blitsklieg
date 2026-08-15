@@ -1025,7 +1025,13 @@ git commit -m "add four exit motion pieces"
 ## Task 9: Phase compositor
 
 The spec's central motion decision. Phases contribute weighted offsets over the rest pose, with a
-crossfade window so a phase's tail overlaps the next phase's head.
+crossfade window so a phase's tail overlaps the next phase's head. Two ramps at one boundary are
+complementary and sum to 1, but a `hold` shorter than `blendMs` puts all three phases in their
+ramps at once and the total runs past 1, so `poseAt` normalizes whenever the sum exceeds 1.
+
+Zero-length phases are dropped at construction rather than guarded at each read, so a `none` slot
+can never reach the 0/0 in `localT`. `duration` is computed before the filter, so the pins that
+hold the outermost phases at full weight still find their segments.
 
 **Files:**
 - Create: `packages/core/src/motion/compositor.ts`
@@ -1035,8 +1041,9 @@ crossfade window so a phase's tail overlaps the next phase's head.
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { Timeline } from '../../src/motion/compositor.js';
+import { Timeline, type TimelineOptions } from '../../src/motion/compositor.js';
 import type { MotionPiece } from '../../src/motion/types.js';
+import { REST } from '../../src/pose.js';
 
 const piece = (duration: number, x: number): MotionPiece => ({
   duration,
@@ -1053,6 +1060,26 @@ const build = (hold = 100) =>
   });
 
 const L = { index: 0, count: 1 };
+
+/** Every phase contributes 1, so `poseAt(t).position[0]` reads back the total phase weight. */
+const unit = (duration: number): MotionPiece => ({
+  duration,
+  offset: () => ({ position: [1, 0, 0] }),
+});
+
+const expectUnitWeight = (over: Partial<TimelineOptions> = {}) => {
+  const tl = new Timeline({
+    enter: unit(100),
+    active: unit(50),
+    exit: unit(100),
+    hold: 100,
+    blendMs: 20,
+    ...over,
+  });
+  for (let t = 0; t < tl.duration; t += 1) {
+    expect(tl.poseAt(t, L).position[0], `t=${t}`).toBeCloseTo(1);
+  }
+};
 
 describe('Timeline', () => {
   it('reports total duration as enter + hold + exit', () => {
@@ -1073,24 +1100,83 @@ describe('Timeline', () => {
     expect(build().poseAt(150, L).position[0]).toBe(10);
   });
 
-  it('blends both phases inside the crossfade window', () => {
-    // 10ms into the 20ms window straddling the enter/active boundary at t=100.
-    const x = build().poseAt(100, L).position[0];
-    expect(x).toBeGreaterThan(1);
-    expect(x).toBeLessThan(10);
+  it('blends both phases evenly at the midpoint of the crossfade window', () => {
+    // Halfway through the 20ms window straddling the enter/active boundary at t=100:
+    // 0.5 of enter's 1, plus 0.5 of active's 10 sampled at its loop start.
+    expect(build().poseAt(100, L).position[0]).toBeCloseTo(5.5);
   });
 
-  it('never leaves a gap: some phase is always contributing', () => {
-    const tl = build();
-    for (let t = 0; t < tl.duration; t += 1) {
-      expect(tl.poseAt(t, L).position[0], `t=${t}`).not.toBe(0);
-    }
+  it('holds total phase weight at 1 for the whole timeline', () => {
+    expectUnitWeight();
   });
 
   it('loops the active piece rather than running it once', () => {
     const tl = build(200);
     // active duration is 50ms, so 120ms and 170ms into the hold are the same phase point
     expect(tl.poseAt(220, L)).toEqual(tl.poseAt(270, L));
+  });
+
+  it('samples the looping active piece at its wrapped phase point', () => {
+    const tl = new Timeline({
+      enter: piece(100, 1),
+      active: { duration: 50, offset: (t) => ({ position: [t, 0, 0] }) },
+      exit: piece(100, 100),
+      hold: 200,
+      blendMs: 20,
+    });
+    expect(tl.poseAt(160, L).position[0]).toBe(0.2);
+    expect(tl.poseAt(210, L).position[0]).toBe(0.2);
+    expect(tl.poseAt(185, L).position[0]).toBe(0.7);
+  });
+});
+
+describe('Timeline with degenerate durations', () => {
+  const degenerate = (over: Partial<TimelineOptions>) =>
+    new Timeline({
+      enter: piece(100, 1),
+      active: piece(50, 10),
+      exit: piece(100, 100),
+      hold: 100,
+      blendMs: 20,
+      ...over,
+    });
+
+  it('gives a zero-length phase no weight at all', () => {
+    const tl = degenerate({ enter: piece(0, 1) });
+    expect(tl.duration).toBe(200);
+    expect(tl.poseAt(0, L).position[0]).toBe(10);
+    expectUnitWeight({ enter: unit(0) });
+  });
+
+  it('covers the whole timeline when the hold is zero', () => {
+    const tl = degenerate({ hold: 0 });
+    expect(tl.duration).toBe(200);
+    expectUnitWeight({ hold: 0 });
+  });
+
+  it('does not overshoot when the hold is shorter than the blend window', () => {
+    expectUnitWeight({ hold: 10 });
+  });
+
+  it('hands over cleanly at every boundary with no blend window', () => {
+    const tl = degenerate({ blendMs: 0 });
+    expectUnitWeight({ blendMs: 0 });
+    expect(tl.poseAt(99, L).position[0]).toBe(1);
+    expect(tl.poseAt(100, L).position[0]).toBe(10);
+    expect(tl.poseAt(199, L).position[0]).toBe(10);
+    expect(tl.poseAt(200, L).position[0]).toBe(100);
+  });
+
+  it('is finished immediately when every phase is empty', () => {
+    const tl = degenerate({
+      enter: piece(0, 1),
+      active: piece(0, 10),
+      exit: piece(0, 100),
+      hold: 0,
+    });
+    expect(tl.duration).toBe(0);
+    expect(tl.isFinished(0)).toBe(true);
+    expect(tl.poseAt(0, L)).toEqual(REST);
   });
 });
 ```
@@ -1128,7 +1214,7 @@ export class Timeline {
   private readonly segments: Segment[];
   private readonly blend: number;
 
-  constructor(private readonly opts: TimelineOptions) {
+  constructor(opts: TimelineOptions) {
     const enterEnd = opts.enter.duration;
     const activeEnd = enterEnd + opts.hold;
     this.duration = activeEnd + opts.exit.duration;
@@ -1137,7 +1223,7 @@ export class Timeline {
       { piece: opts.enter, start: 0, end: enterEnd, loop: false },
       { piece: opts.active, start: enterEnd, end: activeEnd, loop: true },
       { piece: opts.exit, start: activeEnd, end: this.duration, loop: false },
-    ];
+    ].filter((seg) => seg.end > seg.start);
   }
 
   isFinished(elapsed: number): boolean {
@@ -1145,13 +1231,22 @@ export class Timeline {
   }
 
   poseAt(elapsed: number, letter: LetterInfo): Pose {
-    const offsets: PoseOffset[] = [];
+    const parts: { seg: Segment; weight: number }[] = [];
+    let total = 0;
 
     for (const seg of this.segments) {
-      const w = this.weight(seg, elapsed);
-      if (w <= 0) continue;
-      offsets.push(scaleOffset(seg.piece.offset(this.localT(seg, elapsed), letter), w));
+      const weight = this.weight(seg, elapsed);
+      if (weight <= 0) continue;
+      parts.push({ seg, weight });
+      total += weight;
     }
+
+    // Pairwise-complementary ramps sum to 1, but a `hold` shorter than `blendMs` overlaps all
+    // three phases at once and the total runs past 1 — which reads as the word lurching.
+    const norm = total > 1 ? 1 / total : 1;
+    const offsets: PoseOffset[] = parts.map(({ seg, weight }) =>
+      scaleOffset(seg.piece.offset(this.localT(seg, elapsed), letter), weight * norm),
+    );
 
     return accumulate(REST, offsets);
   }
@@ -1159,28 +1254,31 @@ export class Timeline {
   /** Ramps 0→1 over the blend window at the segment's leading edge and back down at its trailing. */
   private weight(seg: Segment, elapsed: number): number {
     const half = this.blend / 2;
-    if (elapsed <= seg.start - half || elapsed >= seg.end + half) return 0;
-    if (this.blend === 0) return elapsed >= seg.start && elapsed < seg.end ? 1 : 0;
+    const head = seg.start - half;
+    const tail = seg.end + half;
+    if (elapsed < head || elapsed >= tail) return 0;
 
-    const rampIn = Math.min(1, (elapsed - (seg.start - half)) / this.blend);
-    const rampOut = Math.min(1, ((seg.end + half) - elapsed) / this.blend);
-    // First and last segments hold full weight at the outer edges rather than fading to nothing.
-    const inW = seg.start === 0 ? 1 : rampIn;
-    const outW = seg.end === this.duration ? 1 : rampOut;
-    return Math.max(0, Math.min(inW, outW));
+    // Whichever phase starts at 0 and whichever ends at `duration` hold full weight there rather
+    // than fading in from or out to nothing; a zero-length enter makes `active` the former.
+    const inW = seg.start === 0 ? 1 : this.ramp(elapsed - head);
+    const outW = seg.end === this.duration ? 1 : this.ramp(tail - elapsed);
+    return Math.min(inW, outW);
+  }
+
+  private ramp(into: number): number {
+    return this.blend > 0 ? Math.min(1, into / this.blend) : 1;
   }
 
   private localT(seg: Segment, elapsed: number): number {
-    const span = seg.end - seg.start;
-    if (span <= 0) return 1;
     const into = elapsed - seg.start;
 
     if (seg.loop) {
       const d = seg.piece.duration;
       if (d <= 0) return 0;
-      return ((into % d) + d) % d / d;
+      return (((into % d) + d) % d) / d;
     }
-    return Math.max(0, Math.min(1, into / span));
+
+    return Math.max(0, Math.min(1, into / (seg.end - seg.start)));
   }
 }
 ```
@@ -1188,7 +1286,7 @@ export class Timeline {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run packages/core/test/motion/compositor.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 5: Commit**
 
