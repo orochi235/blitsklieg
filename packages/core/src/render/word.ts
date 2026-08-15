@@ -17,6 +17,7 @@ export class Word {
   private readonly baseX: number[] = [];
   private readonly material: THREE.MeshPhysicalMaterial;
   private readonly cache: GlyphCache;
+  private disposed = false;
 
   constructor(text: string, font: LoadedFont, look: LookName, budget: Budget) {
     this.material = createMaterial();
@@ -30,7 +31,8 @@ export class Word {
     const scaleToEm = EM / font.unitsPerEm;
     const line = layoutLine(text, font.metrics);
 
-    let maxY = 0;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
     let inkStart: number | null = null;
     let inkEnd = 0;
 
@@ -49,18 +51,25 @@ export class Word {
       this.letters.push(mesh);
       this.group.add(mesh);
 
-      maxY = Math.max(maxY, geo.boundingBox?.max.y ?? 0);
+      const bounds = geo.boundingBox;
+      if (bounds) {
+        minY = Math.min(minY, bounds.min.y);
+        maxY = Math.max(maxY, bounds.max.y);
+      }
       inkStart ??= x;
       inkEnd = x + font.metrics.advanceOf(g.char) * scaleToEm;
     }
 
     // Spanning the drawn glyphs, not line.width — its trailing advance would push a word ending
     // in whitespace off center.
+    const drawn = Number.isFinite(minY);
     const left = inkStart ?? 0;
-    const scale = fitScale(inkEnd - left, maxY, budget);
+    // Ink height, not cap height: a descender both drops the center and eats budget.
+    const midY = drawn ? (minY + maxY) / 2 : 0;
+    const scale = fitScale(inkEnd - left, drawn ? maxY - minY : 0, budget);
     this.group.scale.setScalar(scale);
     // Center on both axes so rotation pivots through the word, not its left edge.
-    this.group.position.set((-(left + inkEnd) / 2) * scale, (-maxY / 2) * scale, 0);
+    this.group.position.set((-(left + inkEnd) / 2) * scale, -midY * scale, 0);
   }
 
   get letterCount(): number {
@@ -68,6 +77,8 @@ export class Word {
   }
 
   apply(timeline: Timeline, elapsed: number): void {
+    if (this.disposed) return;
+
     let opacity = 0;
     for (let i = 0; i < this.letters.length; i++) {
       const mesh = this.letters[i];
@@ -81,12 +92,13 @@ export class Word {
       mesh.scale.setScalar(pose.scale);
       opacity = Math.max(opacity, pose.opacity);
     }
-    // One shared material: the word wears its most visible letter, so a staggered fade never
-    // hides a letter that is still meant to be on screen.
+    // One shared material. A staggered enter (spin, flip, rise) fades letters in at different
+    // times, so taking the last letter's opacity would hide the word until it caught up.
     this.material.opacity = opacity;
   }
 
   dispose(): void {
+    this.disposed = true;
     this.cache.dispose();
     this.material.dispose();
     this.group.clear();

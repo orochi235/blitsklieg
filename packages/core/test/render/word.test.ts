@@ -16,25 +16,28 @@ const STEP = ADVANCE / UPEM;
 const NBSP = '\u00a0';
 const ZWJ = '\u200d';
 const BLANK = new Set([' ', NBSP, ZWJ]);
+const DESCENDS = new Set(['g']);
 
-/** A box hanging below the baseline, because opentype paths are y-down. */
-function boxPath(w: number, h: number): PathCommand[] {
+/** Box spanning `bottom`..`top` in three's y-up space; opentype paths are y-down. */
+function boxPath(w: number, top: number, bottom: number): PathCommand[] {
   return [
-    { type: 'M', x: 0, y: 0 },
-    { type: 'L', x: w, y: 0 },
-    { type: 'L', x: w, y: -h },
-    { type: 'L', x: 0, y: -h },
+    { type: 'M', x: 0, y: -bottom },
+    { type: 'L', x: w, y: -bottom },
+    { type: 'L', x: w, y: -top },
+    { type: 'L', x: 0, y: -top },
     { type: 'Z' },
   ];
 }
 
-/** Every char is a 0.5 x 0.7 em box except the blanks, which draw nothing at all. */
+/** Chars are 0.5 em wide boxes rising 0.7 em; 'g' also drops 0.2 em, and blanks draw nothing. */
 function stubFont(): LoadedFont {
   const font = {
     charToGlyph: (char: string) => ({
       advanceWidth: ADVANCE,
       getPath: (_x: number, _y: number, size: number) => ({
-        commands: BLANK.has(char) ? [] : boxPath(0.5 * size, 0.7 * size),
+        commands: BLANK.has(char)
+          ? []
+          : boxPath(0.5 * size, 0.7 * size, DESCENDS.has(char) ? -0.2 * size : 0),
       }),
     }),
   } as unknown as Font;
@@ -58,8 +61,6 @@ function timelineOf(offset: MotionPiece['offset']): Timeline {
   });
 }
 
-const REST_TIMELINE = timelineOf(() => ({}));
-
 function meshes(word: Word): THREE.Mesh[] {
   return word.group.children as THREE.Mesh[];
 }
@@ -75,6 +76,21 @@ function inkCenter(word: Word): number {
   const last = drawn[drawn.length - 1] as THREE.Mesh;
   const span = (first.position.x + last.position.x + STEP) / 2;
   return word.group.position.x + word.group.scale.x * span;
+}
+
+/** Vertical extent the drawn glyphs cover, in group-local units. */
+function inkSpanY(word: Word): { min: number; max: number } {
+  const boxes = meshes(word).map((m) => m.geometry.boundingBox as THREE.Box3);
+  return {
+    min: Math.min(...boxes.map((b) => b.min.y)),
+    max: Math.max(...boxes.map((b) => b.max.y)),
+  };
+}
+
+/** World-space vertical midpoint of that ink, before any pose is applied. */
+function inkCenterY(word: Word): number {
+  const { min, max } = inkSpanY(word);
+  return word.group.position.y + word.group.scale.x * ((min + max) / 2);
 }
 
 describe('Word', () => {
@@ -152,11 +168,29 @@ describe('Word', () => {
 
   it('centers the word on both axes', () => {
     const word = new Word('AA', stubFont(), 'gold', ROOMY);
-    const [a] = meshes(word);
-    const top = (a?.geometry.boundingBox?.max.y ?? 0) * word.group.scale.x;
 
     expect(inkCenter(word)).toBeCloseTo(0, 10);
-    expect(word.group.position.y).toBeCloseTo(-top / 2, 10);
+    expect(inkCenterY(word)).toBeCloseTo(0, 10);
+  });
+
+  it('centers on the ink, so a descender is not left hanging below the frame', () => {
+    const font = stubFont();
+    const plain = new Word('AA', font, 'gold', ROOMY);
+    const dropped = new Word('Ag', font, 'gold', ROOMY);
+
+    expect(inkCenterY(dropped)).toBeCloseTo(0, 10);
+    // Cap-height centering would put both at the same y; a lower ink center has to raise the group.
+    expect(dropped.group.position.y).toBeGreaterThan(plain.group.position.y);
+  });
+
+  it('fits the ink height, descender included, rather than the cap height', () => {
+    const font = stubFont();
+    const loose = new Word('g', font, 'gold', ROOMY);
+    const { min, max } = inkSpanY(loose);
+
+    const fitted = new Word('g', font, 'gold', { width: 100, height: (max - min) / 2 });
+
+    expect(fitted.group.scale.x).toBeCloseTo(0.5, 10);
   });
 
   it('centers on the drawn glyphs, so surrounding whitespace does not shift the word', () => {
@@ -227,10 +261,18 @@ describe('Word', () => {
     expect(word.group.children).toHaveLength(0);
   });
 
-  it('poses without touching the disposed cache', () => {
+  it('goes inert after dispose rather than posing into a disposed material', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
-    word.dispose();
+    const [a] = meshes(word);
+    const material = materialOf(word);
 
-    expect(() => word.apply(REST_TIMELINE, 50)).not.toThrow();
+    word.dispose();
+    word.apply(
+      timelineOf(() => ({ position: [5, 0, 0], opacity: 0.25 })),
+      50,
+    );
+
+    expect(a?.position.x).toBe(0);
+    expect(material.opacity).toBe(1);
   });
 });
