@@ -8,6 +8,6 @@
     "build:pages": "vite build --base=/blitsklieg/",
     "preview:pages": "vite preview --base=/blitsklieg/"
   },
-  "dependencies": { "@blitsklieg/core": "*" },
+  "dependencies": { "blitsklieg": "*" },
   "devDependencies": { "vite": "^6.0.3" }
 }

@@ -49,8 +49,8 @@ blitsklieg never calls `requestFullscreen`.
 ## Packages
 
 ```
-packages/core    @blitsklieg/core    vanilla three.js, imperative, no framework
-packages/react   @blitsklieg/react   thin binding, no logic of its own
+packages/core    blitsklieg          vanilla three.js, imperative, no framework
+packages/react   blitsklieg-react    thin binding, no logic of its own
 apps/lab         Vite demo page
 ```
 

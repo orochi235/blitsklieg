@@ -1,5 +1,8 @@
 node_modules/
 dist/
+*.tsbuildinfo
+# Copied from the repo root at pack time so the npm page has the README.
+packages/core/README.md
 test-results/
 playwright-report/
 .DS_Store

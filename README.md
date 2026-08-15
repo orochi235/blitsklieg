@@ -10,12 +10,20 @@ An effect is three motion slots — `enter`, `active`, `exit` — plus a materia
 Every effect is playable at **[the lab](https://orochi235.github.io/blitsklieg/)**, which is
 deployed from `main`.
 
+## Install
+
+```sh
+npm install blitsklieg three
+```
+
+`three` is a peer dependency, so the app owns the copy: two copies of three in one bundle break
+`instanceof` and double the download. Any version from 0.170 up will do. The package is
+ESM-only, and ships as `dist/` with type declarations.
+
 ## Usage
 
-Not published yet: v0 is consumed as the workspace package `@blitsklieg/core`.
-
 ```ts
-import { createBlitsklieg } from '@blitsklieg/core';
+import { createBlitsklieg } from 'blitsklieg';
 
 const bk = createBlitsklieg({ fontUrl: '/fonts/display.ttf' });
 

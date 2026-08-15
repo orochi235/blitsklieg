@@ -1,15 +1,44 @@
 {
-  "name": "@blitsklieg/core",
-  "version": "0.0.0",
-  "private": true,
+  "name": "blitsklieg",
+  "version": "0.1.0",
+  "description": "Shiny extruded 3D type, slammed over the web app you already have, on a transparent WebGL overlay",
+  "keywords": ["webgl", "three", "3d", "text", "animation", "overlay", "celebration"],
+  "homepage": "https://orochi235.github.io/blitsklieg/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orochi235/blitsklieg.git",
+    "directory": "packages/core"
+  },
+  "bugs": "https://github.com/orochi235/blitsklieg/issues",
+  "license": "MIT",
+  "author": "orochi235",
   "type": "module",
-  "main": "./src/index.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist/**/*.js", "dist/**/*.d.ts", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "rm -rf dist && tsc -b tsconfig.json --force",
+    "prepack": "npm run build && cp ../../README.md README.md",
+    "prepublishOnly": "npm --prefix ../.. run check"
+  },
   "dependencies": {
-    "opentype.js": "^1.3.4",
-    "three": "^0.170.0"
+    "opentype.js": "^1.3.4"
+  },
+  "peerDependencies": {
+    "three": ">=0.170.0 <1.0.0"
   },
   "devDependencies": {
     "@types/opentype.js": "^1.3.10",
-    "@types/three": "^0.170.0"
+    "@types/three": "^0.170.0",
+    "three": "^0.170.0"
   }
 }

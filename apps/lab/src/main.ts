@@ -7,7 +7,7 @@ import {
   LOOK_NAMES,
   POLICY_NAMES,
   createBlitsklieg,
-} from '@blitsklieg/core';
+} from 'blitsklieg';
 
 function el<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);

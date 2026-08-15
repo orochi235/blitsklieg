@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `@blitsklieg/core` — a transparent WebGL overlay that renders shiny extruded 3D
+**Goal:** Build `blitsklieg` — a transparent WebGL overlay that renders shiny extruded 3D
 type over a host web app, driven by `enter`/`active`/`exit` motion slots.
 
 **Architecture:** A pure-logic layer (clock, easing, pose algebra, phase compositor, queue) with
@@ -102,7 +102,7 @@ imports three.js. That boundary is what keeps the test suite fast and meaningful
 
 ```json
 {
-  "name": "@blitsklieg/core",
+  "name": "blitsklieg",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -121,7 +121,8 @@ imports three.js. That boundary is what keeps the test suite fast and meaningful
 `opentype.js` ships no type declarations, so without `@types/opentype.js` Task 12's import fails
 with TS7016 and no code change can fix it — `skipLibCheck` does not apply, because the error is
 raised on the importing file. `private: true` prevents publishing a package whose `main` is raw
-TypeScript; Task 16 removes it alongside real `exports`/`types`/`files` wiring.
+TypeScript; packaging for the first release replaces it with real `exports`/`types`/`files`
+wiring.
 
 - [ ] **Step 4: packages/core/tsconfig.json**
 
@@ -4776,7 +4777,7 @@ git commit -m "add opt-in bloom path with alpha-preserving composite"
   "private": true,
   "type": "module",
   "scripts": { "dev": "vite", "build": "vite build" },
-  "dependencies": { "@blitsklieg/core": "*" },
+  "dependencies": { "blitsklieg": "*" },
   "devDependencies": { "vite": "^6.0.3" }
 }
 ```
@@ -4902,7 +4903,7 @@ import {
   LOOK_NAMES,
   POLICY_NAMES,
   createBlitsklieg,
-} from '@blitsklieg/core';
+} from 'blitsklieg';
 
 function el<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -5331,7 +5332,7 @@ git commit -m "add visual regression asserting the overlay stays transparent"
 
 Not in this plan, by decision in the spec:
 
-- `@blitsklieg/react` — thin binding, its own plan once core is judged visually.
+- `blitsklieg-react` — thin binding, its own plan once core is judged visually.
 - Particles (v1.1), element-anchored placement (v1.2), `hold: 'until-dismissed'` with `dismiss()`.
 - Per-letter opacity — v0 shares one material across letters, so `shatter` fades the word as a
   unit rather than per letter. Fixing this means cloning the material per letter; revisit only if
