@@ -409,11 +409,14 @@ export const easeInCubic: Easing = (t) => t ** 3;
 export const easeInOutCubic: Easing = (t) =>
   t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
 
-// Overshoots past 1 then settles. c tunes how far.
+// Overshoots past 1 then settles. The two constants must differ: with a single shared c the
+// cubic and quadratic terms cancel at t=0, pinning the curve to 1.0 and flattening its range
+// to [1.0, 1.281] — an entrance that never enters.
 export const backOut: Easing = (t) => {
-  const c = 1.9;
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
   const p = t - 1;
-  return 1 + c * p ** 3 + c * p ** 2;
+  return 1 + c3 * p ** 3 + c1 * p ** 2;
 };
 
 export const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -2691,3 +2694,19 @@ Not in this plan, by decision in the spec:
 - Per-letter opacity — v0 shares one material across letters, so `shatter` fades the word as a
   unit rather than per letter. Fixing this means cloning the material per letter; revisit only if
   it reads wrong in the lab.
+
+## Wanted later — configurable and scriptable easing
+
+Explicitly on the roadmap, deliberately **not** in v0: callers should be able to supply their own
+easing, and eventually script it.
+
+Nothing here forecloses that. `Easing` is already `(t: number) => number` — a plain function, the
+only signature a scripted curve would need — and motion pieces call curves by reference rather
+than inlining the math. The v0 constraint is only that the *set* is closed: `enter`/`active`/`exit`
+take names, not functions.
+
+The real design question when this lands is scope. Easing per effect (`{ enter: 'slam', ease:
+easeOutCubic }`) is a small change. Easing per phase, or per letter, means the `MotionPiece`
+contract grows a curve parameter and every piece has to declare which of its channels the curve
+applies to — position, rotation, scale, or opacity — since a single piece drives several at once
+and they rarely want the same shaping. Decide that boundary before writing code, not during.

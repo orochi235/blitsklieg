@@ -159,3 +159,12 @@ Nothing below is testable without this.
 The material and composite work is validated by `spikes/material-and-composite.html`
 (120fps at 1280×800 on both render paths). The spike uses typeface.json fonts, so it does not
 exercise the opentype.js decision.
+
+The spike's **motion is not validated**. It carried a `backOut` curve whose two constants were
+identical, which cancels at t=0 and pins the curve to the range [1.0, 1.281]. Its "slam"
+therefore held final position and bulged toward the camera rather than arriving from depth.
+Judgements formed from the spike cover material, environment, and composite only.
+
+Easing is a closed set in v0, but callers supplying their own curves — and eventually scripting
+them — is wanted. `Easing` is `(t: number) => number` and motion pieces call curves by reference,
+so nothing here forecloses it.
