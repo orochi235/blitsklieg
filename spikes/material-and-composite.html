@@ -40,7 +40,7 @@
   .swatches { display: flex; gap: 8px; margin-top: 28px; flex-wrap: wrap; }
   .sw { width: 54px; height: 54px; border-radius: 8px; }
 
-  /* ---- blitsklieg'ss overlay canvas ---- */
+  /* ---- blitsklieg's overlay canvas ---- */
   #blitsklieg {
     position: fixed;
     inset: 0;
@@ -79,6 +79,8 @@
     font: 12px ui-monospace, monospace;
   }
   #panel .val { float: right; color: var(--ink); }
+  #panel .inert { opacity: .35; }
+  #panel .inert label, #panel input:disabled { cursor: not-allowed; }
   .warn { color: #ffb454; }
   #fps { position: fixed; bottom: 10px; left: 12px; z-index: 10000;
          font: 11px ui-monospace, monospace; color: var(--dim); }
@@ -153,11 +155,11 @@
   </div>
   <p class="note">off = no render target at all: real MSAA, no composite, cheaper.</p>
 
-  <div class="row">
+  <div class="row" id="alphaRow">
     <input type="checkbox" id="alphaFix" checked>
     <label for="alphaFix" style="margin:0">&nbsp;&nbsp;↳ alpha-preserving</label>
   </div>
-  <p class="note" id="alphaNote">bloom only. off = stock bloom (<span class="warn">black box</span>).</p>
+  <p class="note" id="alphaNote">uncheck to see stock bloom's <span class="warn">black box</span>.</p>
 
   <div class="row">
     <input type="checkbox" id="sweep" checked>
@@ -196,7 +198,7 @@ import * as THREE from 'three';
 import { FontLoader }   from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
-const canvas = document.getElementById('blitsklieg's);
+const canvas = document.getElementById('blitsklieg');
 
 // premultipliedAlpha:false so the composite shader can write straight (un-premultiplied)
 // RGBA. With the default `true`, every glow pixel needs rgb pre-scaled by alpha and any
@@ -488,8 +490,22 @@ function syncControls() {
   material.envMapIntensity               = +sliders.env.value;
   for (const k in labels) labels[k].textContent = (+sliders[k].value).toFixed(2);
 }
+// The alpha A/B only means anything on the bloom path — there is no composite shader to
+// switch when rendering direct. Grey it out rather than let it look interactive.
+function syncBloomDependents() {
+  const on = bloomChk.checked;
+  $('alphaFix').disabled = !on;
+  $('alphaRow').classList.toggle('inert', !on);
+  $('alphaNote').classList.toggle('inert', !on);
+  for (const id of ['strength', 'threshold', 'alphaBoost']) {
+    sliders[id].disabled = !on;
+    sliders[id].previousElementSibling.classList.toggle('inert', !on);
+  }
+}
+
 for (const k in sliders) sliders[k].addEventListener('input', syncControls);
 $('alphaFix').addEventListener('change', syncControls);
+bloomChk.addEventListener('change', syncBloomDependents);
 wordSel.addEventListener('change', () => { setWord(wordSel.value); fire(); });
 // Color-valued params are THREE.Color OBJECTS — assigning a hex number over one replaces
 // the object and the material silently stops working. They must go through .set().
@@ -512,6 +528,7 @@ const fpsEl = $('fps');
 resize();
 applyLook(lookSel.value);
 syncControls();
+syncBloomDependents();
 
 // spike-only instrumentation so the harness can measure on-screen extent
 window.__blitsklieg = { camera, THREE, get group() { return group; }, get mesh() { return mesh; } };
