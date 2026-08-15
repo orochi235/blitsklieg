@@ -96,7 +96,7 @@ function fire(text: string): void {
     bloom: bloomInput.checked,
     placement: { kind: 'fullscreen' },
   }).then(
-    () => log(`gone  "${text}"`),
+    () => log(`done  "${text}"`),
     (err: unknown) => {
       log(`FAILED "${text}": ${message(err)}`);
       console.error(err);
@@ -158,10 +158,13 @@ async function play(sequence: (typeof SEQUENCES)[number]): Promise<void> {
   // the only cue that a second click would do nothing.
   for (const button of sequenceButtons) button.disabled = true;
   log(`sequence "${sequence.name}"`);
+  // Captured once: bk may be reassigned mid-sequence (DESTROY, policy change), and this
+  // instance's fire() must keep resolving instead of handing later steps to a new one.
+  const instance = bk;
   try {
     for (const { text, ...options } of sequence.steps) {
-      await bk.fire(text, options);
-      log(`  played "${text}"`);
+      await instance.fire(text, options);
+      log(`  done  "${text}"`);
     }
     log(`sequence "${sequence.name}" done`);
   } catch (err) {
