@@ -572,10 +572,14 @@ git commit -m "add pose algebra separating absolute poses from relative offsets"
 
 **Files:**
 - Create: `packages/core/src/motion/types.ts`
+- Test: `packages/core/test/motion/types.test.ts`
 
 - [ ] **Step 1: Write the types**
 
-No test — this file is types only and is exercised by Tasks 6–9.
+This file is not types-only: `stagger` is real math with a divide, and `NONE` is a real value.
+Test both. The saturation property in particular — every letter reaching exactly 1 at `t = 1` —
+is what Tasks 6–8 rely on when they assert each piece lands on the rest pose, so assert it here
+rather than discovering it three tasks later.
 
 ```ts
 import type { PoseOffset } from '../pose.js';
