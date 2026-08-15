@@ -1,0 +1,86 @@
+import { type Pose, type PoseOffset, REST, accumulate, scaleOffset } from '../pose.js';
+import type { LetterInfo, MotionPiece } from './types.js';
+
+export interface TimelineOptions {
+  enter: MotionPiece;
+  active: MotionPiece;
+  exit: MotionPiece;
+  /** Milliseconds spent in the active phase. */
+  hold: number;
+  /** Crossfade window straddling each phase boundary. */
+  blendMs: number;
+}
+
+interface Segment {
+  piece: MotionPiece;
+  start: number;
+  end: number;
+  loop: boolean;
+}
+
+export class Timeline {
+  readonly duration: number;
+  private readonly segments: Segment[];
+  private readonly blend: number;
+
+  constructor(opts: TimelineOptions) {
+    const enterEnd = opts.enter.duration;
+    const activeEnd = enterEnd + opts.hold;
+    this.duration = activeEnd + opts.exit.duration;
+    this.blend = opts.blendMs;
+    this.segments = [
+      { piece: opts.enter, start: 0, end: enterEnd, loop: false },
+      { piece: opts.active, start: enterEnd, end: activeEnd, loop: true },
+      { piece: opts.exit, start: activeEnd, end: this.duration, loop: false },
+    ];
+  }
+
+  isFinished(elapsed: number): boolean {
+    return elapsed >= this.duration;
+  }
+
+  poseAt(elapsed: number, letter: LetterInfo): Pose {
+    const offsets: PoseOffset[] = [];
+
+    for (const seg of this.segments) {
+      const w = this.weight(seg, elapsed);
+      if (w <= 0) continue;
+      offsets.push(scaleOffset(seg.piece.offset(this.localT(seg, elapsed), letter), w));
+    }
+
+    return accumulate(REST, offsets);
+  }
+
+  /** Ramps 0→1 over the blend window at the segment's leading edge and back down at its trailing. */
+  private weight(seg: Segment, elapsed: number): number {
+    if (seg.end <= seg.start) return 0;
+
+    const half = this.blend / 2;
+    const head = seg.start - half;
+    const tail = seg.end + half;
+    if (elapsed < head || elapsed >= tail) return 0;
+
+    // First and last segments hold full weight at the outer edges rather than fading to nothing.
+    const inW = seg.start === 0 ? 1 : this.ramp(elapsed - head);
+    const outW = seg.end === this.duration ? 1 : this.ramp(tail - elapsed);
+    return Math.min(inW, outW);
+  }
+
+  private ramp(into: number): number {
+    return this.blend > 0 ? Math.min(1, into / this.blend) : 1;
+  }
+
+  private localT(seg: Segment, elapsed: number): number {
+    const into = elapsed - seg.start;
+
+    if (seg.loop) {
+      const d = seg.piece.duration;
+      if (d <= 0) return 0;
+      return (((into % d) + d) % d) / d;
+    }
+
+    const span = seg.end - seg.start;
+    if (span <= 0) return 1;
+    return Math.max(0, Math.min(1, into / span));
+  }
+}
