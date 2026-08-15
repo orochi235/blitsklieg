@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>klieg spike — bloom/alpha composite</title>
+<style>
+  :root {
+    --bg: #10131a;
+    --card: #1a1f2b;
+    --ink: #e6e9f0;
+    --dim: #8892a6;
+    --line: #2a3142;
+    --accent: #4a9eff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  /* ---- the fake "web app" underneath the overlay ---- */
+  .app { max-width: 900px; margin: 0 auto; padding: 24px 24px 60vh; }
+  .app h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .app .sub { color: var(--dim); margin: 0 0 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 15px; }
+  .card p { margin: 0; color: var(--dim); font-size: 13px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--accent); margin-top: 12px; opacity: .8; }
+  .prose { margin-top: 32px; max-width: 62ch; color: var(--dim); }
+  .prose p { margin: 0 0 14px; }
+  .swatches { display: flex; gap: 8px; margin-top: 28px; flex-wrap: wrap; }
+  .sw { width: 54px; height: 54px; border-radius: 8px; }
+
+  /* ---- klieg's overlay canvas ---- */
+  #klieg {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ---- spike controls (NOT part of klieg) ---- */
+  #panel {
+    position: fixed;
+    top: 12px; right: 12px;
+    z-index: 10000;
+    width: 250px;
+    background: rgba(12,15,22,.93);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    backdrop-filter: blur(8px);
+  }
+  #panel h2 { margin: 0 0 2px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  #panel .note { color: #5f6980; margin: 0 0 10px; font-size: 11px; }
+  #panel label { display: block; margin: 9px 0 2px; color: var(--dim); }
+  #panel input[type=range] { width: 100%; }
+  #panel .row { display: flex; align-items: center; gap: 6px; margin: 7px 0; color: var(--ink); }
+  #panel button {
+    width: 100%; margin-top: 10px; padding: 8px;
+    background: var(--accent); color: #06101f; border: 0; border-radius: 6px;
+    font: 600 12px/1 ui-monospace, monospace; cursor: pointer;
+  }
+  #panel select {
+    width: 100%; background: #0c1018; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 5px; padding: 5px;
+    font: 12px ui-monospace, monospace;
+  }
+  #panel .val { float: right; color: var(--ink); }
+  .warn { color: #ffb454; }
+  #fps { position: fixed; bottom: 10px; left: 12px; z-index: 10000;
+         font: 11px ui-monospace, monospace; color: var(--dim); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <h1>Some ordinary web app</h1>
+  <p class="sub">Scroll it. The gold type is a transparent WebGL layer sitting on top — this content stays live and readable through it.</p>
+
+  <div class="grid">
+    <div class="card"><h3>Roster</h3><p>14 participants checked in</p><div class="bar"></div></div>
+    <div class="card"><h3>Round</h3><p>3 of 5 complete</p><div class="bar" style="width:60%"></div></div>
+    <div class="card"><h3>Queue</h3><p>2 spins pending</p><div class="bar" style="width:35%"></div></div>
+    <div class="card"><h3>Latency</h3><p>42ms median</p><div class="bar" style="width:22%"></div></div>
+  </div>
+
+  <div class="swatches">
+    <div class="sw" style="background:#ff5470"></div>
+    <div class="sw" style="background:#4a9eff"></div>
+    <div class="sw" style="background:#3ddc97"></div>
+    <div class="sw" style="background:#ffd24a"></div>
+    <div class="sw" style="background:#b57bff"></div>
+    <div class="sw" style="background:#fff"></div>
+  </div>
+
+  <div class="prose">
+    <p>The point of this page is to be <em>underneath</em> something. If the overlay is compositing correctly you can read every word here through and around the letters, the page scrolls independently, and nothing behind the type is dimmed, boxed, or tinted.</p>
+    <p>The failure mode this spike exists to catch is a black rectangle. A stock bloom pass writes opaque alpha across the whole frame, so the moment you turn glow on, your transparent overlay stops being transparent and swallows the app. Flip the composite mode in the panel to see it happen.</p>
+    <p>Keep scrolling — the type is fixed to the viewport, so it should hold position while this text moves past it.</p>
+    <p>Gold is not a color, it is a reflection. Everything that makes the letters read as metal is coming from a synthetic environment: a dark gradient with a handful of bright bars in it, generated at runtime rather than downloaded. Sliding those bars across the surface is the entire trick.</p>
+    <p>Turn the environment down to zero and the same material becomes yellow plastic. That is the single most useful thing to see here.</p>
+  </div>
+</div>
+
+<canvas id="klieg"></canvas>
+<div id="fps">—</div>
+
+<div id="panel">
+  <h2>klieg spike</h2>
+  <p class="note">controls are the harness, not the API</p>
+
+  <label>text</label>
+  <select id="word">
+    <option>JACKPOT!</option>
+    <option>WINNER</option>
+    <option>BONUS ROUND</option>
+    <option>SOLD!</option>
+    <option>$1,000,000</option>
+  </select>
+
+  <label>look</label>
+  <select id="look">
+    <optgroup label="metal">
+      <option value="gold">gold</option>
+      <option value="chrome">chrome</option>
+      <option value="neon">neon</option>
+      <option value="oil">oil slick (iridescent)</option>
+    </optgroup>
+    <optgroup label="translucent">
+      <option value="glass">glass</option>
+      <option value="ruby">ruby</option>
+      <option value="ice">ice</option>
+      <option value="bubble">soap bubble (iridescent)</option>
+    </optgroup>
+  </select>
+
+  <div class="row">
+    <input type="checkbox" id="bloom">
+    <label for="bloom" style="margin:0">bloom</label>
+  </div>
+  <p class="note">off = no render target at all: real MSAA, no composite, cheaper.</p>
+
+  <div class="row">
+    <input type="checkbox" id="alphaFix" checked>
+    <label for="alphaFix" style="margin:0">&nbsp;&nbsp;↳ alpha-preserving</label>
+  </div>
+  <p class="note" id="alphaNote">bloom only. off = stock bloom (<span class="warn">black box</span>).</p>
+
+  <div class="row">
+    <input type="checkbox" id="sweep" checked>
+    <label for="sweep" style="margin:0">sweep (rotate environment)</label>
+  </div>
+
+  <label>bloom strength <span class="val" id="vStrength"></span></label>
+  <input type="range" id="strength" min="0" max="3" step="0.05" value="1.1">
+
+  <label>bloom threshold <span class="val" id="vThreshold"></span></label>
+  <input type="range" id="threshold" min="0" max="2" step="0.02" value="0.72">
+
+  <label>glow alpha <span class="val" id="vAlpha"></span></label>
+  <input type="range" id="alphaBoost" min="0" max="2" step="0.02" value="0.9">
+
+  <label>exposure <span class="val" id="vExposure"></span></label>
+  <input type="range" id="exposure" min="0" max="3" step="0.05" value="1.15">
+
+  <label>env intensity <span class="val" id="vEnv"></span></label>
+  <input type="range" id="env" min="0" max="5" step="0.05" value="2.2">
+
+  <button id="fire">FIRE (slam)</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { FontLoader }   from 'three/addons/loaders/FontLoader.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+
+const canvas = document.getElementById('klieg');
+
+// premultipliedAlpha:false so the composite shader can write straight (un-premultiplied)
+// RGBA. With the default `true`, every glow pixel needs rgb pre-scaled by alpha and any
+// mismatch shows up as a bright halo — the trap worth knowing before we design around it.
+const renderer = new THREE.WebGLRenderer({
+  canvas, alpha: true, premultipliedAlpha: false, antialias: true,
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+camera.position.set(0, 0, 11);
+
+// ───────────────────────── ③ procedural environment ─────────────────────────
+// A studio, drawn rather than downloaded: dark gradient shell + bright emissive
+// bars. PMREM turns it into the reflection probe the metal actually samples.
+function buildEnvironment() {
+  const s = new THREE.Scene();
+
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(40, 32, 32),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: {
+        top:    { value: new THREE.Color(0.05, 0.06, 0.12) },
+        bottom: { value: new THREE.Color(0.01, 0.01, 0.02) },
+      },
+      vertexShader: `
+        varying vec3 vP;
+        void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `
+        uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
+        void main(){ gl_FragColor = vec4(mix(bottom, top, smoothstep(-20.0, 20.0, vP.y)), 1.0); }`,
+    })
+  );
+  s.add(shell);
+
+  // [x, y, z, w, h, rotZ, r, g, b] — values well above 1.0 are the whole point
+  const bars = [
+    [ -9,  7, -6,  26, 2.2,  0.30,  9, 9, 10 ],
+    [  11,  4, -4,  20, 1.4, -0.22,  7, 7.6, 9 ],
+    [  -6, -8,  6,  22, 3.0,  0.12,  2.4, 2.6, 3.4 ],
+    [  14, -3,  8,  14, 5.0, -0.55,  6, 4.4, 2.2 ],
+    [ -14, -1, -9,  12, 4.0,  0.48,  2.4, 4.0, 7 ],
+    [   0, 13,  4,  16, 2.0,  0.00, 10, 10, 10 ],
+  ];
+  for (const [x, y, z, w, h, rz, r, g, b] of bars) {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(r, g, b), side: THREE.DoubleSide })
+    );
+    m.position.set(x, y, z);
+    m.rotation.z = rz;
+    m.lookAt(0, 0, 0);
+    m.rotateZ(rz);
+    s.add(m);
+  }
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const tex = pmrem.fromScene(s, 0.03).texture;
+  pmrem.dispose();
+  return tex;
+}
+
+scene.environment = buildEnvironment();
+const canRotateEnv = scene.environmentRotation !== undefined;
+scene.add(new THREE.DirectionalLight(0xffffff, 0.6).translateZ(6));
+
+// ───────────────────────────── looks ─────────────────────────────
+// Every look lists every key it differs from DEFAULTS on. Looks are applied over
+// DEFAULTS rather than over each other, so switching can't leave stale params behind
+// (a glass `transmission` surviving into `gold` is invisible until it isn't).
+const DEFAULTS = {
+  color: 0xffffff, metalness: 0, roughness: 0.2,
+  clearcoat: 1.0, clearcoatRoughness: 0.06,
+  transmission: 0, thickness: 0, ior: 1.5,
+  attenuationColor: 0xffffff, attenuationDistance: Infinity,
+  iridescence: 0, iridescenceIOR: 1.3, iridescenceThicknessRange: [100, 400],
+  specularIntensity: 1.0,
+};
+
+const LOOKS = {
+  gold:   { color: 0xffc44d, metalness: 1.0, roughness: 0.16, clearcoatRoughness: 0.08 },
+  chrome: { color: 0xf2f5fa, metalness: 1.0, roughness: 0.05, clearcoatRoughness: 0.03 },
+  neon:   { color: 0x22e0c0, metalness: 0.85, roughness: 0.22, clearcoatRoughness: 0.15 },
+
+  // ── translucent ──
+  glass:  { color: 0xffffff, metalness: 0, roughness: 0.03,
+            transmission: 1.0, thickness: 0.9, ior: 1.52,
+            clearcoatRoughness: 0.02 },
+  ruby:   { color: 0xffffff, metalness: 0, roughness: 0.06,
+            transmission: 1.0, thickness: 1.4, ior: 2.2,
+            attenuationColor: 0xd4143c, attenuationDistance: 0.6,
+            clearcoatRoughness: 0.03 },
+  ice:    { color: 0xffffff, metalness: 0, roughness: 0.18,
+            transmission: 0.92, thickness: 1.1, ior: 1.31,
+            attenuationColor: 0x8fd8ff, attenuationDistance: 1.4 },
+  // Iridescence is a thin-film layer under clearcoat, so a full clearcoat mutes it.
+  // The rainbow comes from iridescenceThicknessRange sweeping a wide nm band, NOT
+  // from cranking `iridescence` — that only sets how much of the film shows.
+  bubble: { color: 0xffffff, metalness: 0, roughness: 0.02,
+            transmission: 1.0, thickness: 0.18, ior: 1.12,
+            clearcoat: 0,
+            iridescence: 1.0, iridescenceIOR: 1.32,
+            iridescenceThicknessRange: [180, 900] },
+
+  oil:    { color: 0x0a0a12, metalness: 1.0, roughness: 0.12,
+            clearcoatRoughness: 0.05,
+            iridescence: 1.0, iridescenceIOR: 1.8,
+            iridescenceThicknessRange: [100, 640] },
+};
+
+const COLOR_KEYS = new Set(['color', 'attenuationColor']);
+
+const material = new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
+const group = new THREE.Group();
+scene.add(group);
+let mesh = null;
+
+// ───────────────────────────── text ─────────────────────────────
+// Spike deliberately uses three's typeface.json path. Design decision ① (opentype.js
+// at runtime, for real kerning) is a SEPARATE axis and is not what this spike tests —
+// so the letter spacing you see here is the floor, not the target.
+let font = null;
+const FONT_URL = 'https://unpkg.com/three@0.170.0/examples/fonts/helvetiker_bold.typeface.json';
+
+function setWord(text) {
+  if (!font) return;
+  if (mesh) { mesh.geometry.dispose(); group.remove(mesh); }
+
+  const geo = new TextGeometry(text, {
+    font, size: 1, depth: 0.3,
+    bevelEnabled: true, bevelThickness: 0.055, bevelSize: 0.038,
+    bevelOffset: 0, bevelSegments: 5, curveSegments: 10,
+  });
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const w = bb.max.x - bb.min.x;
+  const h = bb.max.y - bb.min.y;
+  geo.translate(-(bb.max.x + bb.min.x) / 2, -(bb.max.y + bb.min.y) / 2, -(bb.max.z + bb.min.z) / 2);
+
+  mesh = new THREE.Mesh(geo, material);
+  group.add(mesh);
+
+  // Fit to the viewport on BOTH axes. Width alone isn't enough — the idle Y-rotation
+  // swings the word toward the camera, so the safe budget is well under 1.0, and the
+  // glow spills past the silhouette on top of that.
+  const vh = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
+  const vw = vh * camera.aspect;
+  const s = Math.min((vw * 0.62) / w, (vh * 0.30) / h, 2.2);
+  group.scale.setScalar(s);
+  group.userData.baseScale = s;
+}
+
+new FontLoader().load(FONT_URL, f => { font = f; setWord(wordSel.value); fire(); });
+
+// ─────────────────── ② the composite that keeps alpha ───────────────────
+const QUAD_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+const thresholdMat = new THREE.ShaderMaterial({
+  uniforms: { tDiffuse: { value: null }, threshold: { value: 0.72 } },
+  vertexShader: QUAD_VS,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float threshold; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      float k = smoothstep(threshold, threshold + 0.35, l);
+      gl_FragColor = vec4(c.rgb * k * c.a, 1.0);
+    }`,
+  depthTest: false, depthWrite: false, blending: THREE.NoBlending,
+});
+
+const blurMat = new THREE.ShaderMaterial({
+  uniforms: { tDiffuse: { value: null }, dir: { value: new THREE.Vector2() } },
+  vertexShader: QUAD_VS,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform vec2 dir; varying vec2 vUv;
+    void main(){
+      vec4 s = vec4(0.0);
+      s += texture2D(tDiffuse, vUv + dir * -4.0) * 0.0162;
+      s += texture2D(tDiffuse, vUv + dir * -3.0) * 0.0540;
+      s += texture2D(tDiffuse, vUv + dir * -2.0) * 0.1216;
+      s += texture2D(tDiffuse, vUv + dir * -1.0) * 0.1946;
+      s += texture2D(tDiffuse, vUv                ) * 0.2270;
+      s += texture2D(tDiffuse, vUv + dir *  1.0) * 0.1946;
+      s += texture2D(tDiffuse, vUv + dir *  2.0) * 0.1216;
+      s += texture2D(tDiffuse, vUv + dir *  3.0) * 0.0540;
+      s += texture2D(tDiffuse, vUv + dir *  4.0) * 0.0162;
+      gl_FragColor = s;
+    }`,
+  depthTest: false, depthWrite: false, blending: THREE.NoBlending,
+});
+
+const compositeMat = new THREE.ShaderMaterial({
+  uniforms: {
+    tBase:      { value: null },
+    tBloom:     { value: null },
+    strength:   { value: 1.1 },
+    alphaBoost: { value: 0.9 },
+    exposure:   { value: 1.15 },
+    keepAlpha:  { value: 1.0 },   // 0 = stock-bloom behavior, for the A/B
+  },
+  vertexShader: QUAD_VS,
+  fragmentShader: `
+    uniform sampler2D tBase, tBloom;
+    uniform float strength, alphaBoost, exposure, keepAlpha;
+    varying vec2 vUv;
+    void main(){
+      vec4 base  = texture2D(tBase,  vUv);
+      vec3 bloom = texture2D(tBloom, vUv).rgb * strength;
+      vec3 rgb   = (base.rgb + bloom) * exposure;
+
+      // THE LINE THIS SPIKE EXISTS FOR.
+      // The glow lives outside the letters' silhouette, where base.a is 0. Unless the
+      // glow contributes alpha of its own it renders into a fully transparent region
+      // and is simply never seen. keepAlpha=0 reproduces the stock-bloom failure:
+      // alpha forced to 1 everywhere turns the overlay into an opaque black rectangle.
+      float bl = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
+      float a  = mix(1.0, clamp(max(base.a, bl * alphaBoost), 0.0, 1.0), keepAlpha);
+
+      gl_FragColor = vec4(rgb, a);
+    }`,
+  depthTest: false, depthWrite: false, blending: THREE.NoBlending, transparent: true,
+});
+
+const quadScene = new THREE.Scene();
+const quadCam   = new THREE.Camera();
+const quad      = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), thresholdMat);
+quad.frustumCulled = false;
+quadScene.add(quad);
+
+function blit(mat, target) {
+  quad.material = mat;
+  renderer.setRenderTarget(target ?? null);
+  renderer.clear();
+  renderer.render(quadScene, quadCam);
+}
+
+const rtOpts = { type: THREE.HalfFloatType, depthBuffer: false, stencilBuffer: false };
+let sceneRT, brightRT, blurRT;
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  const dpr = Math.min(devicePixelRatio, 2);
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+
+  const fw = Math.max(2, Math.floor(w * dpr));
+  const fh = Math.max(2, Math.floor(h * dpr));
+  const hw = Math.max(2, Math.floor(fw / 2));
+  const hh = Math.max(2, Math.floor(fh / 2));
+
+  sceneRT?.dispose(); brightRT?.dispose(); blurRT?.dispose();
+  // samples > 0 is the ONLY thing that antialiases a render target. The renderer's
+  // `antialias: true` applies to the default framebuffer and is ignored the instant
+  // you render through a post chain. WebGL2 only.
+  sceneRT  = new THREE.WebGLRenderTarget(fw, fh, { ...rtOpts, depthBuffer: true, samples: 4 });
+  brightRT = new THREE.WebGLRenderTarget(hw, hh, rtOpts);
+  blurRT   = new THREE.WebGLRenderTarget(hw, hh, rtOpts);
+
+  if (font) setWord(wordSel.value);
+}
+addEventListener('resize', resize);
+
+// ───────────────────────── slam ─────────────────────────
+let t0 = -1e9;
+const DUR = 1100;
+const backOut = t => { const c = 1.9; const p = t - 1; return 1 + c * p * p * p + c * p * p; };
+function fire() { t0 = performance.now(); }
+
+// ───────────────────────── controls ─────────────────────────
+const $ = id => document.getElementById(id);
+const wordSel = $('word'), lookSel = $('look'), bloomChk = $('bloom');
+const sliders = { strength: $('strength'), threshold: $('threshold'), alphaBoost: $('alphaBoost'), exposure: $('exposure'), env: $('env') };
+const labels  = { strength: $('vStrength'), threshold: $('vThreshold'), alphaBoost: $('vAlpha'), exposure: $('vExposure'), env: $('vEnv') };
+
+function syncControls() {
+  compositeMat.uniforms.strength.value   = +sliders.strength.value;
+  compositeMat.uniforms.alphaBoost.value = +sliders.alphaBoost.value;
+  compositeMat.uniforms.exposure.value   = +sliders.exposure.value;
+  compositeMat.uniforms.keepAlpha.value  = $('alphaFix').checked ? 1 : 0;
+  thresholdMat.uniforms.threshold.value  = +sliders.threshold.value;
+  material.envMapIntensity               = +sliders.env.value;
+  for (const k in labels) labels[k].textContent = (+sliders[k].value).toFixed(2);
+}
+for (const k in sliders) sliders[k].addEventListener('input', syncControls);
+$('alphaFix').addEventListener('change', syncControls);
+wordSel.addEventListener('change', () => { setWord(wordSel.value); fire(); });
+// Color-valued params are THREE.Color OBJECTS — assigning a hex number over one replaces
+// the object and the material silently stops working. They must go through .set().
+function applyLook(name) {
+  const L = { ...DEFAULTS, ...LOOKS[name] };
+  for (const [k, v] of Object.entries(L)) {
+    if (COLOR_KEYS.has(k)) material[k].set(v);
+    else material[k] = v;
+  }
+  material.needsUpdate = true;
+}
+lookSel.addEventListener('change', () => applyLook(lookSel.value));
+$('fire').addEventListener('click', fire);
+addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); fire(); } });
+
+// ───────────────────────── loop ─────────────────────────
+let frames = 0, fpsT = performance.now();
+const fpsEl = $('fps');
+
+resize();
+applyLook(lookSel.value);
+syncControls();
+
+// spike-only instrumentation so the harness can measure on-screen extent
+window.__klieg = { camera, THREE, get group() { return group; }, get mesh() { return mesh; } };
+
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+
+  if (mesh) {
+    const t = Math.min(1, Math.max(0, (now - t0) / DUR));
+    const e = t >= 1 ? 1 : backOut(t);
+    group.position.z = (1 - e) * -26;
+    group.scale.setScalar(group.userData.baseScale * (0.55 + 0.45 * e));
+    group.rotation.y = Math.sin(now / 2600) * 0.16 + (1 - e) * 0.7;
+    group.rotation.x = Math.sin(now / 3700) * 0.05;
+  }
+
+  if ($('sweep').checked && canRotateEnv) scene.environmentRotation.y = now / 3400;
+
+  const useBloom = bloomChk.checked;
+
+  if (!useBloom) {
+    // Direct to canvas: MSAA from the context, no post chain, no alpha problem.
+    renderer.setRenderTarget(null);
+    renderer.clear();
+    renderer.render(scene, camera);
+  } else {
+    // 1. scene → sceneRT (transparent background preserved, samples:4 for MSAA)
+    renderer.setRenderTarget(sceneRT);
+    renderer.clear();
+    renderer.render(scene, camera);
+
+    // 2. threshold → brightRT
+    thresholdMat.uniforms.tDiffuse.value = sceneRT.texture;
+    blit(thresholdMat, brightRT);
+
+    // 3. separable blur, two widening passes
+    for (const radius of [1, 2.5]) {
+      blurMat.uniforms.tDiffuse.value = brightRT.texture;
+      blurMat.uniforms.dir.value.set(radius / brightRT.width, 0);
+      blit(blurMat, blurRT);
+      blurMat.uniforms.tDiffuse.value = blurRT.texture;
+      blurMat.uniforms.dir.value.set(0, radius / brightRT.height);
+      blit(blurMat, brightRT);
+    }
+
+    // 4. composite → canvas, alpha intact
+    compositeMat.uniforms.tBase.value  = sceneRT.texture;
+    compositeMat.uniforms.tBloom.value = brightRT.texture;
+    blit(compositeMat, null);
+  }
+
+  if (++frames >= 30) {
+    const path = useBloom ? 'bloom (RT, MSAA×4)' : 'direct (native MSAA)';
+    fpsEl.textContent = `${Math.round(frames * 1000 / (now - fpsT))} fps · ${innerWidth}×${innerHeight} · ${path} · env ${canRotateEnv ? 'rotatable' : 'STATIC'}`;
+    frames = 0; fpsT = now;
+  }
+});
+</script>
+</body>
+</html>
