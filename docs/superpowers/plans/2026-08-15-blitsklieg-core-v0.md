@@ -266,22 +266,33 @@ export class ManualClock implements Clock {
 
   subscribe(fn: Tick): Unsubscribe {
     this.subs.add(fn);
-    return () => this.subs.delete(fn);
+    return () => {
+      this.subs.delete(fn);
+    };
   }
 
   advance(deltaMs: number): void {
     this.t += deltaMs;
-    for (const fn of [...this.subs]) fn(this.t);
+    // The copy stops a self-subscribing callback from looping forever; the membership check
+    // stops it from resurrecting a peer that unsubscribed earlier in this same tick, which
+    // under the `replace` queue policy is a use-after-dispose.
+    for (const fn of [...this.subs]) {
+      if (!this.subs.has(fn)) continue;
+      fn(this.t);
+    }
   }
 }
 
 export class RafClock implements Clock {
   private subs = new Set<Tick>();
   private raf: number | null = null;
-  private t = 0;
+  private readonly origin = performance.now();
 
+  // Live, not stored. Consumers sample now() BEFORE subscribing and difference it against
+  // ticks; a stored `t` reads 0 until the first frame, making that difference a page-relative
+  // timestamp and finishing every animation on frame one. ManualClock would still pass.
   now(): number {
-    return this.t;
+    return performance.now() - this.origin;
   }
 
   subscribe(fn: Tick): Unsubscribe {
@@ -295,9 +306,21 @@ export class RafClock implements Clock {
 
   private start(): void {
     const loop = (t: number) => {
-      this.t = t;
-      for (const fn of [...this.subs]) fn(t);
+      // Reschedule FIRST: a throwing subscriber must not be able to kill the loop.
       this.raf = requestAnimationFrame(loop);
+      const now = Math.max(0, t - this.origin);
+      for (const fn of [...this.subs]) {
+        if (!this.subs.has(fn)) continue; // unsubscribed earlier in this same tick
+        try {
+          fn(now);
+        } catch (err) {
+          queueMicrotask(() => {
+            throw err;
+          });
+        }
+      }
+      // A subscriber may have unsubscribed itself above, after start() was decided.
+      if (this.subs.size === 0) this.stop();
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -308,6 +331,13 @@ export class RafClock implements Clock {
   }
 }
 ```
+
+`RafClock` must be tested, not just `ManualClock`. Stub `globalThis.requestAnimationFrame` with a
+manual frame pump and `vi.spyOn(performance, 'now')` — no DOM needed. Cover: `now()` sampled
+before subscribe differences to near zero against the first tick; the same after an idle gap and
+a second subscribe cycle; a throwing subscriber neither blocks peers nor stops the loop; the last
+subscriber unsubscribing inside a tick leaves no pending frame; a peer unsubscribed mid-tick is
+not called that tick.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2155,8 +2185,10 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
       const off = clock.subscribe((now) => {
         if (signal.aborted) return finish();
 
+        // Clamp BOTH ends. rAF delivers the frame-start time, which can precede a
+        // performance.now() sampled moments earlier, so the first tick can be slightly negative.
         const elapsed = still ? timeline.duration - 1 : now - startedAt;
-        word.apply(timeline, Math.min(elapsed, timeline.duration));
+        word.apply(timeline, Math.min(Math.max(elapsed, 0), timeline.duration));
 
         if (ENV_DRIVEN.has(activeName) && 'environmentRotation' in stage.scene) {
           stage.scene.environmentRotation.y = now / ACTIVE[activeName].duration;
