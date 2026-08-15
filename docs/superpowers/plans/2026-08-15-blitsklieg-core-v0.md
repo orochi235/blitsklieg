@@ -1306,6 +1306,17 @@ git commit -m "add phase compositor with weighted crossfade between motion slots
 
 ## Task 10: Effect queue
 
+Which effect plays when a second `fire()` arrives: wait its turn, kill the one in flight, or run
+alongside. Cancellation resolves rather than rejects, matching an aborted effect that finishes
+early on screen, so a `destroy()` mid-flight never rejects an awaited `fire()`.
+
+`push` starts a drain loop only when no loop is already running, which is what the `draining` flag
+tracks. Gating on the empty effect slot instead is wrong: an effect's completion handler can push
+while the loop sits suspended between entries, starting a second loop that runs two effects at
+once. Since the serial policies start effects only from inside that one loop, a replacement's `run`
+is never called until the aborted effect's promise settles — that is what lets Task 16 dispose the
+stage on abort before the next mount.
+
 **Files:**
 - Create: `packages/core/src/queue.ts`
 - Test: `packages/core/test/queue.test.ts`
@@ -1366,6 +1377,117 @@ describe('EffectQueue', () => {
     await expect(failed).rejects.toThrow('boom');
     await expect(q.push('good', async () => {})).resolves.toBeUndefined();
   });
+
+  it('stays serial when a completion handler pushes two more effects', async () => {
+    const q = new EffectQueue('queue');
+    const order: string[] = [];
+    let live = 0;
+    let peak = 0;
+    const run = (id: string) => async () => {
+      live++;
+      peak = Math.max(peak, live);
+      order.push(id);
+      await new Promise((r) => setTimeout(r, 5));
+      live--;
+    };
+
+    const tail: Promise<void>[] = [];
+    await q.push('a', run('a')).then(() => {
+      tail.push(q.push('b', run('b')), q.push('c', run('c')));
+    });
+    await Promise.all(tail);
+
+    expect(peak).toBe(1);
+    expect(order).toEqual(['a', 'b', 'c']);
+    expect(q.current).toBeNull();
+  });
+
+  it('cancelAll resolves queued effects instead of leaving them unsettled', async () => {
+    const q = new EffectQueue('queue');
+    const aborted = vi.fn();
+    const queuedRan = vi.fn();
+    const a = q.push('a', (signal) => {
+      signal.addEventListener('abort', aborted);
+      return new Promise<void>((r) => setTimeout(r, 5));
+    });
+    const b = q.push('b', async () => {
+      queuedRan();
+    });
+    await Promise.resolve();
+    expect(q.current).toBe('a');
+
+    q.cancelAll();
+
+    await expect(b).resolves.toBeUndefined();
+    await a;
+    expect(aborted).toHaveBeenCalled();
+    expect(queuedRan).not.toHaveBeenCalled();
+    expect(q.current).toBeNull();
+  });
+
+  it('cancelAll aborts in-flight concurrent effects', async () => {
+    const q = new EffectQueue('concurrent');
+    const aborted = vi.fn();
+    const run = (signal: AbortSignal) =>
+      new Promise<void>((r) => {
+        signal.addEventListener('abort', () => {
+          aborted();
+          r();
+        });
+        setTimeout(r, 50);
+      });
+    const both = Promise.all([q.push('a', run), q.push('b', run)]);
+    await Promise.resolve();
+
+    q.cancelAll();
+
+    await both;
+    expect(aborted).toHaveBeenCalledTimes(2);
+  });
+
+  it('current names the most recently started effect still running', async () => {
+    const q = new EffectQueue('concurrent');
+    const release: Array<() => void> = [];
+    const run = () => new Promise<void>((r) => release.push(r));
+
+    expect(q.current).toBeNull();
+    const a = q.push('a', run);
+    expect(q.current).toBe('a');
+    const b = q.push('b', run);
+    expect(q.current).toBe('b');
+    expect(release).toHaveLength(2);
+
+    release[1]?.();
+    await b;
+    expect(q.current).toBe('a');
+    release[0]?.();
+    await a;
+    expect(q.current).toBeNull();
+  });
+
+  it('replace starts the new effect only after the aborted one has torn down', async () => {
+    const q = new EffectQueue('replace');
+    const order: string[] = [];
+    const a = q.push(
+      'a',
+      (signal) =>
+        new Promise<void>((r) => {
+          signal.addEventListener('abort', () => {
+            setTimeout(() => {
+              order.push('a:torn-down');
+              r();
+            }, 10);
+          });
+        }),
+    );
+    await Promise.resolve();
+    const b = q.push('b', async () => {
+      order.push('b:started');
+    });
+
+    await Promise.all([a, b]);
+    expect(order).toEqual(['a:torn-down', 'b:started']);
+  });
 });
 ```
 
@@ -1387,14 +1509,27 @@ interface Entry {
   reject: (e: unknown) => void;
 }
 
+interface Slot {
+  id: string;
+  controller: AbortController;
+}
+
+/**
+ * Cancellation resolves rather than rejects: a cancelled effect is done, not failed,
+ * and callers commonly `await` a fire-and-forget effect that `destroy()` will cut short.
+ */
 export class EffectQueue {
   private pending: Entry[] = [];
-  private running: { id: string; controller: AbortController } | null = null;
+  private live = new Set<Slot>();
+  private draining = false;
 
   constructor(private policy: QueuePolicy = 'queue') {}
 
+  /** The most recently started effect that has not finished; only `concurrent` has more than one. */
   get current(): string | null {
-    return this.running?.id ?? null;
+    let latest: string | null = null;
+    for (const slot of this.live) latest = slot.id;
+    return latest;
   }
 
   push(id: string, run: EffectRunner): Promise<void> {
@@ -1405,37 +1540,49 @@ export class EffectQueue {
         void this.execute(entry);
         return;
       }
-      if (this.policy === 'replace') this.running?.controller.abort();
+      if (this.policy === 'replace') this.abortLive();
 
       this.pending.push(entry);
-      if (!this.running) void this.drain();
+      // Guarding on `live` instead would start a second drain when an effect settles
+      // and its own completion handler pushes, running two effects at once.
+      if (!this.draining) void this.drain();
     });
   }
 
   cancelAll(): void {
-    this.running?.controller.abort();
+    this.abortLive();
+    const dropped = this.pending;
     this.pending = [];
+    for (const entry of dropped) entry.resolve();
+  }
+
+  private abortLive(): void {
+    for (const slot of this.live) slot.controller.abort();
   }
 
   private async drain(): Promise<void> {
-    while (this.pending.length > 0) {
-      const entry = this.pending.shift() as Entry;
-      await this.execute(entry);
+    this.draining = true;
+    try {
+      while (this.pending.length > 0) {
+        const entry = this.pending.shift() as Entry;
+        await this.execute(entry);
+      }
+    } finally {
+      this.draining = false;
     }
   }
 
   private async execute(entry: Entry): Promise<void> {
-    const controller = new AbortController();
-    const slot = { id: entry.id, controller };
-    if (this.policy !== 'concurrent') this.running = slot;
+    const slot: Slot = { id: entry.id, controller: new AbortController() };
+    this.live.add(slot);
 
     try {
-      await entry.run(controller.signal);
+      await entry.run(slot.controller.signal);
       entry.resolve();
     } catch (e) {
       entry.reject(e);
     } finally {
-      if (this.running === slot) this.running = null;
+      this.live.delete(slot);
     }
   }
 }
@@ -1444,7 +1591,7 @@ export class EffectQueue {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run packages/core/test/queue.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
