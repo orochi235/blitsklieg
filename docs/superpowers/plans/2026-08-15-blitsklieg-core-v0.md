@@ -1918,8 +1918,8 @@ git commit -m "add kerned text layout and two-axis viewport fit"
 
 - [ ] **Step 1: Write font.ts**
 
-`@types/opentype.js` declares named ES exports with no default, and the repo does not enable
-`esModuleInterop`, so `import opentype from 'opentype.js'` does not typecheck — import `parse`.
+`@types/opentype.js` declares no default export; the named `parse` import avoids relying on
+synthetic default interop.
 
 ```ts
 import { type Font, parse } from 'opentype.js';
@@ -1932,9 +1932,18 @@ export interface LoadedFont {
 }
 
 export async function loadFont(url: string): Promise<LoadedFont> {
-  const res = await fetch(url);
+  const res = await fetch(url).catch((cause) => {
+    throw new Error(`blitsklieg: could not fetch font ${url}`, { cause });
+  });
   if (!res.ok) throw new Error(`blitsklieg: failed to load font ${url} (${res.status})`);
-  const font = parse(await res.arrayBuffer());
+
+  let font: Font;
+  try {
+    font = parse(await res.arrayBuffer());
+  } catch (cause) {
+    // A server that answers 200 with an HTML error page lands here, not on the status check.
+    throw new Error(`blitsklieg: ${url} is not a font opentype.js can parse`, { cause });
+  }
 
   const metrics: GlyphMetrics = {
     advanceOf: (ch) => font.charToGlyph(ch).advanceWidth ?? 0,
@@ -1987,6 +1996,31 @@ describe('loadFont', () => {
     );
   });
 
+  it('names the url when the network call itself rejects', async () => {
+    const cause = new TypeError('fetch failed');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(cause)),
+    );
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
+      message: 'blitsklieg: could not fetch font /fonts/x.ttf',
+      cause,
+    });
+  });
+
+  it('names the url when the bytes are not a parseable font', async () => {
+    const cause = new Error('Unsupported OpenType signature 0x3c21444f');
+    parse.mockImplementation(() => {
+      throw cause;
+    });
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
+      message: 'blitsklieg: /fonts/x.ttf is not a font opentype.js can parse',
+      cause,
+    });
+  });
+
   it('exposes the parsed font and its em size', async () => {
     parse.mockReturnValue(stubFont({}));
 
@@ -2025,6 +2059,10 @@ A glyph's counter (the hole in an `O`) is a separate closed contour. `ExtrudeGeo
 subtracts contours listed in a `Shape`'s `holes`, so making every contour a top-level `Shape`
 renders counters solid. Winding cannot classify them: Skia's `%` ends with two counters whose
 outer contours are not the ones immediately preceding them. Nesting depth can.
+
+Two limits of that test, neither seen in a 60-font sweep: containment is decided from a single
+point on each contour, so a font drawing a stroke as two *overlapping* rather than nested outlines
+can misclassify one as a hole, and a contour that samples to fewer than three points is dropped.
 
 ```ts
 import type { Font, PathCommand } from 'opentype.js';
@@ -2097,9 +2135,17 @@ function box(x: number, y: number, w: number, h: number): PathCommand[] {
   ];
 }
 
-/** Highest y a shape's own outline reaches, ignoring its holes. */
-function topOf(shape: THREE.Shape): number {
-  return Math.max(...shape.getPoints(1).map((p) => p.y));
+/** Extents of a contour's own outline, ignoring any holes hanging off it. */
+function topOf(contour: THREE.Path): number {
+  return Math.max(...contour.getPoints(1).map((p) => p.y));
+}
+
+function bottomOf(contour: THREE.Path): number {
+  return Math.min(...contour.getPoints(1).map((p) => p.y));
+}
+
+function leftOf(contour: THREE.Path): number {
+  return Math.min(...contour.getPoints(1).map((p) => p.x));
 }
 
 describe('glyphToShapes', () => {
@@ -2107,7 +2153,7 @@ describe('glyphToShapes', () => {
     const [shape] = glyphToShapes(fontDrawing(box(0, 0, 10, 10)), 'A', 1);
 
     expect(topOf(shape as THREE.Shape)).toBe(0);
-    expect(Math.min(...(shape as THREE.Shape).getPoints(1).map((p) => p.y))).toBe(-10);
+    expect(bottomOf(shape as THREE.Shape)).toBe(-10);
   });
 
   it('nests a counter as a hole instead of a second solid shape', () => {
@@ -2135,7 +2181,7 @@ describe('glyphToShapes', () => {
     const withHole = shapes.filter((s) => s.holes.length > 0);
     expect(withHole).toHaveLength(1);
     expect(topOf(withHole[0] as THREE.Shape)).toBe(0);
-    expect(Math.min(...(withHole[0] as THREE.Shape).getPoints(1).map((p) => p.x))).toBe(0);
+    expect(leftOf(withHole[0] as THREE.Shape)).toBe(0);
   });
 
   it('makes a contour nested two deep solid again', () => {
@@ -2146,6 +2192,38 @@ describe('glyphToShapes', () => {
     );
 
     expect(shapes).toHaveLength(2);
+  });
+
+  it('gives a hole inside an island to the island, not to the outermost contour', () => {
+    // Ordered so that attaching each hole to the most recently opened contour would be wrong.
+    const shapes = glyphToShapes(
+      fontDrawing([
+        ...box(0, 0, 40, 40),
+        ...box(10, 10, 20, 20),
+        ...box(14, 14, 12, 12),
+        ...box(4, 4, 32, 32),
+      ]),
+      '@',
+      1,
+    );
+
+    expect(shapes).toHaveLength(2);
+    const [outer, island] = [...shapes].sort((a, b) => leftOf(a) - leftOf(b));
+    expect(leftOf(outer as THREE.Shape)).toBe(0);
+    expect(leftOf(island as THREE.Shape)).toBe(10);
+    expect((outer as THREE.Shape).holes.map(leftOf)).toEqual([4]);
+    expect((island as THREE.Shape).holes.map(leftOf)).toEqual([14]);
+  });
+
+  it('drops a contour with no drawing commands after its move', () => {
+    const shapes = glyphToShapes(
+      fontDrawing([...box(0, 0, 10, 10), { type: 'M', x: 50, y: 50 }]),
+      'A',
+      1,
+    );
+
+    expect(shapes).toHaveLength(1);
+    expect(leftOf(shapes[0] as THREE.Shape)).toBe(0);
   });
 
   it('returns nothing for a glyph with no outline', () => {
@@ -2166,7 +2244,8 @@ describe('buildGlyphGeometry', () => {
 - [ ] **Step 4: Run tests to verify they fail**
 
 Run: `npx vitest run packages/core/test/text/`
-Expected: FAIL — cannot find modules `../../src/text/font.js` and `../../src/text/glyphs.js`.
+Expected: 2 files FAIL — `font.test.ts` and `glyphs.test.ts` cannot find the modules they import.
+`layout.test.ts` shares the directory and already passes.
 
 - [ ] **Step 5: Implement glyphs.ts**
 
@@ -2319,7 +2398,7 @@ export function buildGlyphGeometry(
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `npx vitest run packages/core/test/text/`
-Expected: PASS, 27 tests (11 layout, 5 font, 11 glyphs).
+Expected: PASS, 31 tests (11 layout, 7 font, 13 glyphs).
 
 - [ ] **Step 7: Commit**
 
