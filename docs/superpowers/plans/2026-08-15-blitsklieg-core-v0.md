@@ -4723,8 +4723,8 @@ git commit -m "add opt-in bloom path with alpha-preserving composite"
 **Files:**
 - Create: `apps/lab/package.json`, `apps/lab/index.html`, `apps/lab/src/main.ts`, `apps/lab/vite.config.ts`
 - Create: `apps/lab/tsconfig.json`
+- Create: `apps/lab/public/font.ttf`, `apps/lab/public/OFL.txt`
 - Modify: `tsconfig.json` (root) — add the `apps/lab` reference
-- Create: `apps/lab/public/font.ttf` — download any bold TTF (Inter Bold, Archivo Black)
 
 - [ ] **Step 1: apps/lab/package.json**
 
@@ -4773,6 +4773,22 @@ Then add the reference to the root `tsconfig.json`:
 }
 ```
 
+Confirm the reference is live rather than assuming it: put a bogus name in one of the record
+literals in Step 4 and check that `npm run typecheck` fails on `apps/lab/src/main.ts`. A
+reference that never gets built is the failure mode here, and it is silent.
+
+- [ ] **Step 2c: The font**
+
+Archivo Black, under the SIL Open Font License, fetched with its license text:
+
+```bash
+curl -o apps/lab/public/font.ttf https://raw.githubusercontent.com/google/fonts/main/ofl/archivoblack/ArchivoBlack-Regular.ttf
+curl -o apps/lab/public/OFL.txt https://raw.githubusercontent.com/google/fonts/main/ofl/archivoblack/OFL.txt
+```
+
+Do not copy a face off the machine instead: installed system fonts are licensed to the machine,
+not to a repo that will be published. Any OFL face works; commit its license next to it.
+
 - [ ] **Step 3: apps/lab/index.html**
 
 ```html
@@ -4784,10 +4800,17 @@ Then add the reference to the root `tsconfig.json`:
     <style>
       body { margin: 0; font: 15px/1.6 system-ui; background: #10131a; color: #e6e9f0; }
       main { max-width: 900px; margin: 0 auto; padding: 24px 24px 60vh; }
-      .panel { position: fixed; top: 12px; right: 12px; display: grid; gap: 6px;
+      .panel { position: fixed; top: 12px; right: 12px; width: 250px; display: grid; gap: 6px;
                background: #0c0f16e8; border: 1px solid #2a3142; border-radius: 10px;
                padding: 12px; font: 12px ui-monospace, monospace; z-index: 10; }
-      select, button { font: 12px ui-monospace, monospace; padding: 5px; }
+      .panel label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .panel .row { display: flex; gap: 6px; }
+      .panel .row button { flex: 1; }
+      #sequences { border-top: 1px solid #2a3142; padding-top: 8px; }
+      input, select, button { font: 12px ui-monospace, monospace; padding: 5px; }
+      #text { width: 100%; box-sizing: border-box; }
+      #log { margin: 4px 0 0; max-height: 9em; overflow-y: auto; white-space: pre-wrap;
+             color: #9aa3b8; border-top: 1px solid #2a3142; padding-top: 6px; }
     </style>
   </head>
   <body>
@@ -4795,85 +4818,289 @@ Then add the reference to the root `tsconfig.json`:
       <h1>blitsklieg lab</h1>
       <p>The overlay renders above this page. Scroll — the type holds position and the text
          stays readable through it.</p>
+      <p>Space fires. The selects are built from the exported name unions, so every motion slot
+         and look the package ships is reachable here.</p>
       <p id="filler"></p>
     </main>
     <div class="panel">
       <input id="text" type="text" value="JACKPOT!" autocomplete="off" spellcheck="false" />
-      <select id="enter">
-        <option>slam</option><option>spin</option><option>flip</option>
-        <option>assemble</option><option>rise</option><option>none</option>
-      </select>
-      <select id="active">
-        <option>sweep</option><option>float</option><option>pulse</option>
-        <option>shimmer</option><option>none</option>
-      </select>
-      <select id="exit">
-        <option>fade</option><option>shatter</option><option>drop</option>
-        <option>recede</option><option>none</option>
-      </select>
-      <select id="look">
-        <option>gold</option><option>chrome</option><option>oil</option><option>ruby</option>
-      </select>
-      <label><input type="checkbox" id="bloom" /> bloom</label>
-      <button id="fire">FIRE</button>
+      <label>enter <select id="enter"></select></label>
+      <label>active <select id="active"></select></label>
+      <label>exit <select id="exit"></select></label>
+      <label>look <select id="look"></select></label>
+      <label>policy <select id="policy"></select></label>
+      <label>hold ms <input id="hold" type="number" value="1200" min="0" step="100" /></label>
+      <label>blend ms <input id="blend" type="number" value="120" min="0" step="10" /></label>
+      <label>bloom <input id="bloom" type="checkbox" /></label>
+      <div class="row">
+        <button id="fire">FIRE</button>
+        <button id="burst">FIRE x3</button>
+        <button id="destroy">DESTROY</button>
+      </div>
+      <div class="row" id="sequences"></div>
+      <pre id="log"></pre>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
 ```
 
+The `<select>`s and the sequence row are empty on purpose — `main.ts` fills them from the
+exported name unions, so a renamed name cannot rot into a dead `<option>`.
+
 - [ ] **Step 4: apps/lab/src/main.ts**
 
 ```ts
 import {
   type ActiveName,
+  type Blitsklieg,
   type EnterName,
   type ExitName,
+  type FireOptions,
   type LookName,
+  type QueuePolicy,
   createBlitsklieg,
 } from '@blitsklieg/core';
 
-document.getElementById('filler')!.textContent =
-  'Filler copy so the page scrolls. '.repeat(60);
+function el<T extends HTMLElement>(id: string): T {
+  const found = document.getElementById(id);
+  if (!found) throw new Error(`lab: the page has no #${id}`);
+  return found as T;
+}
 
-const bk = createBlitsklieg({ fontUrl: '/font.ttf' });
-const pick = <T extends string>(id: string) =>
-  (document.getElementById(id) as HTMLInputElement | HTMLSelectElement).value as T;
+const logEl = el<HTMLPreElement>('log');
+const lines: string[] = [];
 
-const textInput = document.getElementById('text') as HTMLInputElement;
+function log(line: string): void {
+  lines.push(`${new Date().toLocaleTimeString()} ${line}`);
+  if (lines.length > 40) lines.shift();
+  logEl.textContent = lines.join('\n');
+  logEl.scrollTop = logEl.scrollHeight;
+}
 
-const fire = () =>
-  void bk.fire(textInput.value, {
-    enter: pick<EnterName>('enter'),
-    active: pick<ActiveName>('active'),
-    exit: pick<ExitName>('exit'),
-    look: pick<LookName>('look'),
-    bloom: (document.getElementById('bloom') as HTMLInputElement).checked,
-  });
+/**
+ * Names from an exhaustive record rather than a hand-written list: one the package drops or
+ * renames fails typecheck here instead of becoming an undefined lookup at fire time.
+ */
+function namesOf<T extends string>(names: Record<T, true>): T[] {
+  return Object.keys(names) as T[];
+}
 
-document.getElementById('fire')!.addEventListener('click', fire);
+const ENTER_NAMES = namesOf<EnterName>({
+  slam: true,
+  spin: true,
+  flip: true,
+  assemble: true,
+  rise: true,
+  none: true,
+});
+const ACTIVE_NAMES = namesOf<ActiveName>({
+  sweep: true,
+  float: true,
+  pulse: true,
+  shimmer: true,
+  none: true,
+});
+const EXIT_NAMES = namesOf<ExitName>({
+  fade: true,
+  shatter: true,
+  drop: true,
+  recede: true,
+  none: true,
+});
+const LOOK_NAMES = namesOf<LookName>({ gold: true, chrome: true, oil: true, ruby: true });
+const POLICY_NAMES = namesOf<QueuePolicy>({ queue: true, replace: true, concurrent: true });
+
+function choice<T extends string>(id: string, names: readonly T[]) {
+  const select = el<HTMLSelectElement>(id);
+  for (const name of names) select.add(new Option(name));
+  return { select, get: () => select.value as T };
+}
+
+const enter = choice('enter', ENTER_NAMES);
+const active = choice('active', ACTIVE_NAMES);
+const exit = choice('exit', EXIT_NAMES);
+const look = choice('look', LOOK_NAMES);
+const policy = choice('policy', POLICY_NAMES);
+
+const textInput = el<HTMLInputElement>('text');
+const bloomInput = el<HTMLInputElement>('bloom');
+const number = (id: string) => Number(el<HTMLInputElement>(id).value);
+
+function create(): Blitsklieg {
+  const instance = createBlitsklieg({ fontUrl: '/font.ttf', policy: policy.get() });
+  log(`instance up (policy ${policy.get()}${instance.supported ? '' : ', webgl2 UNSUPPORTED'})`);
+  return instance;
+}
+
+let bk = create();
+
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+function fire(text: string): void {
+  log(`fire "${text}"`);
+  bk.fire(text, {
+    enter: enter.get(),
+    active: active.get(),
+    exit: exit.get(),
+    look: look.get(),
+    hold: number('hold'),
+    blendMs: number('blend'),
+    bloom: bloomInput.checked,
+    placement: { kind: 'fullscreen' },
+  }).then(
+    () => log(`gone  "${text}"`),
+    (err: unknown) => {
+      log(`FAILED "${text}": ${message(err)}`);
+      console.error(err);
+    },
+  );
+}
+
+interface Step extends FireOptions {
+  text: string;
+}
+
+const SEQUENCES: { name: string; steps: Step[] }[] = [
+  {
+    name: 'enters',
+    steps: ENTER_NAMES.filter((name) => name !== 'none').map((name) => ({
+      text: name.toUpperCase(),
+      enter: name,
+      active: 'none',
+      exit: 'fade',
+      hold: 400,
+    })),
+  },
+  {
+    name: 'looks',
+    steps: LOOK_NAMES.map((name) => ({
+      text: name.toUpperCase(),
+      look: name,
+      enter: 'rise',
+      active: 'sweep',
+      exit: 'recede',
+      hold: 900,
+    })),
+  },
+  {
+    name: 'moment',
+    steps: [
+      { text: 'THREE', enter: 'rise', active: 'float', exit: 'recede', look: 'chrome', hold: 150 },
+      { text: 'TWO', enter: 'rise', active: 'float', exit: 'recede', look: 'chrome', hold: 150 },
+      { text: 'ONE', enter: 'rise', active: 'pulse', exit: 'recede', look: 'oil', hold: 150 },
+      {
+        text: 'JACKPOT!',
+        enter: 'slam',
+        active: 'sweep',
+        exit: 'shatter',
+        look: 'gold',
+        hold: 2400,
+        bloom: true,
+      },
+    ],
+  },
+];
+
+let playing = false;
+
+async function play(sequence: (typeof SEQUENCES)[number]): Promise<void> {
+  if (playing) return;
+  playing = true;
+  // Disabled rather than silently ignored: a sequence runs for seconds, and the greyed button is
+  // the only cue that a second click would do nothing.
+  for (const button of sequenceButtons) button.disabled = true;
+  log(`sequence "${sequence.name}"`);
+  try {
+    for (const { text, ...options } of sequence.steps) {
+      await bk.fire(text, options);
+      log(`  played "${text}"`);
+    }
+    log(`sequence "${sequence.name}" done`);
+  } catch (err) {
+    log(`sequence "${sequence.name}" FAILED: ${message(err)}`);
+    console.error(err);
+  } finally {
+    playing = false;
+    for (const button of sequenceButtons) button.disabled = false;
+  }
+}
+
+const sequenceRow = el('sequences');
+const sequenceButtons = SEQUENCES.map((sequence) => {
+  const button = document.createElement('button');
+  button.textContent = sequence.name;
+  button.addEventListener('click', () => void play(sequence));
+  sequenceRow.append(button);
+  return button;
+});
+
+const fireCurrent = () => fire(textInput.value);
+
+el('fire').addEventListener('click', fireCurrent);
+el('burst').addEventListener('click', () => {
+  for (const n of [1, 2, 3]) fire(`${textInput.value} ${n}`);
+});
+el('destroy').addEventListener('click', () => {
+  bk.destroy();
+  log('destroyed');
+  bk = create();
+});
+policy.select.addEventListener('change', () => {
+  bk.destroy();
+  bk = create();
+});
+
 textInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') fire();
+  if (e.key === 'Enter') fireCurrent();
+});
+addEventListener('keydown', (e) => {
+  // Space must not swallow typing, nor double-fire the button it already activated.
+  const inPanel = e.target instanceof HTMLElement && e.target.closest('.panel') !== null;
+  if (e.code !== 'Space' || inPanel) return;
+  e.preventDefault();
+  fireCurrent();
 });
 
-addEventListener('keydown', (e) => {
-  // Space fires, but must not swallow spaces typed into the text field.
-  if (e.code !== 'Space' || e.target === textInput) return;
-  e.preventDefault();
-  fire();
-});
+addEventListener('unhandledrejection', (e) => log(`unhandled rejection: ${String(e.reason)}`));
+addEventListener('error', (e) => log(`error: ${e.message}`));
+
+if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  log('prefers-reduced-motion is on — the type holds a pose instead of travelling');
+}
+
+el('filler').textContent = 'Filler copy so the page scrolls. '.repeat(60);
 ```
+
+What the shape is protecting, if you edit it:
+
+- `fire()` rejects when the font fails to load and when a render tick throws. Every call site
+  catches and writes to the panel log; a bare `void bk.fire(...)` turns both into an unhandled
+  rejection with nothing on screen to explain it.
+- The panel covers all of `FireOptions` — `hold`, `blendMs`, `bloom`, `placement` — plus the
+  queue policy, which is a constructor option, so changing it rebuilds the instance.
+- `FIRE x3` is what makes `queue` / `replace` / `concurrent` visible; nothing else in the lab
+  fires while an effect is already running.
+- The three sequences are data, not click handlers, and each step is awaited so its own `hold`
+  and exit set the pacing. Their buttons disable while one plays, which both prevents stacking
+  sequences on the queue and shows that the click was refused.
 
 - [ ] **Step 5: Run it**
 
 Run: `npm install && npm run dev -w @blitsklieg/lab`
-Expected: server on `http://localhost:5180`. Clicking FIRE renders gold type over the page;
-the page scrolls behind it and stays readable.
+Expected: server on `http://localhost:5180`. FIRE renders gold type over the page; the page
+scrolls behind it and stays readable; the log gets a `fire` line then a `gone` line. Every
+enter, active, exit and look fires without error, and `moment` ends on a bloom-lit `JACKPOT!`.
+
+Screenshots of a settled effect come out blank: the canvas is not `preserveDrawingBuffer`, so
+anything captured after the effect ends is empty, and a driver round-trip can easily outlast a
+short step. Capture while the effect is still on screen, or sample `gl.readPixels` inside a
+`requestAnimationFrame` — Task 19 depends on getting this right.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/lab
+git add apps tsconfig.json package-lock.json
 git commit -m "add lab app exercising every motion slot and look"
 ```
 
