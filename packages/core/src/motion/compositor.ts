@@ -1,4 +1,4 @@
-import { type Pose, type PoseOffset, REST, accumulate, scaleOffset } from '../pose.js';
+import { accumulate, type Pose, type PoseOffset, REST, scaleOffset } from '../pose.js';
 import type { LetterInfo, MotionPiece } from './types.js';
 
 export interface TimelineOptions {

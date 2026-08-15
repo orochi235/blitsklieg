@@ -1,12 +1,12 @@
 import {
   ACTIVE_NAMES,
   type Blitsklieg,
+  createBlitsklieg,
   ENTER_NAMES,
   EXIT_NAMES,
   type FireOptions,
   LOOK_NAMES,
   POLICY_NAMES,
-  createBlitsklieg,
 } from 'blitsklieg';
 
 function el<T extends HTMLElement>(id: string): T {

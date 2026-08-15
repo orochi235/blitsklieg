@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
+  applyLook,
   COLOR_KEYS,
+  createMaterial,
   LOOKS,
   type LookName,
   type LookParams,
-  applyLook,
-  createMaterial,
 } from '../../src/render/looks.js';
 
 const KEY_SET: Record<keyof LookParams, true> = {

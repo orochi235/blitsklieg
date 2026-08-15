@@ -2,9 +2,9 @@ import type { Font, PathCommand } from 'opentype.js';
 import type * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildGlyphGeometry,
   DEFAULT_GLYPH_OPTIONS,
   GlyphCache,
-  buildGlyphGeometry,
   glyphToShapes,
 } from '../../src/text/glyphs.js';
 

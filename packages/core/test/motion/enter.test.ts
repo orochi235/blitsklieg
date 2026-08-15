@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ENTER } from '../../src/motion/enter.js';
-import { REST, accumulate } from '../../src/pose.js';
+import { accumulate, REST } from '../../src/pose.js';
 
 const L = { index: 0, count: 6 };
 const LAST = { index: 5, count: 6 };

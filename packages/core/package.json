@@ -2,7 +2,15 @@
   "name": "blitsklieg",
   "version": "0.1.0",
   "description": "Shiny extruded 3D type, slammed over the web app you already have, on a transparent WebGL overlay",
-  "keywords": ["webgl", "three", "3d", "text", "animation", "overlay", "celebration"],
+  "keywords": [
+    "webgl",
+    "three",
+    "3d",
+    "text",
+    "animation",
+    "overlay",
+    "celebration"
+  ],
   "homepage": "https://orochi235.github.io/blitsklieg/",
   "repository": {
     "type": "git",
@@ -23,8 +31,14 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist/**/*.js", "dist/**/*.d.ts", "LICENSE"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -b tsconfig.json --force",
     "prepack": "npm run build && cp ../../README.md README.md",

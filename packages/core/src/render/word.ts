@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import type { Timeline } from '../motion/compositor.js';
 import type { LoadedFont } from '../text/font.js';
-import { DEFAULT_GLYPH_OPTIONS, GlyphCache, buildGlyphGeometry } from '../text/glyphs.js';
+import { buildGlyphGeometry, DEFAULT_GLYPH_OPTIONS, GlyphCache } from '../text/glyphs.js';
 import type { Budget } from '../text/layout.js';
 import { fitScale, layoutLine } from '../text/layout.js';
-import { type LookName, applyLook, createMaterial } from './looks.js';
+import { applyLook, createMaterial, type LookName } from './looks.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 

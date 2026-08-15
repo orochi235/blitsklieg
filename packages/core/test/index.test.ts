@@ -5,11 +5,11 @@ import { type Clock, ManualClock, type Tick } from '../src/clock.js';
 import {
   ACTIVE_NAMES,
   type BlitskliegOptions,
+  createBlitsklieg,
   ENTER_NAMES,
   EXIT_NAMES,
   LOOK_NAMES,
   POLICY_NAMES,
-  createBlitsklieg,
 } from '../src/index.js';
 import { BloomPath } from '../src/render/bloom.js';
 import { Stage } from '../src/render/stage.js';

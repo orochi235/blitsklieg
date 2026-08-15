@@ -7,13 +7,13 @@ import type { ActiveName, EnterName, ExitName } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
 import { BloomPath } from './render/bloom.js';
 import { LOOKS, type LookName } from './render/looks.js';
-import { Stage, prefersReducedMotion, webglSupported } from './render/stage.js';
+import { prefersReducedMotion, Stage, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
 
-export type { EnterName, ActiveName, ExitName, LookName, QueuePolicy, Clock };
 export { ManualClock } from './clock.js';
 export { POLICY_NAMES } from './queue.js';
+export type { ActiveName, Clock, EnterName, ExitName, LookName, QueuePolicy };
 
 // Read off the records the effect itself indexes. Those are typed exhaustive over the unions,
 // so a name cannot be added, renamed or dropped without these lists following it.

@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Stage, prefersReducedMotion, webglSupported } from '../../src/render/stage.js';
+import { prefersReducedMotion, Stage, webglSupported } from '../../src/render/stage.js';
 
 /** No DOM here, so every test stays on the paths that never touch `target`. */
 function headlessStage(idleTimeoutMs = 1000): Stage {

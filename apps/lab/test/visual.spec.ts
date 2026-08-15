@@ -1,4 +1,4 @@
-import { type Page, expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 /** Alpha census of one frame of the overlay's drawing buffer. */
 interface Frame {

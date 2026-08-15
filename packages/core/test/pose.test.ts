@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REST, accumulate, scaleOffset } from '../src/pose.js';
+import { accumulate, REST, scaleOffset } from '../src/pose.js';
 
 describe('pose algebra', () => {
   it('accumulating no offsets leaves the rest pose untouched', () => {
