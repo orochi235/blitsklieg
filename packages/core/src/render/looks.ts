@@ -68,7 +68,7 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
   },
 };
 
-const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor']);
+export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor']);
 
 export function createMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });

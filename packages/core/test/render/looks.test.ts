@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
+  COLOR_KEYS,
   LOOKS,
   type LookName,
   type LookParams,
@@ -57,6 +58,14 @@ describe('LOOKS', () => {
   it('turns clearcoat off for oil, since a coat above the thin film flattens it', () => {
     expect(withLook('oil').clearcoat).toBe(0);
     expect(withLook('oil').iridescence).toBe(1);
+  });
+});
+
+describe('COLOR_KEYS', () => {
+  it('names exactly the params three stores as Color objects', () => {
+    const fresh = new THREE.MeshPhysicalMaterial();
+    const colorValued = KEYS.filter((key) => fresh[key] instanceof THREE.Color);
+    expect([...COLOR_KEYS].sort()).toEqual(colorValued.sort());
   });
 });
 
