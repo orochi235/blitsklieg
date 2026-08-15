@@ -162,4 +162,32 @@ describe('EffectQueue', () => {
     await Promise.all([a, b]);
     expect(order).toEqual(['a:torn-down', 'b:started']);
   });
+
+  it('replace supersedes an effect that has not started yet', async () => {
+    const q = new EffectQueue('replace');
+    const order: string[] = [];
+    const a = q.push('a', (signal) => {
+      order.push('a:started');
+      return new Promise<void>((r) => {
+        signal.addEventListener('abort', () => {
+          setTimeout(() => {
+            order.push('a:torn-down');
+            r();
+          }, 10);
+        });
+      });
+    });
+    const b = q.push('b', async () => {
+      order.push('b:started');
+    });
+    const c = q.push('c', async () => {
+      order.push('c:started');
+    });
+
+    await expect(b).resolves.toBeUndefined();
+    await Promise.all([a, c]);
+
+    expect(order).toEqual(['a:started', 'a:torn-down', 'c:started']);
+    expect(q.current).toBeNull();
+  });
 });

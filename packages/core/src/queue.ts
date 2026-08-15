@@ -14,8 +14,11 @@ interface Slot {
 }
 
 /**
- * Cancellation resolves rather than rejects: a cancelled effect is done, not failed,
- * and callers commonly `await` a fire-and-forget effect that `destroy()` will cut short.
+ * Under `replace` the newest push wins outright: it aborts the running effect and drops any
+ * effect still waiting, since a `replace` that keeps a backlog is `queue` with an extra abort.
+ *
+ * Cancellation resolves rather than rejects — a cancelled effect is done, not failed, and
+ * callers commonly `await` a fire-and-forget effect that `destroy()` will cut short.
  */
 export class EffectQueue {
   private pending: Entry[] = [];
@@ -39,7 +42,10 @@ export class EffectQueue {
         void this.execute(entry);
         return;
       }
-      if (this.policy === 'replace') this.abortLive();
+      if (this.policy === 'replace') {
+        this.abortLive();
+        this.dropPending();
+      }
 
       this.pending.push(entry);
       // Guarding on `live` instead would start a second drain when an effect settles
@@ -50,13 +56,17 @@ export class EffectQueue {
 
   cancelAll(): void {
     this.abortLive();
-    const dropped = this.pending;
-    this.pending = [];
-    for (const entry of dropped) entry.resolve();
+    this.dropPending();
   }
 
   private abortLive(): void {
     for (const slot of this.live) slot.controller.abort();
+  }
+
+  private dropPending(): void {
+    const dropped = this.pending;
+    this.pending = [];
+    for (const entry of dropped) entry.resolve();
   }
 
   private async drain(): Promise<void> {
