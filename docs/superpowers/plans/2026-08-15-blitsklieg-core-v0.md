@@ -4159,7 +4159,19 @@ git commit -m "add public createBlitsklieg surface wiring stage, timeline, and q
 
 **Files:**
 - Create: `packages/core/src/render/bloom.ts`
+- Create: `packages/core/test/render/bloom.test.ts`
 - Modify: `packages/core/src/index.ts` — select the path from `opts.bloom`
+- Modify: `packages/core/test/index.test.ts` — the wiring, and disposal on every settle path
+
+The overlay is transparent, so a glow written where the scene's alpha is 0 is dropped by the
+page compositor: the composite gives the glow alpha of its own. It also applies the output
+color space encode, which three performs only for shaders that include `<colorspace_fragment>`
+— the word renders into a linear target here rather than straight to the canvas.
+
+`Stage.resize()` owns the canvas size and knows nothing about these targets, so `render()`
+reallocates them whenever the drawing buffer has moved.
+
+`FireOptions.bloom` stays a boolean; `BloomOptions` is not part of the public surface.
 
 - [ ] **Step 1: Implement bloom.ts**
 
@@ -4178,10 +4190,15 @@ export interface BloomOptions {
 
 export const DEFAULT_BLOOM: BloomOptions = { strength: 1.1, threshold: 0.72, alphaBoost: 0.9 };
 
+type Sampler = THREE.IUniform<THREE.Texture | null>;
+
 export class BloomPath {
   private sceneRT!: THREE.WebGLRenderTarget;
   private brightRT!: THREE.WebGLRenderTarget;
   private blurRT!: THREE.WebGLRenderTarget;
+
+  private readonly allocated = new THREE.Vector2();
+  private readonly drawingBuffer = new THREE.Vector2();
 
   private readonly quadScene = new THREE.Scene();
   private readonly quadCam = new THREE.Camera();
@@ -4191,7 +4208,16 @@ export class BloomPath {
   private readonly blurMat: THREE.ShaderMaterial;
   private readonly compositeMat: THREE.ShaderMaterial;
 
-  constructor(private readonly renderer: THREE.WebGLRenderer, opts = DEFAULT_BLOOM) {
+  private readonly thresholdSrc: Sampler = { value: null };
+  private readonly blurSrc: Sampler = { value: null };
+  private readonly blurDir: THREE.IUniform<THREE.Vector2> = { value: new THREE.Vector2() };
+  private readonly compositeBase: Sampler = { value: null };
+  private readonly compositeBloom: Sampler = { value: null };
+
+  constructor(
+    private readonly renderer: THREE.WebGLRenderer,
+    opts = DEFAULT_BLOOM,
+  ) {
     this.quad.frustumCulled = false;
     this.quadScene.add(this.quad);
 
@@ -4199,7 +4225,7 @@ export class BloomPath {
 
     this.thresholdMat = new THREE.ShaderMaterial({
       ...common,
-      uniforms: { tDiffuse: { value: null }, threshold: { value: opts.threshold } },
+      uniforms: { tDiffuse: this.thresholdSrc, threshold: { value: opts.threshold } },
       vertexShader: QUAD_VS,
       fragmentShader: `
         uniform sampler2D tDiffuse; uniform float threshold; varying vec2 vUv;
@@ -4212,7 +4238,7 @@ export class BloomPath {
 
     this.blurMat = new THREE.ShaderMaterial({
       ...common,
-      uniforms: { tDiffuse: { value: null }, dir: { value: new THREE.Vector2() } },
+      uniforms: { tDiffuse: this.blurSrc, dir: this.blurDir },
       vertexShader: QUAD_VS,
       fragmentShader: `
         uniform sampler2D tDiffuse; uniform vec2 dir; varying vec2 vUv;
@@ -4235,8 +4261,8 @@ export class BloomPath {
       ...common,
       transparent: true,
       uniforms: {
-        tBase: { value: null },
-        tBloom: { value: null },
+        tBase: this.compositeBase,
+        tBloom: this.compositeBloom,
         strength: { value: opts.strength },
         alphaBoost: { value: opts.alphaBoost },
       },
@@ -4252,16 +4278,47 @@ export class BloomPath {
           // it alpha of its own it renders into a transparent region and is never seen.
           float bl = dot(bloom, vec3(0.2126, 0.7152, 0.0722));
           gl_FragColor = vec4(base.rgb + bloom, clamp(max(base.a, bl * alphaBoost), 0.0, 1.0));
+          // three encodes for the canvas only through this include, and the scene target is linear.
+          #include <colorspace_fragment>
         }`,
     });
 
     this.resize();
   }
 
-  resize(): void {
-    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+  render(scene: THREE.Scene, camera: THREE.Camera): void {
+    const r = this.renderer;
+    this.resize();
+
+    r.setRenderTarget(this.sceneRT);
+    r.clear();
+    r.render(scene, camera);
+
+    this.thresholdSrc.value = this.sceneRT.texture;
+    this.blit(this.thresholdMat, this.brightRT);
+
+    for (const radius of [1, 2.5]) {
+      this.blurSrc.value = this.brightRT.texture;
+      this.blurDir.value.set(radius / this.brightRT.width, 0);
+      this.blit(this.blurMat, this.blurRT);
+      this.blurSrc.value = this.blurRT.texture;
+      this.blurDir.value.set(0, radius / this.brightRT.height);
+      this.blit(this.blurMat, this.brightRT);
+    }
+
+    this.compositeBase.value = this.sceneRT.texture;
+    this.compositeBloom.value = this.brightRT.texture;
+    this.blit(this.compositeMat, null);
+  }
+
+  /** Per frame because the stage resizes the drawing buffer without knowing these targets exist. */
+  private resize(): void {
+    const size = this.renderer.getDrawingBufferSize(this.drawingBuffer);
     const w = Math.max(2, size.x);
     const h = Math.max(2, size.y);
+    if (this.allocated.x === w && this.allocated.y === h) return;
+    this.allocated.set(w, h);
+
     const opts = {
       type: THREE.HalfFloatType,
       depthBuffer: false,
@@ -4277,30 +4334,6 @@ export class BloomPath {
     this.sceneRT = new THREE.WebGLRenderTarget(w, h, { ...opts, depthBuffer: true, samples: 4 });
     this.brightRT = new THREE.WebGLRenderTarget(w >> 1, h >> 1, opts);
     this.blurRT = new THREE.WebGLRenderTarget(w >> 1, h >> 1, opts);
-  }
-
-  render(scene: THREE.Scene, camera: THREE.Camera): void {
-    const r = this.renderer;
-
-    r.setRenderTarget(this.sceneRT);
-    r.clear();
-    r.render(scene, camera);
-
-    this.thresholdMat.uniforms.tDiffuse.value = this.sceneRT.texture;
-    this.blit(this.thresholdMat, this.brightRT);
-
-    for (const radius of [1, 2.5]) {
-      this.blurMat.uniforms.tDiffuse.value = this.brightRT.texture;
-      this.blurMat.uniforms.dir.value.set(radius / this.brightRT.width, 0);
-      this.blit(this.blurMat, this.blurRT);
-      this.blurMat.uniforms.tDiffuse.value = this.blurRT.texture;
-      this.blurMat.uniforms.dir.value.set(0, radius / this.brightRT.height);
-      this.blit(this.blurMat, this.brightRT);
-    }
-
-    this.compositeMat.uniforms.tBase.value = this.sceneRT.texture;
-    this.compositeMat.uniforms.tBloom.value = this.brightRT.texture;
-    this.blit(this.compositeMat, null);
   }
 
   private blit(material: THREE.Material, target: THREE.WebGLRenderTarget | null): void {
@@ -4324,53 +4357,333 @@ export class BloomPath {
 
 - [ ] **Step 2: Wire it into index.ts**
 
-Replace the three direct-render lines in the `clock.subscribe` callback:
-
-```ts
-        renderer.setRenderTarget(null);
-        renderer.clear();
-        renderer.render(stage.scene, stage.camera);
-```
-
-with:
-
-```ts
-        if (bloom) {
-          bloom.render(stage.scene, stage.camera);
-        } else {
-          renderer.setRenderTarget(null);
-          renderer.clear();
-          renderer.render(stage.scene, stage.camera);
-        }
-```
-
-And create it just after `const renderer = stage.mount();`:
-
-```ts
-    const bloom = opts.bloom ? new BloomPath(renderer) : null;
-```
-
-Dispose it inside `finish()`, before `stage.scheduleIdleTeardown()`:
-
-```ts
-        bloom?.dispose();
-```
-
-Add the import at the top of `index.ts`:
+Add the import:
 
 ```ts
 import { BloomPath } from './render/bloom.js';
 ```
 
-- [ ] **Step 3: Typecheck**
+Create the path just after `const renderer = stage.mount();`:
+
+```ts
+    const bloom = opts.bloom ? new BloomPath(renderer) : null;
+```
+
+Select it in place of the three direct-render lines inside the `clock.subscribe` callback's
+`try`:
+
+```ts
+          if (bloom) {
+            bloom.render(stage.scene, stage.camera);
+          } else {
+            renderer.setRenderTarget(null);
+            renderer.clear();
+            renderer.render(stage.scene, stage.camera);
+          }
+```
+
+Dispose it in `settle()`, before `stage.scheduleIdleTeardown()` — not in `finish()`. `settle`
+is the one teardown that completion, abort and a throwing tick all reach; hanging disposal off
+the completion path alone strands three render targets whenever an effect fails, and
+`renderer.dispose()` frees none of them.
+
+```ts
+        bloom?.dispose();
+```
+
+- [ ] **Step 3: Test**
+
+`BloomPath` needs a real `WebGLRenderer` to draw anything, but a stub renderer that records
+`setRenderTarget`/`render` reveals the whole pass structure, and the render targets and
+materials are plain JS until a frame is submitted. What the shaders compute is not reachable
+in the `node` environment and stays untested.
+
+`packages/core/test/render/bloom.test.ts`:
+
+```ts
+import * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
+import { BloomPath, DEFAULT_BLOOM } from '../../src/render/bloom.js';
+
+/** What a single draw saw: uniforms are reused across passes, so textures are snapshotted. */
+interface Pass {
+  scene: THREE.Scene;
+  target: THREE.WebGLRenderTarget | null;
+  material: THREE.ShaderMaterial | null;
+  source: THREE.Texture | null;
+  bloom: THREE.Texture | null;
+  dir: THREE.Vector2 | null;
+}
+
+function harness(width = 640, height = 480) {
+  const size = new THREE.Vector2(width, height);
+  const passes: Pass[] = [];
+  let target: THREE.WebGLRenderTarget | null = null;
+
+  const renderer = {
+    getDrawingBufferSize: (out: THREE.Vector2) => out.copy(size),
+    setRenderTarget: vi.fn((next: THREE.WebGLRenderTarget | null) => {
+      target = next;
+    }),
+    clear: vi.fn(),
+    render: vi.fn((scene: THREE.Scene) => {
+      const mesh = scene.children[0] as THREE.Mesh | undefined;
+      const material = (mesh?.material as THREE.ShaderMaterial | undefined) ?? null;
+      const uniforms = material?.uniforms;
+      const dir = uniforms?.dir?.value as THREE.Vector2 | undefined;
+      passes.push({
+        scene,
+        target,
+        material,
+        source: ((uniforms?.tDiffuse ?? uniforms?.tBase)?.value ?? null) as THREE.Texture | null,
+        bloom: (uniforms?.tBloom?.value ?? null) as THREE.Texture | null,
+        dir: dir ? dir.clone() : null,
+      });
+    }),
+  } as unknown as THREE.WebGLRenderer;
+
+  return { renderer, passes, size };
+}
+
+function pass(passes: Pass[], index: number): Pass {
+  const found = passes[index];
+  if (!found) throw new Error(`no pass ${index} of ${passes.length}`);
+  return found;
+}
+
+function renderOnce(path: BloomPath): THREE.Scene {
+  const scene = new THREE.Scene();
+  path.render(scene, new THREE.PerspectiveCamera());
+  return scene;
+}
+
+interface Freeable {
+  addEventListener(type: 'dispose', listener: () => void): void;
+}
+
+/** Counts dispose events, which is the only externally visible signal that GPU memory came back. */
+function watchDisposal(...targets: Freeable[]): () => number {
+  let count = 0;
+  for (const t of targets) t.addEventListener('dispose', () => count++);
+  return () => count;
+}
+
+describe('BloomPath.render', () => {
+  it('draws the scene at full resolution and the glow at half', () => {
+    const { renderer, passes } = harness(640, 480);
+    const scene = renderOnce(new BloomPath(renderer));
+
+    expect(passes).toHaveLength(7);
+    const scenePass = pass(passes, 0);
+    expect(scenePass.scene).toBe(scene);
+    expect([scenePass.target?.width, scenePass.target?.height]).toEqual([640, 480]);
+    for (const i of [1, 2, 3, 4, 5]) {
+      expect([pass(passes, i).target?.width, pass(passes, i).target?.height]).toEqual([320, 240]);
+    }
+  });
+
+  it('thresholds the scene, then ping-pongs a separable blur at two radii', () => {
+    const { renderer, passes } = harness(640, 480);
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    const sceneRT = pass(passes, 0).target;
+    const brightRT = pass(passes, 1).target;
+    const blurRT = pass(passes, 2).target;
+    expect(pass(passes, 1).source).toBe(sceneRT?.texture);
+    expect(pass(passes, 1).material?.uniforms.threshold?.value).toBe(DEFAULT_BLOOM.threshold);
+
+    // Each pass reads what the previous one wrote; a stale read would blur the same texture twice.
+    const blur = [2, 3, 4, 5].map((i) => pass(passes, i));
+    expect(blur.map((p) => p.target)).toEqual([blurRT, brightRT, blurRT, brightRT]);
+    expect(blur.map((p) => p.source)).toEqual([
+      brightRT?.texture,
+      blurRT?.texture,
+      brightRT?.texture,
+      blurRT?.texture,
+    ]);
+    expect(blur.map((p) => p.dir?.toArray())).toEqual([
+      [1 / 320, 0],
+      [0, 1 / 240],
+      [2.5 / 320, 0],
+      [0, 2.5 / 240],
+    ]);
+  });
+
+  it('composites the scene and the blurred glow to the canvas last', () => {
+    const { renderer, passes } = harness(640, 480);
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    const composite = pass(passes, 6);
+    expect(composite.target).toBeNull();
+    expect(composite.source).toBe(pass(passes, 0).target?.texture);
+    expect(composite.bloom).toBe(pass(passes, 5).target?.texture);
+    expect(composite.material?.uniforms.strength?.value).toBe(DEFAULT_BLOOM.strength);
+    expect(composite.material?.uniforms.alphaBoost?.value).toBe(DEFAULT_BLOOM.alphaBoost);
+  });
+
+  it('encodes the composite for the canvas, which only a direct render gets for free', () => {
+    const { renderer, passes } = harness();
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    expect(pass(passes, 6).material?.fragmentShader).toContain('#include <colorspace_fragment>');
+    expect(pass(passes, 1).material?.fragmentShader).not.toContain('colorspace_fragment');
+  });
+
+  it('carries custom options into the uniforms', () => {
+    const { renderer, passes } = harness();
+    const path = new BloomPath(renderer, { strength: 2, threshold: 0.1, alphaBoost: 0.25 });
+    renderOnce(path);
+
+    expect(pass(passes, 1).material?.uniforms.threshold?.value).toBe(0.1);
+    expect(pass(passes, 6).material?.uniforms.strength?.value).toBe(2);
+    expect(pass(passes, 6).material?.uniforms.alphaBoost?.value).toBe(0.25);
+  });
+});
+
+describe('BloomPath target allocation', () => {
+  it('follows a drawing buffer that changed under it, and frees what it replaced', () => {
+    const { renderer, passes, size } = harness(640, 480);
+    const path = new BloomPath(renderer);
+    renderOnce(path);
+
+    const disposed = watchDisposal(
+      pass(passes, 0).target as THREE.WebGLRenderTarget,
+      pass(passes, 1).target as THREE.WebGLRenderTarget,
+      pass(passes, 2).target as THREE.WebGLRenderTarget,
+    );
+
+    size.set(1000, 800);
+    renderOnce(path);
+
+    expect(disposed()).toBe(3);
+    expect([pass(passes, 7).target?.width, pass(passes, 7).target?.height]).toEqual([1000, 800]);
+    expect([pass(passes, 8).target?.width, pass(passes, 8).target?.height]).toEqual([500, 400]);
+  });
+
+  it('reuses the targets while the drawing buffer holds still', () => {
+    const { renderer, passes } = harness(640, 480);
+    const path = new BloomPath(renderer);
+    renderOnce(path);
+    const disposed = watchDisposal(pass(passes, 0).target as THREE.WebGLRenderTarget);
+    renderOnce(path);
+
+    expect(disposed()).toBe(0);
+    expect(pass(passes, 7).target).toBe(pass(passes, 0).target);
+  });
+
+  it('clamps a zero-sized drawing buffer to something allocatable', () => {
+    const { renderer, passes } = harness(0, 0);
+    renderOnce(new BloomPath(renderer));
+
+    expect([pass(passes, 0).target?.width, pass(passes, 0).target?.height]).toEqual([2, 2]);
+    expect([pass(passes, 1).target?.width, pass(passes, 1).target?.height]).toEqual([1, 1]);
+  });
+});
+
+describe('BloomPath.dispose', () => {
+  it('frees every render target and material', () => {
+    const { renderer, passes } = harness();
+    const path = new BloomPath(renderer);
+    renderOnce(path);
+
+    const materials = [1, 2, 6].map((i) => pass(passes, i).material as THREE.ShaderMaterial);
+    const targets = [0, 1, 2].map((i) => pass(passes, i).target as THREE.WebGLRenderTarget);
+    const quad = pass(passes, 1).scene.children[0] as THREE.Mesh;
+    const disposed = watchDisposal(...targets, ...materials, quad.geometry);
+
+    path.dispose();
+    expect(disposed()).toBe(7);
+  });
+});
+```
+
+Append to the `createBlitsklieg` describe in `packages/core/test/index.test.ts`, with
+`BloomPath` imported and `getDrawingBufferSize: (out: THREE.Vector2) => out.set(320, 240)`
+added to the `renderer` stub:
+
+```ts
+  describe('bloom', () => {
+    /** Real disposal, stubbed drawing: the constructor allocates the targets either way. */
+    function stubBloom(render = true) {
+      const spies = {
+        render: vi.spyOn(BloomPath.prototype, 'render'),
+        dispose: vi.spyOn(BloomPath.prototype, 'dispose'),
+      };
+      if (render) spies.render.mockImplementation(() => {});
+      return spies;
+    }
+
+    it('renders through the bloom path instead of straight to the canvas', async () => {
+      const bloom = stubBloom();
+      const bk = create();
+      const done = bk.fire('HI', { ...INSTANT, bloom: true });
+
+      await flush();
+      clock.advance(16);
+      await done;
+
+      expect(bloom.render).toHaveBeenCalledTimes(1);
+      expect(bloom.render).toHaveBeenCalledWith(stage().scene, stage().camera);
+      expect(renders).toBe(0);
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('builds nothing when bloom is off', async () => {
+      const bloom = stubBloom();
+      const bk = create();
+      const done = bk.fire('HI', INSTANT);
+
+      await flush();
+      clock.advance(16);
+      await done;
+
+      expect(bloom.render).not.toHaveBeenCalled();
+      expect(bloom.dispose).not.toHaveBeenCalled();
+      expect(renders).toBe(1);
+    });
+
+    it('disposes the bloom path when the effect is aborted', async () => {
+      const bloom = stubBloom();
+      const bk = create();
+      const done = bk.fire('HI', { bloom: true, hold: 5000 });
+
+      await flush();
+      clock.advance(16);
+      bk.destroy();
+      await done;
+
+      expect(bloom.render).toHaveBeenCalledTimes(1);
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('disposes the bloom path when a tick throws', async () => {
+      const bloom = stubBloom(false);
+      onRender = () => {
+        throw new Error('context lost');
+      };
+      const bk = create();
+      const done = bk.fire('HI', { ...INSTANT, bloom: true });
+
+      await flush();
+      clock.advance(16);
+
+      await expect(done).rejects.toThrow('context lost');
+      // The throw came out of the scene pass, so the composite never ran and the targets are live.
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
+  });
+```
+
+- [ ] **Step 4: Verify**
 
 Run: `npm run check`
-Expected: all clean.
+Expected: all clean, 199 tests across 17 files.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add packages/core/src/render/bloom.ts packages/core/src/index.ts
+git add packages/core/test/render/bloom.test.ts packages/core/test/index.test.ts
 git commit -m "add opt-in bloom path with alpha-preserving composite"
 ```
 
