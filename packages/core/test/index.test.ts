@@ -3,6 +3,7 @@ import type * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Clock, ManualClock, type Tick } from '../src/clock.js';
 import { type BlitskliegOptions, createBlitsklieg } from '../src/index.js';
+import { BloomPath } from '../src/render/bloom.js';
 import { Stage } from '../src/render/stage.js';
 
 const { parse } = vi.hoisted(() => ({ parse: vi.fn() }));
@@ -118,6 +119,7 @@ beforeEach(() => {
   peakWords = 0;
   onRender = () => {};
   renderer = {
+    getDrawingBufferSize: (out: THREE.Vector2) => out.set(320, 240),
     setRenderTarget: vi.fn(),
     clear: vi.fn(),
     render: vi.fn(() => {
@@ -358,5 +360,76 @@ describe('createBlitsklieg', () => {
     clock.advance(16);
     await third;
     expect(stage().scene.environmentRotation.y).toBe(0);
+  });
+
+  describe('bloom', () => {
+    /** Real disposal, stubbed drawing: the constructor allocates the targets either way. */
+    function stubBloom(render = true) {
+      const spies = {
+        render: vi.spyOn(BloomPath.prototype, 'render'),
+        dispose: vi.spyOn(BloomPath.prototype, 'dispose'),
+      };
+      if (render) spies.render.mockImplementation(() => {});
+      return spies;
+    }
+
+    it('renders through the bloom path instead of straight to the canvas', async () => {
+      const bloom = stubBloom();
+      const bk = create();
+      const done = bk.fire('HI', { ...INSTANT, bloom: true });
+
+      await flush();
+      clock.advance(16);
+      await done;
+
+      expect(bloom.render).toHaveBeenCalledTimes(1);
+      expect(bloom.render).toHaveBeenCalledWith(stage().scene, stage().camera);
+      expect(renders).toBe(0);
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('builds nothing when bloom is off', async () => {
+      const bloom = stubBloom();
+      const bk = create();
+      const done = bk.fire('HI', INSTANT);
+
+      await flush();
+      clock.advance(16);
+      await done;
+
+      expect(bloom.render).not.toHaveBeenCalled();
+      expect(bloom.dispose).not.toHaveBeenCalled();
+      expect(renders).toBe(1);
+    });
+
+    it('disposes the bloom path when the effect is aborted', async () => {
+      const bloom = stubBloom();
+      const bk = create();
+      const done = bk.fire('HI', { bloom: true, hold: 5000 });
+
+      await flush();
+      clock.advance(16);
+      bk.destroy();
+      await done;
+
+      expect(bloom.render).toHaveBeenCalledTimes(1);
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('disposes the bloom path when a tick throws', async () => {
+      const bloom = stubBloom(false);
+      onRender = () => {
+        throw new Error('context lost');
+      };
+      const bk = create();
+      const done = bk.fire('HI', { ...INSTANT, bloom: true });
+
+      await flush();
+      clock.advance(16);
+
+      await expect(done).rejects.toThrow('context lost');
+      // The throw came out of the scene pass, so the composite never ran and the targets are live.
+      expect(bloom.dispose).toHaveBeenCalledTimes(1);
+    });
   });
 });

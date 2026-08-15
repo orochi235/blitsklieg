@@ -1,0 +1,194 @@
+import * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
+import { BloomPath, DEFAULT_BLOOM } from '../../src/render/bloom.js';
+
+/** What a single draw saw: uniforms are reused across passes, so textures are snapshotted. */
+interface Pass {
+  scene: THREE.Scene;
+  target: THREE.WebGLRenderTarget | null;
+  material: THREE.ShaderMaterial | null;
+  source: THREE.Texture | null;
+  bloom: THREE.Texture | null;
+  dir: THREE.Vector2 | null;
+}
+
+function harness(width = 640, height = 480) {
+  const size = new THREE.Vector2(width, height);
+  const passes: Pass[] = [];
+  let target: THREE.WebGLRenderTarget | null = null;
+
+  const renderer = {
+    getDrawingBufferSize: (out: THREE.Vector2) => out.copy(size),
+    setRenderTarget: vi.fn((next: THREE.WebGLRenderTarget | null) => {
+      target = next;
+    }),
+    clear: vi.fn(),
+    render: vi.fn((scene: THREE.Scene) => {
+      const mesh = scene.children[0] as THREE.Mesh | undefined;
+      const material = (mesh?.material as THREE.ShaderMaterial | undefined) ?? null;
+      const uniforms = material?.uniforms;
+      const dir = uniforms?.dir?.value as THREE.Vector2 | undefined;
+      passes.push({
+        scene,
+        target,
+        material,
+        source: ((uniforms?.tDiffuse ?? uniforms?.tBase)?.value ?? null) as THREE.Texture | null,
+        bloom: (uniforms?.tBloom?.value ?? null) as THREE.Texture | null,
+        dir: dir ? dir.clone() : null,
+      });
+    }),
+  } as unknown as THREE.WebGLRenderer;
+
+  return { renderer, passes, size };
+}
+
+function pass(passes: Pass[], index: number): Pass {
+  const found = passes[index];
+  if (!found) throw new Error(`no pass ${index} of ${passes.length}`);
+  return found;
+}
+
+function renderOnce(path: BloomPath): THREE.Scene {
+  const scene = new THREE.Scene();
+  path.render(scene, new THREE.PerspectiveCamera());
+  return scene;
+}
+
+interface Freeable {
+  addEventListener(type: 'dispose', listener: () => void): void;
+}
+
+/** Counts dispose events, which is the only externally visible signal that GPU memory came back. */
+function watchDisposal(...targets: Freeable[]): () => number {
+  let count = 0;
+  for (const t of targets) t.addEventListener('dispose', () => count++);
+  return () => count;
+}
+
+describe('BloomPath.render', () => {
+  it('draws the scene at full resolution and the glow at half', () => {
+    const { renderer, passes } = harness(640, 480);
+    const scene = renderOnce(new BloomPath(renderer));
+
+    expect(passes).toHaveLength(7);
+    const scenePass = pass(passes, 0);
+    expect(scenePass.scene).toBe(scene);
+    expect([scenePass.target?.width, scenePass.target?.height]).toEqual([640, 480]);
+    for (const i of [1, 2, 3, 4, 5]) {
+      expect([pass(passes, i).target?.width, pass(passes, i).target?.height]).toEqual([320, 240]);
+    }
+  });
+
+  it('thresholds the scene, then ping-pongs a separable blur at two radii', () => {
+    const { renderer, passes } = harness(640, 480);
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    const sceneRT = pass(passes, 0).target;
+    const brightRT = pass(passes, 1).target;
+    const blurRT = pass(passes, 2).target;
+    expect(pass(passes, 1).source).toBe(sceneRT?.texture);
+    expect(pass(passes, 1).material?.uniforms.threshold?.value).toBe(DEFAULT_BLOOM.threshold);
+
+    // Each pass reads what the previous one wrote; a stale read would blur the same texture twice.
+    const blur = [2, 3, 4, 5].map((i) => pass(passes, i));
+    expect(blur.map((p) => p.target)).toEqual([blurRT, brightRT, blurRT, brightRT]);
+    expect(blur.map((p) => p.source)).toEqual([
+      brightRT?.texture,
+      blurRT?.texture,
+      brightRT?.texture,
+      blurRT?.texture,
+    ]);
+    expect(blur.map((p) => p.dir?.toArray())).toEqual([
+      [1 / 320, 0],
+      [0, 1 / 240],
+      [2.5 / 320, 0],
+      [0, 2.5 / 240],
+    ]);
+  });
+
+  it('composites the scene and the blurred glow to the canvas last', () => {
+    const { renderer, passes } = harness(640, 480);
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    const composite = pass(passes, 6);
+    expect(composite.target).toBeNull();
+    expect(composite.source).toBe(pass(passes, 0).target?.texture);
+    expect(composite.bloom).toBe(pass(passes, 5).target?.texture);
+    expect(composite.material?.uniforms.strength?.value).toBe(DEFAULT_BLOOM.strength);
+    expect(composite.material?.uniforms.alphaBoost?.value).toBe(DEFAULT_BLOOM.alphaBoost);
+  });
+
+  it('encodes the composite for the canvas, which only a direct render gets for free', () => {
+    const { renderer, passes } = harness();
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    expect(pass(passes, 6).material?.fragmentShader).toContain('#include <colorspace_fragment>');
+    expect(pass(passes, 1).material?.fragmentShader).not.toContain('colorspace_fragment');
+  });
+
+  it('carries custom options into the uniforms', () => {
+    const { renderer, passes } = harness();
+    const path = new BloomPath(renderer, { strength: 2, threshold: 0.1, alphaBoost: 0.25 });
+    renderOnce(path);
+
+    expect(pass(passes, 1).material?.uniforms.threshold?.value).toBe(0.1);
+    expect(pass(passes, 6).material?.uniforms.strength?.value).toBe(2);
+    expect(pass(passes, 6).material?.uniforms.alphaBoost?.value).toBe(0.25);
+  });
+});
+
+describe('BloomPath target allocation', () => {
+  it('follows a drawing buffer that changed under it, and frees what it replaced', () => {
+    const { renderer, passes, size } = harness(640, 480);
+    const path = new BloomPath(renderer);
+    renderOnce(path);
+
+    const disposed = watchDisposal(
+      pass(passes, 0).target as THREE.WebGLRenderTarget,
+      pass(passes, 1).target as THREE.WebGLRenderTarget,
+      pass(passes, 2).target as THREE.WebGLRenderTarget,
+    );
+
+    size.set(1000, 800);
+    renderOnce(path);
+
+    expect(disposed()).toBe(3);
+    expect([pass(passes, 7).target?.width, pass(passes, 7).target?.height]).toEqual([1000, 800]);
+    expect([pass(passes, 8).target?.width, pass(passes, 8).target?.height]).toEqual([500, 400]);
+  });
+
+  it('reuses the targets while the drawing buffer holds still', () => {
+    const { renderer, passes } = harness(640, 480);
+    const path = new BloomPath(renderer);
+    renderOnce(path);
+    const disposed = watchDisposal(pass(passes, 0).target as THREE.WebGLRenderTarget);
+    renderOnce(path);
+
+    expect(disposed()).toBe(0);
+    expect(pass(passes, 7).target).toBe(pass(passes, 0).target);
+  });
+
+  it('clamps a zero-sized drawing buffer to something allocatable', () => {
+    const { renderer, passes } = harness(0, 0);
+    renderOnce(new BloomPath(renderer));
+
+    expect([pass(passes, 0).target?.width, pass(passes, 0).target?.height]).toEqual([2, 2]);
+    expect([pass(passes, 1).target?.width, pass(passes, 1).target?.height]).toEqual([1, 1]);
+  });
+});
+
+describe('BloomPath.dispose', () => {
+  it('frees every render target and material', () => {
+    const { renderer, passes } = harness();
+    const path = new BloomPath(renderer);
+    renderOnce(path);
+
+    const materials = [1, 2, 6].map((i) => pass(passes, i).material as THREE.ShaderMaterial);
+    const targets = [0, 1, 2].map((i) => pass(passes, i).target as THREE.WebGLRenderTarget);
+    const quad = pass(passes, 1).scene.children[0] as THREE.Mesh;
+    const disposed = watchDisposal(...targets, ...materials, quad.geometry);
+
+    path.dispose();
+    expect(disposed()).toBe(7);
+  });
+});

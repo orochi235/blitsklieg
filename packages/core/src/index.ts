@@ -5,6 +5,7 @@ import { ENTER } from './motion/enter.js';
 import { EXIT } from './motion/exit.js';
 import type { ActiveName, EnterName, ExitName } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
+import { BloomPath } from './render/bloom.js';
 import type { LookName } from './render/looks.js';
 import { Stage, prefersReducedMotion, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
@@ -73,6 +74,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     if (signal.aborted) return;
 
     const renderer = stage.mount();
+    const bloom = opts.bloom ? new BloomPath(renderer) : null;
     const word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget());
     stage.scene.add(word.group);
 
@@ -99,6 +101,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
         off();
         stage.scene.remove(word.group);
         word.dispose();
+        bloom?.dispose();
         stage.scheduleIdleTeardown();
         done();
       };
@@ -119,9 +122,13 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
             ? (elapsed / ACTIVE[activeName].duration) * TAU
             : 0;
 
-          renderer.setRenderTarget(null);
-          renderer.clear();
-          renderer.render(stage.scene, stage.camera);
+          if (bloom) {
+            bloom.render(stage.scene, stage.camera);
+          } else {
+            renderer.setRenderTarget(null);
+            renderer.clear();
+            renderer.render(stage.scene, stage.camera);
+          }
 
           if (still ? since >= hold : timeline.isFinished(since)) finish();
         } catch (err) {
