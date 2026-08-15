@@ -1797,6 +1797,19 @@ describe('layoutLine', () => {
   it('an empty string has zero width and no glyphs', () => {
     expect(layoutLine('', metrics)).toEqual({ glyphs: [], width: 0 });
   });
+
+  it('width includes the trailing advance, so trailing whitespace must be trimmed by the caller', () => {
+    const line = layoutLine('A ', metrics);
+    expect(line.glyphs).toHaveLength(2);
+    expect(line.width).toBe(15);
+  });
+
+  it('treats an astral character as one glyph instead of splitting its surrogate pair', () => {
+    const line = layoutLine('A\u{1F600}B', metrics);
+    expect(line.glyphs.map((g) => g.char)).toEqual(['A', '\u{1F600}', 'B']);
+    expect(line.glyphs.map((g) => g.index)).toEqual([0, 1, 2]);
+    expect(line.glyphs[2]?.x).toBe(20);
+  });
 });
 
 describe('fitScale', () => {
@@ -1814,6 +1827,11 @@ describe('fitScale', () => {
 
   it('returns the cap for an empty word rather than dividing by zero', () => {
     expect(Number.isFinite(fitScale(0, 0, { width: 10, height: 10 }))).toBe(true);
+  });
+
+  it('returns exactly the cap value for a zero-size word, custom cap included', () => {
+    expect(fitScale(0, 0, { width: 10, height: 10 })).toBe(2.2);
+    expect(fitScale(0, 0, { width: 10, height: 10 }, 5)).toBe(5);
   });
 });
 ```
@@ -1840,16 +1858,19 @@ export interface PlacedGlyph {
 
 export interface Line {
   glyphs: PlacedGlyph[];
+  /** Sum of every glyph's advance, including the last — trim trailing whitespace before centering on it. */
   width: number;
 }
 
+/** Iterates by Unicode code point, so an astral character (e.g. an emoji) is one glyph, not a split surrogate pair. */
 export function layoutLine(text: string, metrics: GlyphMetrics): Line {
+  const chars = Array.from(text);
   const glyphs: PlacedGlyph[] = [];
   let pen = 0;
 
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i] as string;
-    if (i > 0) pen += metrics.kernOf(text[i - 1] as string, char);
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i] as string;
+    if (i > 0) pen += metrics.kernOf(chars[i - 1] as string, char);
     glyphs.push({ char, x: pen, index: i });
     pen += metrics.advanceOf(char);
   }
@@ -1865,6 +1886,8 @@ export interface Budget {
 /**
  * Uniform scale fitting the word inside the budget on both axes. Height matters as much as
  * width: idle rotation swings the word toward the camera, so a width-only fit overflows.
+ * An empty word has no ratio to compute, so it falls back to `cap`, the same bound a normal
+ * word is clamped to.
  */
 export function fitScale(width: number, height: number, budget: Budget, cap = 2.2): number {
   const byWidth = width > 0 ? budget.width / width : Number.POSITIVE_INFINITY;
@@ -1876,7 +1899,7 @@ export function fitScale(width: number, height: number, budget: Budget, cap = 2.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run packages/core/test/text/layout.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Commit**
 
