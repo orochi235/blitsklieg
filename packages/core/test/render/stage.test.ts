@@ -4,7 +4,7 @@ import { Stage, prefersReducedMotion, webglSupported } from '../../src/render/st
 
 /** No DOM here, so every test stays on the paths that never touch `target`. */
 function headlessStage(idleTimeoutMs = 1000): Stage {
-  return new Stage({ target: undefined as unknown as HTMLElement, idleTimeoutMs });
+  return new Stage({ idleTimeoutMs });
 }
 
 function frustumHeight(stage: Stage): number {

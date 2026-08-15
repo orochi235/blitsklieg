@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { buildEnvironment } from './environment.js';
 
 export interface StageOptions {
-  target: HTMLElement;
+  /** Resolved at mount, not at construction, so a document-less environment can still get here. */
+  target?: HTMLElement;
   /** Idle milliseconds before the WebGL context is torn down. Browsers cap contexts near 16. */
   idleTimeoutMs: number;
 }
@@ -57,7 +58,7 @@ export class Stage {
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.opts.target.appendChild(canvas);
+    (this.opts.target ?? document.body).appendChild(canvas);
 
     this.canvas = canvas;
     this.renderer = renderer;

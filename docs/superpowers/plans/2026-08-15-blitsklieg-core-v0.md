@@ -2857,7 +2857,8 @@ import * as THREE from 'three';
 import { buildEnvironment } from './environment.js';
 
 export interface StageOptions {
-  target: HTMLElement;
+  /** Resolved at mount, not at construction, so a document-less environment can still get here. */
+  target?: HTMLElement;
   /** Idle milliseconds before the WebGL context is torn down. Browsers cap contexts near 16. */
   idleTimeoutMs: number;
 }
@@ -2912,7 +2913,7 @@ export class Stage {
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.opts.target.appendChild(canvas);
+    (this.opts.target ?? document.body).appendChild(canvas);
 
     this.canvas = canvas;
     this.renderer = renderer;
@@ -2991,7 +2992,7 @@ import { Stage, prefersReducedMotion, webglSupported } from '../../src/render/st
 
 /** No DOM here, so every test stays on the paths that never touch `target`. */
 function headlessStage(idleTimeoutMs = 1000): Stage {
-  return new Stage({ target: undefined as unknown as HTMLElement, idleTimeoutMs });
+  return new Stage({ idleTimeoutMs });
 }
 
 function frustumHeight(stage: Stage): number {
@@ -3670,7 +3671,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
   const clock = options.clock ?? new RafClock();
   const queue = new EffectQueue(options.policy ?? 'queue');
   const stage = new Stage({
-    target: options.target ?? document.body,
+    target: options.target,
     idleTimeoutMs: options.idleTimeoutMs ?? 8000,
   });
 
@@ -3944,6 +3945,18 @@ describe('createBlitsklieg', () => {
 
     expect(calls).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('constructs and degrades with no document at all', async () => {
+    // Not stubWebgl(false): that leaves a document in place, which is the one thing an SSR
+    // render does not have, and `supported` exists to survive.
+    vi.unstubAllGlobals();
+    const bk = createBlitsklieg({ fontUrl: '/f.ttf', clock });
+
+    expect(bk.supported).toBe(false);
+    await bk.fire('HELLO');
+
+    expect(calls).toEqual([]);
   });
 
   it('ignores fire after destroy', async () => {

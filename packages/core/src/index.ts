@@ -54,7 +54,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
   const clock = options.clock ?? new RafClock();
   const queue = new EffectQueue(options.policy ?? 'queue');
   const stage = new Stage({
-    target: options.target ?? document.body,
+    target: options.target,
     idleTimeoutMs: options.idleTimeoutMs ?? 8000,
   });
 

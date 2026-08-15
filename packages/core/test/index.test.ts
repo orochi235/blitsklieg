@@ -169,6 +169,18 @@ describe('createBlitsklieg', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('constructs and degrades with no document at all', async () => {
+    // Not stubWebgl(false): that leaves a document in place, which is the one thing an SSR
+    // render does not have, and `supported` exists to survive.
+    vi.unstubAllGlobals();
+    const bk = createBlitsklieg({ fontUrl: '/f.ttf', clock });
+
+    expect(bk.supported).toBe(false);
+    await bk.fire('HELLO');
+
+    expect(calls).toEqual([]);
+  });
+
   it('ignores fire after destroy', async () => {
     const bk = create();
     bk.destroy();
