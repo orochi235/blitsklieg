@@ -1029,9 +1029,12 @@ crossfade window so a phase's tail overlaps the next phase's head. Two ramps at 
 complementary and sum to 1, but a `hold` shorter than `blendMs` puts all three phases in their
 ramps at once and the total runs past 1, so `poseAt` normalizes whenever the sum exceeds 1.
 
-Zero-length phases are dropped at construction rather than guarded at each read, so a `none` slot
-can never reach the 0/0 in `localT`. `duration` is computed before the filter, so the pins that
-hold the outermost phases at full weight still find their segments.
+Zero-length phases are dropped at construction rather than guarded at each read, so a zero-length
+segment can never reach the `0/0` in `localT`; an `active: 'none'` slot still spans the hold and
+survives the filter, and its `d <= 0` guard is what catches it. `duration` is computed before the
+filter, so the pins that hold the outermost phases at full weight still find their segments. Those
+pins skip the window guard too — a phase pinned to an edge holds past it, so the final frame at
+exactly `duration` renders the exit's end pose instead of snapping back to rest.
 
 **Files:**
 - Create: `packages/core/src/motion/compositor.ts`
@@ -1076,7 +1079,7 @@ const expectUnitWeight = (over: Partial<TimelineOptions> = {}) => {
     blendMs: 20,
     ...over,
   });
-  for (let t = 0; t < tl.duration; t += 1) {
+  for (let t = 0; t <= tl.duration; t += 1) {
     expect(tl.poseAt(t, L).position[0], `t=${t}`).toBeCloseTo(1);
   }
 };
@@ -1256,12 +1259,16 @@ export class Timeline {
     const half = this.blend / 2;
     const head = seg.start - half;
     const tail = seg.end + half;
-    if (elapsed < head || elapsed >= tail) return 0;
 
-    // Whichever phase starts at 0 and whichever ends at `duration` hold full weight there rather
-    // than fading in from or out to nothing; a zero-length enter makes `active` the former.
-    const inW = seg.start === 0 ? 1 : this.ramp(elapsed - head);
-    const outW = seg.end === this.duration ? 1 : this.ramp(tail - elapsed);
+    // Whichever phase starts at 0 and whichever ends at `duration` hold full weight past that edge
+    // rather than fading to nothing; a zero-length enter makes `active` the former. Windowing them
+    // would drop the word to rest on the last frame, which callers clamp to exactly `duration`.
+    const atStart = seg.start === 0;
+    const atEnd = seg.end === this.duration;
+    if ((!atStart && elapsed < head) || (!atEnd && elapsed >= tail)) return 0;
+
+    const inW = atStart ? 1 : this.ramp(elapsed - head);
+    const outW = atEnd ? 1 : this.ramp(tail - elapsed);
     return Math.min(inW, outW);
   }
 
