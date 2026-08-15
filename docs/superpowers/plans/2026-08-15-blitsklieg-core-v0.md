@@ -5113,8 +5113,18 @@ git commit -m "add lab app exercising every motion slot and look"
 
 **Files:**
 - Create: `apps/lab/test/visual.spec.ts`, `playwright.config.ts`
+- Modify: `biome.json`, `.gitignore`, `apps/lab/tsconfig.json`, `package.json`
 
-- [ ] **Step 1: playwright.config.ts**
+- [ ] **Step 1: Install Playwright**
+
+```bash
+npm install -D @playwright/test
+npx playwright install chromium
+```
+
+Root devDependency only. `packages/core` must not gain a test-runner dependency.
+
+- [ ] **Step 2: playwright.config.ts**
 
 ```ts
 import { defineConfig } from '@playwright/test';
@@ -5122,61 +5132,182 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './apps/lab/test',
   webServer: { command: 'npm run dev -w @blitsklieg/lab', port: 5180, reuseExistingServer: true },
-  use: { baseURL: 'http://localhost:5180' },
+  use: {
+    baseURL: 'http://localhost:5180',
+    // The specs read the whole drawing buffer back every frame; a modest 1x buffer keeps that
+    // cheap enough to stay in step with the render loop.
+    viewport: { width: 800, height: 600 },
+    deviceScaleFactor: 1,
+  },
 });
 ```
 
-- [ ] **Step 2: Write the test**
+- [ ] **Step 3: Keep `npm run check` clean**
 
-A ManualClock makes frames deterministic — without it screenshots differ every run.
+`vitest.config.ts` includes only `packages/*/test/**/*.test.ts`, so a `.spec.ts` under `apps/`
+is already out of the unit run — 200 tests across 17 files, unchanged.
+
+Three files do need editing. biome does not read `.gitignore`, so Playwright's output
+directories have to join its own ignore list or `npm run lint` fails the moment anyone runs
+the suite:
+
+```json
+  "files": { "ignore": ["dist", "node_modules", "spikes", "test-results", "playwright-report"] }
+```
+
+`.gitignore` gains `test-results/` and `playwright-report/`. And `apps/lab/tsconfig.json`
+includes `test` the way `packages/core/tsconfig.json` already does, so `tsc -b` typechecks the
+spec:
+
+```json
+  "include": ["src", "test", "vite.config.ts"],
+```
+
+- [ ] **Step 4: Write the test**
+
+Three properties, none of which any test in `packages/core/test` can reach: the direct path
+draws lit letters over a transparent field, the bloom path does the same through its composite
+shader, and the canvas does not eat clicks meant for the page under it.
+
+**Sample inside `requestAnimationFrame`.** `readPixels` after the effect settles returns all
+zeros — measured, not assumed: the drafted `waitForTimeout(1000)` shape reports
+`{clear: 480000, lit: 0}`, because the canvas is not `preserveDrawingBuffer` and the buffer is
+cleared at composite. A rAF callback runs after the library's own rAF-driven draw, so it sees
+the frame. Do not add `preserveDrawingBuffer` to `stage.ts` for this; it is a real cost paid by
+every consumer to work around a test that was sampling at the wrong moment.
+
+**Fail loudly on an empty buffer.** The `clear > lit` assertion passes trivially when nothing
+drew (480000 > 0). `drawn`, the count of sampled frames holding any lit pixel, is the guard
+that separates "the overlay is transparent" from "the sampler never saw a frame".
+
+**Assert both paths.** The bloom composite computes the overlay's alpha itself, in a shader
+nothing in `packages/core/test` can execute. Forcing that shader's alpha to `1.0` fails the
+bloom spec at 480000 of 480000 pixels non-transparent and leaves the direct spec green — the
+direct path never runs it.
+
+**No ManualClock.** The lab does not pass a `clock`, and it should not grow a test-only hook to.
+The assertions are pixel-count inequalities taken over the busiest of many frames, so they hold
+for any frame in which anything drew; which frame the sampler landed on does not enter into it.
 
 ```ts
-import { expect, test } from '@playwright/test';
+import { type Page, expect, test } from '@playwright/test';
 
-test('gold slam is fully opaque on the letters and transparent elsewhere', async ({ page }) => {
+/** Alpha census of one frame of the overlay's drawing buffer. */
+interface Frame {
+  lit: number;
+  clear: number;
+  total: number;
+}
+
+interface Reading {
+  frames: number;
+  drawn: number;
+  best: Frame;
+}
+
+const SAMPLE_FRAMES = 24;
+
+/**
+ * Reports the busiest of `frames` consecutive frames of the overlay's own drawing buffer.
+ *
+ * `readPixels` after the effect settles returns zeros — the buffer is not `preserveDrawingBuffer`,
+ * so it is cleared once the page composites. Reading from `requestAnimationFrame`, which runs
+ * after the library's own rAF-driven draw, is the only way to see what the overlay put on screen.
+ */
+function readOverlay(page: Page, frames: number): Promise<Reading> {
+  return page.evaluate(
+    (count) =>
+      new Promise<Reading>((resolve, reject) => {
+        const canvas = document.querySelector('canvas');
+        if (!canvas) return reject(new Error('the overlay never created a canvas'));
+        const gl = canvas.getContext('webgl2');
+        if (!gl) return reject(new Error('the overlay canvas has no webgl2 context'));
+
+        const { width, height } = canvas;
+        const px = new Uint8Array(width * height * 4);
+        const total = width * height;
+        let sampled = 0;
+        let drawn = 0;
+        let best: Frame = { lit: 0, clear: total, total };
+
+        const step = () => {
+          gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          let lit = 0;
+          for (let i = 3; i < px.length; i += 4) if (px[i] !== 0) lit++;
+
+          sampled++;
+          if (lit > 0) drawn++;
+          if (lit > best.lit) best = { lit, clear: total - lit, total };
+
+          if (sampled < count) requestAnimationFrame(step);
+          else resolve({ frames: sampled, drawn, best });
+        };
+        requestAnimationFrame(step);
+      }),
+    frames,
+  );
+}
+
+/** Fires one long-held effect and returns once its canvas is on the page. */
+async function fire(page: Page, options: { bloom: boolean }): Promise<void> {
   await page.goto('/');
-  await page.getByRole('button', { name: 'FIRE' }).click();
-  await page.waitForTimeout(1000);
+  // Long enough that the sampler, slowed by a full-buffer readPixels per frame, stays inside it.
+  await page.locator('#hold').fill('4000');
+  if (options.bloom) await page.locator('#bloom').check();
+  await page.getByRole('button', { name: 'FIRE', exact: true }).click();
+  await expect(page.locator('canvas')).toBeAttached();
+}
 
-  const stats = await page.evaluate(() => {
-    const c = document.querySelector('canvas') as HTMLCanvasElement;
-    const gl = c.getContext('webgl2') as WebGL2RenderingContext;
-    const px = new Uint8Array(c.width * c.height * 4);
-    gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    let clear = 0;
-    let lit = 0;
-    for (let i = 3; i < px.length; i += 4) {
-      if (px[i] === 0) clear++;
-      else lit++;
-    }
-    return { clear, lit };
-  });
+function expectTransparentOverlay(reading: Reading): void {
+  expect(
+    reading.drawn,
+    `not one of ${reading.frames} sampled frames held a non-transparent pixel: either the letters never drew, or the sampler never caught a live draw and the check below proves nothing`,
+  ).toBeGreaterThan(0);
+  expect(
+    reading.best.clear,
+    `the overlay composited as an opaque rectangle: ${reading.best.lit} of ${reading.best.total} pixels are non-transparent`,
+  ).toBeGreaterThan(reading.best.lit);
+}
 
-  // Letters drew, and the overlay did not become an opaque rectangle.
-  expect(stats.lit).toBeGreaterThan(0);
-  expect(stats.clear).toBeGreaterThan(stats.lit);
+test('the direct path lights the letters and leaves the rest of the overlay transparent', async ({
+  page,
+}) => {
+  await fire(page, { bloom: false });
+  expectTransparentOverlay(await readOverlay(page, SAMPLE_FRAMES));
+});
+
+// The composite shader computes the glow's alpha as max(base.a, luma * alphaBoost), which is the
+// likeliest place for the whole canvas to go opaque. The direct path never runs that shader.
+test('the bloom path lights the letters and leaves the rest of the overlay transparent', async ({
+  page,
+}) => {
+  await fire(page, { bloom: true });
+  expectTransparentOverlay(await readOverlay(page, SAMPLE_FRAMES));
+});
+
+test('the overlay does not intercept clicks meant for the page beneath it', async ({ page }) => {
+  await fire(page, { bloom: false });
+  // The canvas covers the panel at z-index 2147483000, so this second click only reaches the
+  // button if pointer-events:none holds; without it Playwright times out on the action itself.
+  await page.locator('#text').fill('SECOND');
+  await page.getByRole('button', { name: 'FIRE', exact: true }).click({ timeout: 5000 });
+  await expect(page.locator('#log')).toContainText('fire "SECOND"');
 });
 ```
 
-**Assert both paths.** As drafted this only fires with bloom off. The bloom composite computes
-the overlay's alpha itself, in a shader nothing in `packages/core/test` can execute, so a run
-with the bloom checkbox on is the only end-to-end check that the glow is neither invisible nor
-an opaque rectangle. `clear > lit` must hold there too, with a wider `lit` count than the
-direct path since the glow reaches past the letters.
-
-**Note:** `readPixels` returns zeros outside a render callback because the drawing buffer is
-cleared after compositing. If this test reports nothing drew, add `preserveDrawingBuffer: true`
-to the renderer in `stage.ts` behind a test-only option rather than assuming the render broke.
-
-- [ ] **Step 3: Run**
+- [ ] **Step 5: Run**
 
 Run: `npx playwright test`
-Expected: PASS.
+Expected: PASS, 3 tests. Roughly 7s, one worker.
 
-- [ ] **Step 4: Commit**
+Observed alpha census on the busiest frame at 800x600: direct path 30122 lit of 480000, bloom
+path 54776 of 480000, all 24 sampled frames drawn in both.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add playwright.config.ts apps/lab/test
+git add playwright.config.ts apps/lab/test apps/lab/tsconfig.json biome.json .gitignore
+git add package.json package-lock.json
 git commit -m "add visual regression asserting the overlay stays transparent"
 ```
 
