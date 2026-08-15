@@ -105,6 +105,7 @@ That boundary is what keeps the test suite fast and meaningful.
 {
   "name": "@blitsklieg/core",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
@@ -112,10 +113,16 @@ That boundary is what keeps the test suite fast and meaningful.
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "@types/opentype.js": "^1.3.10",
     "@types/three": "^0.170.0"
   }
 }
 ```
+
+`opentype.js` ships no type declarations, so without `@types/opentype.js` Task 12's import fails
+with TS7016 and no code change can fix it — `skipLibCheck` does not apply, because the error is
+raised on the importing file. `private: true` prevents publishing a package whose `main` is raw
+TypeScript; Task 16 removes it alongside real `exports`/`types`/`files` wiring.
 
 - [ ] **Step 4: packages/core/tsconfig.json**
 
@@ -2051,6 +2058,13 @@ git commit -m "add word with per-letter meshes driven by the timeline"
 **Files:**
 - Create: `packages/core/src/index.ts`
 
+**Publishing note (do not skip):** `packages/core/tsconfig.json` uses `rootDir: "."` with
+`include: ["src", "test"]`, so emit lands at `dist/src/index.d.ts` — **not** `dist/index.d.ts`,
+and `dist/test/` gets built too. If this task adds a `types` field, it must point at
+`./dist/src/index.d.ts`, or the tsconfig must first be split into a `src`-only project plus a
+`tsconfig.test.json` that references it. Writing the obvious-looking `./dist/index.d.ts` yields a
+path that does not exist.
+
 - [ ] **Step 1: Implement**
 
 ```ts
@@ -2412,6 +2426,8 @@ git commit -m "add opt-in bloom path with alpha-preserving composite"
 
 **Files:**
 - Create: `apps/lab/package.json`, `apps/lab/index.html`, `apps/lab/src/main.ts`, `apps/lab/vite.config.ts`
+- Create: `apps/lab/tsconfig.json`
+- Modify: `tsconfig.json` (root) — add the `apps/lab` reference
 - Create: `apps/lab/public/font.ttf` — download any bold TTF (Inter Bold, Archivo Black)
 
 - [ ] **Step 1: apps/lab/package.json**
@@ -2433,6 +2449,32 @@ git commit -m "add opt-in bloom path with alpha-preserving composite"
 import { defineConfig } from 'vite';
 
 export default defineConfig({ server: { port: 5180 } });
+```
+
+- [ ] **Step 2b: Put the lab under typecheck**
+
+`apps/lab/src/main.ts` is the only code in this plan that consumes the public API from outside
+the package, so it is the only place a broken public surface shows up. Without its own tsconfig
+and a root reference, `npm run typecheck` never looks at it.
+
+`apps/lab/tsconfig.json`:
+
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "dist", "rootDir": "." },
+  "include": ["src", "vite.config.ts"],
+  "references": [{ "path": "../../packages/core" }]
+}
+```
+
+Then add the reference to the root `tsconfig.json`:
+
+```json
+{
+  "files": [],
+  "references": [{ "path": "packages/core" }, { "path": "apps/lab" }]
+}
 ```
 
 - [ ] **Step 3: apps/lab/index.html**
