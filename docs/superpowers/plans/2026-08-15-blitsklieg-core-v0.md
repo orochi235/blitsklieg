@@ -2848,6 +2848,7 @@ git commit -m "add procedural environment map and four material looks"
 
 **Files:**
 - Create: `packages/core/src/render/stage.ts`
+- Create: `packages/core/test/render/stage.test.ts`
 
 - [ ] **Step 1: Implement**
 
@@ -2863,7 +2864,11 @@ export interface StageOptions {
 
 export function webglSupported(): boolean {
   try {
-    return !!document.createElement('canvas').getContext('webgl2');
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return false;
+    // The probe holds a context until GC otherwise, out of the ~16 the whole design budgets for.
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
   } catch {
     return false;
   }
@@ -2881,7 +2886,7 @@ export class Stage {
   environment: THREE.WebGLRenderTarget | null = null;
 
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private resizeObserver: ResizeObserver | null = null;
+  private detachResize: (() => void) | null = null;
 
   constructor(private readonly opts: StageOptions) {
     this.camera.position.set(0, 0, 11);
@@ -2895,7 +2900,6 @@ export class Stage {
     const canvas = document.createElement('canvas');
     canvas.style.cssText =
       'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483000';
-    this.opts.target.appendChild(canvas);
 
     // premultipliedAlpha:false so a straight-alpha composite does not produce bright halos.
     const renderer = new THREE.WebGLRenderer({
@@ -2908,14 +2912,16 @@ export class Stage {
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.opts.target.appendChild(canvas);
 
     this.canvas = canvas;
     this.renderer = renderer;
     this.environment = buildEnvironment(renderer);
     this.scene.environment = this.environment.texture;
 
-    this.resizeObserver = new ResizeObserver(() => this.resize());
-    this.resizeObserver.observe(document.documentElement);
+    const onResize = () => this.resize();
+    globalThis.addEventListener('resize', onResize);
+    this.detachResize = () => globalThis.removeEventListener('resize', onResize);
     this.resize();
 
     return renderer;
@@ -2923,8 +2929,8 @@ export class Stage {
 
   resize(): void {
     if (!this.renderer) return;
-    const w = globalThis.innerWidth;
-    const h = globalThis.innerHeight;
+    const w = Math.max(1, globalThis.innerWidth);
+    const h = Math.max(1, globalThis.innerHeight);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -2948,28 +2954,193 @@ export class Stage {
 
   unmount(): void {
     this.cancelIdle();
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = null;
-    this.environment?.dispose();
-    this.environment = null;
-    this.scene.environment = null;
-    this.renderer?.dispose();
-    this.renderer = null;
-    this.canvas?.remove();
+    const { canvas, renderer, environment, detachResize } = this;
     this.canvas = null;
+    this.renderer = null;
+    this.environment = null;
+    this.detachResize = null;
+    this.scene.environment = null;
+
+    detachResize?.();
+    environment?.dispose();
+    renderer?.dispose();
+    // dispose() drops three's caches but keeps the GL context; only loseContext returns it.
+    renderer?.forceContextLoss();
+    canvas?.remove();
   }
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [ ] **Step 2: Test**
 
-Run: `npx tsc -b packages/core`
-Expected: no errors.
+Tests run in the `node` environment, so `mount`, `resize` with a live renderer and
+`webglSupported`'s success path stay uncovered — faking a DOM or a GL context would only
+fake the coverage. `packages/core/test/render/stage.test.ts`:
 
-- [ ] **Step 3: Commit**
+```ts
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Stage, prefersReducedMotion, webglSupported } from '../../src/render/stage.js';
+
+/** No DOM here, so every test stays on the paths that never touch `target`. */
+function headlessStage(idleTimeoutMs = 1000): Stage {
+  return new Stage({ target: undefined as unknown as HTMLElement, idleTimeoutMs });
+}
+
+function frustumHeight(stage: Stage): number {
+  return 2 * Math.tan((stage.camera.fov * Math.PI) / 360) * stage.camera.position.z;
+}
+
+describe('viewportBudget', () => {
+  it('matches the frustum extent at the camera distance', () => {
+    const stage = headlessStage();
+    stage.camera.aspect = 1.5;
+    const budget = stage.viewportBudget(1, 1);
+
+    expect(budget.height).toBeCloseTo(frustumHeight(stage), 12);
+    expect(budget.width).toBeCloseTo(frustumHeight(stage) * 1.5, 12);
+  });
+
+  it('leaves room by default rather than filling the frustum', () => {
+    const stage = headlessStage();
+    const budget = stage.viewportBudget();
+
+    expect(budget.width).toBeCloseTo(frustumHeight(stage) * stage.camera.aspect * 0.62, 12);
+    expect(budget.height).toBeCloseTo(frustumHeight(stage) * 0.3, 12);
+  });
+
+  it('feeds aspect into width only', () => {
+    const stage = headlessStage();
+    stage.camera.aspect = 1;
+    const square = stage.viewportBudget();
+    stage.camera.aspect = 2;
+    const wide = stage.viewportBudget();
+
+    expect(wide.width).toBeCloseTo(square.width * 2, 12);
+    expect(wide.height).toBeCloseTo(square.height, 12);
+  });
+
+  it('scales linearly with the fractions and with camera distance', () => {
+    const stage = headlessStage();
+    const half = stage.viewportBudget(0.31, 0.15);
+    const full = stage.viewportBudget(0.62, 0.3);
+
+    expect(half.width).toBeCloseTo(full.width / 2, 12);
+    expect(half.height).toBeCloseTo(full.height / 2, 12);
+
+    stage.camera.position.z *= 3;
+    const far = stage.viewportBudget();
+    expect(far.width).toBeCloseTo(full.width * 3, 12);
+    expect(far.height).toBeCloseTo(full.height * 3, 12);
+  });
+});
+
+describe('idle teardown', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('unmounts once the idle timeout elapses', () => {
+    vi.useFakeTimers();
+    const stage = headlessStage(500);
+    const unmount = vi.spyOn(stage, 'unmount');
+
+    stage.scheduleIdleTeardown();
+    vi.advanceTimersByTime(499);
+    expect(unmount).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(unmount).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts the countdown instead of stacking timers', () => {
+    vi.useFakeTimers();
+    const stage = headlessStage(500);
+    const unmount = vi.spyOn(stage, 'unmount');
+
+    stage.scheduleIdleTeardown();
+    vi.advanceTimersByTime(400);
+    stage.scheduleIdleTeardown();
+    vi.advanceTimersByTime(400);
+    expect(unmount).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    expect(unmount).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(10_000);
+    expect(unmount).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a pending teardown when unmounted early', () => {
+    vi.useFakeTimers();
+    const stage = headlessStage(500);
+    const unmount = vi.spyOn(stage, 'unmount');
+
+    stage.scheduleIdleTeardown();
+    stage.unmount();
+    vi.advanceTimersByTime(10_000);
+    expect(unmount).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('unmount', () => {
+  it('is safe on a stage that was never mounted, and repeatable', () => {
+    const stage = headlessStage();
+    expect(() => {
+      stage.unmount();
+      stage.unmount();
+    }).not.toThrow();
+
+    expect(stage.canvas).toBeNull();
+    expect(stage.renderer).toBeNull();
+    expect(stage.environment).toBeNull();
+    expect(stage.scene.environment).toBeNull();
+  });
+});
+
+describe('resize', () => {
+  it('does nothing without a renderer, so no NaN aspect reaches the camera', () => {
+    const stage = headlessStage();
+    expect(() => stage.resize()).not.toThrow();
+    expect(stage.camera.aspect).toBe(1);
+  });
+});
+
+describe('webglSupported', () => {
+  it('reports false rather than throwing where there is no document', () => {
+    expect(webglSupported()).toBe(false);
+  });
+});
+
+describe('prefersReducedMotion', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, 'matchMedia');
+  });
+
+  it('is false where matchMedia is unavailable', () => {
+    expect(prefersReducedMotion()).toBe(false);
+  });
+
+  it('asks for the reduce query and returns its match', () => {
+    const matchMedia = vi.fn(() => ({ matches: true }));
+    Object.defineProperty(globalThis, 'matchMedia', { value: matchMedia, configurable: true });
+
+    expect(prefersReducedMotion()).toBe(true);
+    expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+
+    matchMedia.mockReturnValue({ matches: false });
+    expect(prefersReducedMotion()).toBe(false);
+  });
+});
+```
+
+- [ ] **Step 3: Verify**
+
+Run: `npm run check`
+Expected: lint and typecheck clean, 153 tests across 14 files (12 new in stage).
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add packages/core/src/render/stage.ts
+git add packages/core/src/render/stage.ts packages/core/test/render/stage.test.ts
 git commit -m "add stage with lazy webgl context, resize, and idle teardown"
 ```
 
