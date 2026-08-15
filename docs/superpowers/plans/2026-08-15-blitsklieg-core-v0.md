@@ -1721,7 +1721,8 @@ export class EffectQueue {
       settled: Promise.resolve(),
     };
     this.live.add(slot);
-    // Nothing can read the placeholder: `execute` cannot settle before this assignment.
+    // A runner that calls cancelAll from its own synchronous prologue observes the placeholder
+    // and is not waited for. Unreachable while every runner awaits something first.
     slot.settled = this.execute(entry, slot);
     return slot.settled;
   }
