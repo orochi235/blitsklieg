@@ -17,6 +17,7 @@ k.fire('JACKPOT!', {
   look:   'gold',        // gold | chrome | oil | ruby
   hold:    1200,         // ms held at rest before exit
   bloom:   false,        // opt-in glow; see Render paths
+  placement: { kind: 'fullscreen' },
 }): Promise<void>        // resolves when the effect finishes
 
 k.supported              // false where WebGL2 is unavailable
