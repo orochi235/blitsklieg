@@ -13,9 +13,11 @@ Named for klieg lights, the carbon-arc lamps that lit early film studios.
 const k = createKlieg({ target?: HTMLElement })   // defaults to document.body
 
 k.fire('JACKPOT!', {
-  effect: 'slam',        // slam | spin | sweep | burst | flip
+  enter:  'slam',        // slam | spin | flip | assemble | rise | none
+  active: 'sweep',       // sweep | float | pulse | shimmer | none
+  exit:   'shatter',     // shatter | drop | recede | fade | none
   look:   'gold',        // gold | chrome | oil | ruby
-  hold:    1200,         // ms held at rest before exit
+  hold:    1200,         // ms in the active phase
   bloom:   false,        // opt-in glow; see Render paths
   placement: { kind: 'fullscreen' },
 }): Promise<void>        // resolves when the effect finishes
@@ -24,8 +26,12 @@ k.supported              // false where WebGL2 is unavailable
 k.destroy()
 ```
 
-`effect` (motion) and `look` (material) are orthogonal: 5 × 4 combinations from two small
-tuned sets, rather than 20 hand-built presets.
+Motion is three independent slots, not one named effect. An arrival and an idle behavior are
+different kinds of thing and don't belong in one vocabulary — `slam` describes how the text
+gets there, `sweep` describes what it does while it sits. Split this way, 13 tuned pieces
+cover 80 combinations; fused, the same coverage takes 80 presets.
+
+`look` (material) is orthogonal to all three.
 
 Placement is a closed union so element-anchoring can arrive without an API break:
 
@@ -80,6 +86,14 @@ the bars are movable. Sliding a bright bar across the letters *is* the `sweep` e
 **Effects are a closed set.** No extension point until there is a second consumer asking for
 one. Reaching three.js internals through an escape hatch would make them klieg's public API
 permanently.
+
+**Phases compose additively over a resting pose.** Each of `enter`, `active`, and `exit`
+contributes an *offset* — position, rotation, scale, material deltas — accumulated onto the
+rest pose, rather than writing absolute transforms. Absolute phases snap at every handoff:
+the word jumps the instant `enter` finishes and `active` takes over, and again into `exit`.
+Boundaries additionally crossfade over a short window so a phase's tail overlaps the next
+phase's head. This is the difference between motion that reads as designed and motion that
+reads as cheap, and it is invisible in a single-phase prototype because nothing hands off.
 
 ## Traps
 
