@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EffectQueue } from '../src/queue.js';
 
+/** Resolves when aborted, so a test never waits on a timer for teardown it does not care about. */
+const abortable = (signal: AbortSignal) =>
+  new Promise<void>((r) => {
+    signal.addEventListener('abort', () => r());
+  });
+
 describe('EffectQueue', () => {
   it('runs one effect at a time and reports what is current', async () => {
     const q = new EffectQueue('queue');
@@ -21,9 +27,8 @@ describe('EffectQueue', () => {
     const cancelled = vi.fn();
     const a = q.push('a', (signal) => {
       signal.addEventListener('abort', cancelled);
-      return new Promise<void>((r) => setTimeout(r, 50));
+      return abortable(signal);
     });
-    await Promise.resolve();
     const b = q.push('b', async () => {});
     await Promise.all([a, b]);
     expect(cancelled).toHaveBeenCalled();
@@ -43,13 +48,18 @@ describe('EffectQueue', () => {
     expect(peak).toBe(2);
   });
 
-  it('a rejecting effect does not stall the queue', async () => {
+  it('a rejecting effect does not stall the effects queued behind it', async () => {
     const q = new EffectQueue('queue');
-    const failed = q.push('bad', async () => {
+    const order: string[] = [];
+    const bad = q.push('bad', async () => {
       throw new Error('boom');
     });
-    await expect(failed).rejects.toThrow('boom');
-    await expect(q.push('good', async () => {})).resolves.toBeUndefined();
+    const good = q.push('good', async () => {
+      order.push('good');
+    });
+    await expect(bad).rejects.toThrow('boom');
+    await expect(good).resolves.toBeUndefined();
+    expect(order).toEqual(['good']);
   });
 
   it('stays serial when a completion handler pushes two more effects', async () => {
@@ -82,15 +92,14 @@ describe('EffectQueue', () => {
     const queuedRan = vi.fn();
     const a = q.push('a', (signal) => {
       signal.addEventListener('abort', aborted);
-      return new Promise<void>((r) => setTimeout(r, 5));
+      return abortable(signal);
     });
     const b = q.push('b', async () => {
       queuedRan();
     });
-    await Promise.resolve();
     expect(q.current).toBe('a');
 
-    q.cancelAll();
+    await q.cancelAll();
 
     await expect(b).resolves.toBeUndefined();
     await a;
@@ -99,24 +108,88 @@ describe('EffectQueue', () => {
     expect(q.current).toBeNull();
   });
 
+  it('cancelAll waits for the aborted effect to finish tearing down', async () => {
+    const q = new EffectQueue('queue');
+    const torn: string[] = [];
+    const a = q.push(
+      'a',
+      (signal) =>
+        new Promise<void>((r) => {
+          signal.addEventListener('abort', () => {
+            setTimeout(() => {
+              torn.push('a');
+              r();
+            }, 10);
+          });
+        }),
+    );
+
+    await q.cancelAll();
+
+    expect(torn).toEqual(['a']);
+    expect(q.current).toBeNull();
+    await expect(a).resolves.toBeUndefined();
+  });
+
+  it('cancelAll resolves even when an aborted effect rejects while tearing down', async () => {
+    const q = new EffectQueue('queue');
+    const a = q.push(
+      'a',
+      (signal) =>
+        new Promise<void>((_, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('teardown failed')));
+        }),
+    );
+    const rejected = expect(a).rejects.toThrow('teardown failed');
+
+    await expect(q.cancelAll()).resolves.toBeUndefined();
+
+    await rejected;
+    expect(q.current).toBeNull();
+  });
+
+  it('cancelAll clears a replace queue too', async () => {
+    const q = new EffectQueue('replace');
+    const supersededRan = vi.fn();
+    const a = q.push('a', abortable);
+    const b = q.push('b', async () => {
+      supersededRan();
+    });
+
+    await q.cancelAll();
+
+    await Promise.all([a, b]);
+    expect(supersededRan).not.toHaveBeenCalled();
+    expect(q.current).toBeNull();
+  });
+
+  it('cancelAll is not terminal — a later push still runs', async () => {
+    const q = new EffectQueue('queue');
+    const a = q.push('a', abortable);
+    await q.cancelAll();
+    await a;
+
+    const ran = vi.fn();
+    await q.push('b', async () => {
+      ran();
+    });
+    expect(ran).toHaveBeenCalled();
+  });
+
   it('cancelAll aborts in-flight concurrent effects', async () => {
     const q = new EffectQueue('concurrent');
     const aborted = vi.fn();
-    const run = (signal: AbortSignal) =>
-      new Promise<void>((r) => {
-        signal.addEventListener('abort', () => {
-          aborted();
-          r();
-        });
-        setTimeout(r, 50);
-      });
+    const run = (signal: AbortSignal) => {
+      signal.addEventListener('abort', aborted);
+      return abortable(signal);
+    };
     const both = Promise.all([q.push('a', run), q.push('b', run)]);
-    await Promise.resolve();
 
-    q.cancelAll();
+    await q.cancelAll();
 
     await both;
     expect(aborted).toHaveBeenCalledTimes(2);
+    expect(q.current).toBeNull();
   });
 
   it('current names the most recently started effect still running', async () => {
@@ -154,13 +227,34 @@ describe('EffectQueue', () => {
           });
         }),
     );
-    await Promise.resolve();
     const b = q.push('b', async () => {
       order.push('b:started');
     });
 
     await Promise.all([a, b]);
     expect(order).toEqual(['a:torn-down', 'b:started']);
+  });
+
+  it('replace starts the new effect even when the aborted one rejects', async () => {
+    const q = new EffectQueue('replace');
+    const order: string[] = [];
+    const a = q.push(
+      'a',
+      (signal) =>
+        new Promise<void>((_, reject) => {
+          signal.addEventListener('abort', () => {
+            order.push('a:failed');
+            reject(new Error('teardown failed'));
+          });
+        }),
+    );
+    const b = q.push('b', async () => {
+      order.push('b:started');
+    });
+
+    await expect(a).rejects.toThrow('teardown failed');
+    await b;
+    expect(order).toEqual(['a:failed', 'b:started']);
   });
 
   it('replace supersedes an effect that has not started yet', async () => {

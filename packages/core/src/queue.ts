@@ -11,21 +11,22 @@ interface Entry {
 interface Slot {
   id: string;
   controller: AbortController;
+  settled: Promise<void>;
 }
 
 /**
  * Under `replace` the newest push wins outright: it aborts the running effect and drops any
  * effect still waiting, since a `replace` that keeps a backlog is `queue` with an extra abort.
  *
- * Cancellation resolves rather than rejects — a cancelled effect is done, not failed, and
- * callers commonly `await` a fire-and-forget effect that `destroy()` will cut short.
+ * Dropping a queued effect resolves rather than rejects — it is done, not failed. A running
+ * effect settles however its runner settles, so an abort can still surface as a rejection.
  */
 export class EffectQueue {
   private pending: Entry[] = [];
   private live = new Set<Slot>();
   private draining = false;
 
-  constructor(private policy: QueuePolicy = 'queue') {}
+  constructor(private readonly policy: QueuePolicy = 'queue') {}
 
   /** The most recently started effect that has not finished; only `concurrent` has more than one. */
   get current(): string | null {
@@ -39,7 +40,7 @@ export class EffectQueue {
       const entry: Entry = { id, run, resolve, reject };
 
       if (this.policy === 'concurrent') {
-        void this.execute(entry);
+        void this.start(entry);
         return;
       }
       if (this.policy === 'replace') {
@@ -54,9 +55,11 @@ export class EffectQueue {
     });
   }
 
-  cancelAll(): void {
+  /** Resolves once every aborted effect has finished tearing down, so callers can free what they share. */
+  async cancelAll(): Promise<void> {
     this.abortLive();
     this.dropPending();
+    await Promise.allSettled([...this.live].map((slot) => slot.settled));
   }
 
   private abortLive(): void {
@@ -72,19 +75,27 @@ export class EffectQueue {
   private async drain(): Promise<void> {
     this.draining = true;
     try {
-      while (this.pending.length > 0) {
-        const entry = this.pending.shift() as Entry;
-        await this.execute(entry);
+      for (let entry = this.pending.shift(); entry; entry = this.pending.shift()) {
+        await this.start(entry);
       }
     } finally {
       this.draining = false;
     }
   }
 
-  private async execute(entry: Entry): Promise<void> {
-    const slot: Slot = { id: entry.id, controller: new AbortController() };
+  private start(entry: Entry): Promise<void> {
+    const slot: Slot = {
+      id: entry.id,
+      controller: new AbortController(),
+      settled: Promise.resolve(),
+    };
     this.live.add(slot);
+    // Nothing can read the placeholder: `execute` cannot settle before this assignment.
+    slot.settled = this.execute(entry, slot);
+    return slot.settled;
+  }
 
+  private async execute(entry: Entry, slot: Slot): Promise<void> {
     try {
       await entry.run(slot.controller.signal);
       entry.resolve();
