@@ -1,18 +1,20 @@
-# klieg — design
+# blitsklieg — design
 
 **What:** a transparent WebGL layer that renders shiny extruded 3D type over an existing web
 app, for game-show celebration moments.
 **For:** developers of any web app; `wod` (spinning name wheel) is the first consumer.
-**Answers:** what klieg's public surface is, how it renders, and what it deliberately won't do.
+**Answers:** what blitsklieg's public surface is, how it renders, and what it deliberately won't do.
 
-Named for klieg lights, the carbon-arc lamps that lit early film studios.
+Two words. A *blit* is a bit-block transfer, the copy-a-rectangle-of-pixels operation the
+composite step performs. A *klieg light* is the carbon-arc lamp that lit early film studios,
+and the synthetic one this library builds is where all the shine comes from.
 
 ## Public API
 
 ```ts
-const k = createKlieg({ target?: HTMLElement })   // defaults to document.body
+const bk = createBlitsklieg({ target?: HTMLElement })   // defaults to document.body
 
-k.fire('JACKPOT!', {
+bk.fire('JACKPOT!', {
   enter:  'slam',        // slam | spin | flip | assemble | rise | none
   active: 'sweep',       // sweep | float | pulse | shimmer | none
   exit:   'shatter',     // shatter | drop | recede | fade | none
@@ -22,8 +24,8 @@ k.fire('JACKPOT!', {
   placement: { kind: 'fullscreen' },
 }): Promise<void>        // resolves when the effect finishes
 
-k.supported              // false where WebGL2 is unavailable
-k.destroy()
+bk.supported              // false where WebGL2 is unavailable
+bk.destroy()
 ```
 
 Motion is three independent slots, not one named effect. An arrival and an idle behavior are
@@ -42,13 +44,13 @@ type Placement =
 ```
 
 `fullscreen` here means "positioned against the window," not the browser's Fullscreen API.
-klieg never calls `requestFullscreen`.
+blitsklieg never calls `requestFullscreen`.
 
 ## Packages
 
 ```
-packages/core    @klieg/core    vanilla three.js, imperative, no framework
-packages/react   @klieg/react   thin binding, no logic of its own
+packages/core    @blitsklieg/core    vanilla three.js, imperative, no framework
+packages/react   @blitsklieg/react   thin binding, no logic of its own
 apps/lab         Vite demo page
 ```
 
@@ -73,18 +75,18 @@ strictly better on both cost and edge quality.
 
 **Fonts are parsed at runtime with opentype.js, not preconverted to typeface.json.**
 three's `TextGeometry` requires a build-time conversion that discards kerning, which is
-plainly visible on short all-caps words — exactly what klieg renders. opentype.js reads
+plainly visible on short all-caps words — exactly what blitsklieg renders. opentype.js reads
 `.ttf`/`.otf` directly, keeps kerning pairs, and removes the build step. Glyph geometry is
 cached by `(font, char, size, bevel)` since letters repeat heavily.
 
 **The environment map is generated at runtime, not shipped as an HDRI.**
 A polished metal surface has almost no color of its own; what reads as gold is the
-reflection. klieg builds a small cubemap from a dark gradient and a handful of bright bars —
+reflection. blitsklieg builds a small cubemap from a dark gradient and a handful of bright bars —
 a synthetic photo studio. Two consequences: nothing to download (real HDRIs are 2–50MB), and
 the bars are movable. Sliding a bright bar across the letters *is* the `sweep` effect.
 
 **Effects are a closed set.** No extension point until there is a second consumer asking for
-one. Reaching three.js internals through an escape hatch would make them klieg's public API
+one. Reaching three.js internals through an escape hatch would make them blitsklieg's public API
 permanently.
 
 **Phases compose additively over a resting pose.** Each of `enter`, `active`, and `exit`
@@ -104,7 +106,7 @@ framebuffer only and is ignored once rendering goes through a `WebGLRenderTarget
 path needs `samples: 4` on the target. WebGL2 only.
 
 **Bloom destroys canvas transparency.** A stock bloom pass forces alpha to 1.0 across the
-frame, turning the overlay into an opaque black rectangle over the host app. klieg's
+frame, turning the overlay into an opaque black rectangle over the host app. blitsklieg's
 composite instead derives alpha from glow luminance:
 
 ```glsl
@@ -129,7 +131,7 @@ layered above the film flattens it — `oil` needs `clearcoat: 0`.
 ## Non-goals
 
 - **Particles** — deferred to v1.1. Until then, consumers layer `canvas-confetti` beneath the
-  klieg canvas; confetti will always be behind the letters, never passing in front. Recovering
+  blitsklieg canvas; confetti will always be behind the letters, never passing in front. Recovering
   that occlusion is the whole reason particles eventually move in-engine.
 - **Refracting page content.** Translucent looks refract the environment map only. three's
   transmission samples what is behind the object *in the WebGL scene*, and the DOM is not in
