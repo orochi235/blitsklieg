@@ -1,0 +1,67 @@
+import type { Font, Glyph } from 'opentype.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { parse } = vi.hoisted(() => ({ parse: vi.fn() }));
+vi.mock('opentype.js', () => ({ parse }));
+
+import { loadFont } from '../../src/text/font.js';
+
+function stubFont(glyphs: Record<string, Partial<Glyph>>, kern = 0): Font {
+  return {
+    unitsPerEm: 1000,
+    charToGlyph: (ch: string) => glyphs[ch] ?? {},
+    getKerningValue: vi.fn(() => kern),
+  } as unknown as Font;
+}
+
+function stubFetch(res: Partial<Response>): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => res as Response),
+  );
+}
+
+beforeEach(() => {
+  parse.mockReset();
+  stubFetch({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
+});
+
+describe('loadFont', () => {
+  it('names the url and status when the response is not ok', async () => {
+    stubFetch({ ok: false, status: 404 });
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toThrow(
+      'blitsklieg: failed to load font /fonts/x.ttf (404)',
+    );
+  });
+
+  it('exposes the parsed font and its em size', async () => {
+    parse.mockReturnValue(stubFont({}));
+
+    const loaded = await loadFont('/fonts/x.ttf');
+    expect(loaded.unitsPerEm).toBe(1000);
+  });
+
+  it('reads advances in font units off the glyph', async () => {
+    parse.mockReturnValue(stubFont({ A: { advanceWidth: 722 } }));
+
+    const { metrics } = await loadFont('/fonts/x.ttf');
+    expect(metrics.advanceOf('A')).toBe(722);
+  });
+
+  it('treats a glyph with no advance as zero width', async () => {
+    parse.mockReturnValue(stubFont({ A: {} }));
+
+    const { metrics } = await loadFont('/fonts/x.ttf');
+    expect(metrics.advanceOf('A')).toBe(0);
+  });
+
+  it('kerns by glyph, since opentype takes glyphs rather than characters', async () => {
+    const font = stubFont({ A: { index: 1 }, V: { index: 2 } }, -80);
+    parse.mockReturnValue(font);
+
+    const { metrics } = await loadFont('/fonts/x.ttf');
+    expect(metrics.kernOf('A', 'V')).toBe(-80);
+    expect(font.getKerningValue).toHaveBeenCalledWith({ index: 1 }, { index: 2 });
+  });
+});
