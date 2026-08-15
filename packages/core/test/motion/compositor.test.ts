@@ -34,7 +34,7 @@ const expectUnitWeight = (over: Partial<TimelineOptions> = {}) => {
     blendMs: 20,
     ...over,
   });
-  for (let t = 0; t < tl.duration; t += 1) {
+  for (let t = 0; t <= tl.duration; t += 1) {
     expect(tl.poseAt(t, L).position[0], `t=${t}`).toBeCloseTo(1);
   }
 };

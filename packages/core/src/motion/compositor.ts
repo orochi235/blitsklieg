@@ -65,12 +65,16 @@ export class Timeline {
     const half = this.blend / 2;
     const head = seg.start - half;
     const tail = seg.end + half;
-    if (elapsed < head || elapsed >= tail) return 0;
 
-    // Whichever phase starts at 0 and whichever ends at `duration` hold full weight there rather
-    // than fading in from or out to nothing; a zero-length enter makes `active` the former.
-    const inW = seg.start === 0 ? 1 : this.ramp(elapsed - head);
-    const outW = seg.end === this.duration ? 1 : this.ramp(tail - elapsed);
+    // Whichever phase starts at 0 and whichever ends at `duration` hold full weight past that edge
+    // rather than fading to nothing; a zero-length enter makes `active` the former. Windowing them
+    // would drop the word to rest on the last frame, which callers clamp to exactly `duration`.
+    const atStart = seg.start === 0;
+    const atEnd = seg.end === this.duration;
+    if ((!atStart && elapsed < head) || (!atEnd && elapsed >= tail)) return 0;
+
+    const inW = atStart ? 1 : this.ramp(elapsed - head);
+    const outW = atEnd ? 1 : this.ramp(tail - elapsed);
     return Math.min(inW, outW);
   }
 
