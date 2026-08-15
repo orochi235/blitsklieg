@@ -2060,9 +2060,11 @@ subtracts contours listed in a `Shape`'s `holes`, so making every contour a top-
 renders counters solid. Winding cannot classify them: Skia's `%` ends with two counters whose
 outer contours are not the ones immediately preceding them. Nesting depth can.
 
-Two limits of that test, neither seen in a 60-font sweep: containment is decided from a single
-point on each contour, so a font drawing a stroke as two *overlapping* rather than nested outlines
-can misclassify one as a hole, and a contour that samples to fewer than three points is dropped.
+Two consequences, neither seen in a 60-font sweep. Containment is decided from a single point on
+each contour, so a font drawing a stroke as two *overlapping* rather than nested outlines can
+misclassify one as a hole. And a contour that never draws is skipped: three closes a contour by
+reading its first curve, and containment needs a point to test from, so a malformed glyph would
+otherwise throw all the way out and take the overlay with it.
 
 ```ts
 import type { Font, PathCommand } from 'opentype.js';
@@ -2226,6 +2228,18 @@ describe('glyphToShapes', () => {
     expect(leftOf(shapes[0] as THREE.Shape)).toBe(0);
   });
 
+  it('skips a contour closed without drawing rather than letting three throw', () => {
+    const commands: PathCommand[] = [
+      ...box(0, 0, 10, 10),
+      { type: 'M', x: 50, y: 50 },
+      { type: 'Z' },
+    ];
+
+    const shapes = glyphToShapes(fontDrawing(commands), 'A', 1);
+    expect(shapes).toHaveLength(1);
+    expect(leftOf(shapes[0] as THREE.Shape)).toBe(0);
+  });
+
   it('returns nothing for a glyph with no outline', () => {
     expect(glyphToShapes(fontDrawing([]), ' ', 1)).toEqual([]);
   });
@@ -2322,7 +2336,8 @@ function contoursOf(font: Font, char: string, size: number): THREE.Shape[] {
         current?.bezierCurveTo(cmd.x1, -cmd.y1, cmd.x2, -cmd.y2, cmd.x, -cmd.y);
         break;
       case 'Z':
-        current?.closePath();
+        // three closes a contour by reading its first curve, so a contour that never drew one throws.
+        if (current?.curves.length) current.closePath();
         break;
     }
   }
@@ -2398,7 +2413,7 @@ export function buildGlyphGeometry(
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `npx vitest run packages/core/test/text/`
-Expected: PASS, 31 tests (11 layout, 7 font, 13 glyphs).
+Expected: PASS, 32 tests (11 layout, 7 font, 14 glyphs).
 
 - [ ] **Step 7: Commit**
 
