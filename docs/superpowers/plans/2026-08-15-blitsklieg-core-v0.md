@@ -597,7 +597,9 @@ export type ExitName = 'shatter' | 'drop' | 'recede' | 'fade' | 'none';
 export function stagger(t: number, letter: LetterInfo, spread = 0.5): number {
   const count = Math.max(1, letter.count);
   const start = (letter.index / count) * spread;
-  const span = 1 - spread;
+  // spread=1 would make span 0, and (t - start) is also 0 at t=start — 0/0 is NaN, which
+  // clamps straight through into a transform and makes the letter vanish silently.
+  const span = Math.max(1e-6, 1 - spread);
   return Math.max(0, Math.min(1, (t - start) / span));
 }
 
@@ -648,6 +650,7 @@ describe('enter pieces', () => {
 
   it('every piece starts displaced from rest at t=0', () => {
     for (const [name, piece] of Object.entries(ENTER)) {
+      if (name === 'none') continue; // `none` contributes nothing by definition
       const o = piece.offset(0, L);
       const moved =
         (o.position?.some((v) => v !== 0) ?? false) ||
