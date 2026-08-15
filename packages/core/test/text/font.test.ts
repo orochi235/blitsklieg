@@ -48,6 +48,15 @@ describe('loadFont', () => {
     });
   });
 
+  it('does not blame the font file when the body read fails', async () => {
+    stubFetch({
+      ok: true,
+      arrayBuffer: () => Promise.reject(new TypeError('terminated')),
+    });
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toThrow('terminated');
+  });
+
   it('names the url when the bytes are not a parseable font', async () => {
     const cause = new Error('Unsupported OpenType signature 0x3c21444f');
     parse.mockImplementation(() => {
@@ -61,9 +70,11 @@ describe('loadFont', () => {
   });
 
   it('exposes the parsed font and its em size', async () => {
-    parse.mockReturnValue(stubFont({}));
+    const font = stubFont({});
+    parse.mockReturnValue(font);
 
     const loaded = await loadFont('/fonts/x.ttf');
+    expect(loaded.font).toBe(font);
     expect(loaded.unitsPerEm).toBe(1000);
   });
 

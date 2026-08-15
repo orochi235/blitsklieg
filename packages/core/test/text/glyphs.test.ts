@@ -51,6 +51,18 @@ describe('GlyphCache', () => {
     for (const g of made) expect(g.dispose).toHaveBeenCalled();
     expect(cache.size).toBe(0);
   });
+
+  it('refuses to build after dispose instead of leaking an unowned geometry', () => {
+    const build = vi.fn((char: string) => ({ char, dispose: vi.fn() }));
+    const cache = new GlyphCache(build);
+
+    cache.get('A', 0.3);
+    cache.dispose();
+
+    expect(() => cache.get('A', 0.3)).toThrow('blitsklieg: GlyphCache used after dispose');
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(cache.size).toBe(0);
+  });
 });
 
 /** A font whose only glyph draws the given commands, so contour nesting is exercised exactly. */
@@ -68,17 +80,20 @@ function box(x: number, y: number, w: number, h: number): PathCommand[] {
   ];
 }
 
+/** Enough to catch a curve's bulge; three samples a straight edge at its endpoints regardless. */
+const SAMPLES = 16;
+
 /** Extents of a contour's own outline, ignoring any holes hanging off it. */
 function topOf(contour: THREE.Path): number {
-  return Math.max(...contour.getPoints(1).map((p) => p.y));
+  return Math.max(...contour.getPoints(SAMPLES).map((p) => p.y));
 }
 
 function bottomOf(contour: THREE.Path): number {
-  return Math.min(...contour.getPoints(1).map((p) => p.y));
+  return Math.min(...contour.getPoints(SAMPLES).map((p) => p.y));
 }
 
 function leftOf(contour: THREE.Path): number {
-  return Math.min(...contour.getPoints(1).map((p) => p.x));
+  return Math.min(...contour.getPoints(SAMPLES).map((p) => p.x));
 }
 
 describe('glyphToShapes', () => {
@@ -87,6 +102,34 @@ describe('glyphToShapes', () => {
 
     expect(topOf(shape as THREE.Shape)).toBe(0);
     expect(bottomOf(shape as THREE.Shape)).toBe(-10);
+  });
+
+  it('negates the control point of a quadratic, not just its endpoints', () => {
+    const [shape] = glyphToShapes(
+      fontDrawing([
+        { type: 'M', x: 0, y: 0 },
+        { type: 'Q', x1: 5, y1: 10, x: 10, y: 0 },
+      ]),
+      'o',
+      1,
+    );
+
+    expect(bottomOf(shape as THREE.Shape)).toBeLessThan(0);
+    expect(topOf(shape as THREE.Shape)).toBeLessThanOrEqual(0);
+  });
+
+  it('negates both control points of a cubic', () => {
+    const [shape] = glyphToShapes(
+      fontDrawing([
+        { type: 'M', x: 0, y: 0 },
+        { type: 'C', x1: 3, y1: 10, x2: 7, y2: 10, x: 10, y: 0 },
+      ]),
+      'o',
+      1,
+    );
+
+    expect(bottomOf(shape as THREE.Shape)).toBeLessThan(0);
+    expect(topOf(shape as THREE.Shape)).toBeLessThanOrEqual(0);
   });
 
   it('nests a counter as a hole instead of a second solid shape', () => {
@@ -182,5 +225,14 @@ describe('buildGlyphGeometry', () => {
 
     expect(geo.boundingBox).not.toBeNull();
     expect(geo.boundingBox?.max.y).toBeGreaterThan(0);
+  });
+
+  it('leaves an empty bounding box for a glyph with no outline', () => {
+    const geo = buildGlyphGeometry(fontDrawing([]), ' ', 1, DEFAULT_GLYPH_OPTIONS);
+
+    expect(geo.attributes.position?.count).toBe(0);
+    expect(geo.boundingBox?.isEmpty()).toBe(true);
+    // Callers seeding a running max from 0 absorb this; assigning it straight does not.
+    expect(geo.boundingBox?.max.y).toBe(Number.NEGATIVE_INFINITY);
   });
 });

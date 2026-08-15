@@ -13,9 +13,11 @@ export async function loadFont(url: string): Promise<LoadedFont> {
   });
   if (!res.ok) throw new Error(`blitsklieg: failed to load font ${url} (${res.status})`);
 
+  const bytes = await res.arrayBuffer();
+
   let font: Font;
   try {
-    font = parse(await res.arrayBuffer());
+    font = parse(bytes);
   } catch (cause) {
     // A server that answers 200 with an HTML error page lands here, not on the status check.
     throw new Error(`blitsklieg: ${url} is not a font opentype.js can parse`, { cause });
