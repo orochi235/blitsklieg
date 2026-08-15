@@ -68,9 +68,17 @@ function box(x: number, y: number, w: number, h: number): PathCommand[] {
   ];
 }
 
-/** Highest y a shape's own outline reaches, ignoring its holes. */
-function topOf(shape: THREE.Shape): number {
-  return Math.max(...shape.getPoints(1).map((p) => p.y));
+/** Extents of a contour's own outline, ignoring any holes hanging off it. */
+function topOf(contour: THREE.Path): number {
+  return Math.max(...contour.getPoints(1).map((p) => p.y));
+}
+
+function bottomOf(contour: THREE.Path): number {
+  return Math.min(...contour.getPoints(1).map((p) => p.y));
+}
+
+function leftOf(contour: THREE.Path): number {
+  return Math.min(...contour.getPoints(1).map((p) => p.x));
 }
 
 describe('glyphToShapes', () => {
@@ -78,7 +86,7 @@ describe('glyphToShapes', () => {
     const [shape] = glyphToShapes(fontDrawing(box(0, 0, 10, 10)), 'A', 1);
 
     expect(topOf(shape as THREE.Shape)).toBe(0);
-    expect(Math.min(...(shape as THREE.Shape).getPoints(1).map((p) => p.y))).toBe(-10);
+    expect(bottomOf(shape as THREE.Shape)).toBe(-10);
   });
 
   it('nests a counter as a hole instead of a second solid shape', () => {
@@ -106,7 +114,7 @@ describe('glyphToShapes', () => {
     const withHole = shapes.filter((s) => s.holes.length > 0);
     expect(withHole).toHaveLength(1);
     expect(topOf(withHole[0] as THREE.Shape)).toBe(0);
-    expect(Math.min(...(withHole[0] as THREE.Shape).getPoints(1).map((p) => p.x))).toBe(0);
+    expect(leftOf(withHole[0] as THREE.Shape)).toBe(0);
   });
 
   it('makes a contour nested two deep solid again', () => {
@@ -117,6 +125,38 @@ describe('glyphToShapes', () => {
     );
 
     expect(shapes).toHaveLength(2);
+  });
+
+  it('gives a hole inside an island to the island, not to the outermost contour', () => {
+    // Ordered so that attaching each hole to the most recently opened contour would be wrong.
+    const shapes = glyphToShapes(
+      fontDrawing([
+        ...box(0, 0, 40, 40),
+        ...box(10, 10, 20, 20),
+        ...box(14, 14, 12, 12),
+        ...box(4, 4, 32, 32),
+      ]),
+      '@',
+      1,
+    );
+
+    expect(shapes).toHaveLength(2);
+    const [outer, island] = [...shapes].sort((a, b) => leftOf(a) - leftOf(b));
+    expect(leftOf(outer as THREE.Shape)).toBe(0);
+    expect(leftOf(island as THREE.Shape)).toBe(10);
+    expect((outer as THREE.Shape).holes.map(leftOf)).toEqual([4]);
+    expect((island as THREE.Shape).holes.map(leftOf)).toEqual([14]);
+  });
+
+  it('drops a contour with no drawing commands after its move', () => {
+    const shapes = glyphToShapes(
+      fontDrawing([...box(0, 0, 10, 10), { type: 'M', x: 50, y: 50 }]),
+      'A',
+      1,
+    );
+
+    expect(shapes).toHaveLength(1);
+    expect(leftOf(shapes[0] as THREE.Shape)).toBe(0);
   });
 
   it('returns nothing for a glyph with no outline', () => {

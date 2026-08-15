@@ -35,6 +35,31 @@ describe('loadFont', () => {
     );
   });
 
+  it('names the url when the network call itself rejects', async () => {
+    const cause = new TypeError('fetch failed');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(cause)),
+    );
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
+      message: 'blitsklieg: could not fetch font /fonts/x.ttf',
+      cause,
+    });
+  });
+
+  it('names the url when the bytes are not a parseable font', async () => {
+    const cause = new Error('Unsupported OpenType signature 0x3c21444f');
+    parse.mockImplementation(() => {
+      throw cause;
+    });
+
+    await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
+      message: 'blitsklieg: /fonts/x.ttf is not a font opentype.js can parse',
+      cause,
+    });
+  });
+
   it('exposes the parsed font and its em size', async () => {
     parse.mockReturnValue(stubFont({}));
 
