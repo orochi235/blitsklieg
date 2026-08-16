@@ -7,7 +7,10 @@ export interface FlakeSpec {
   size: number;
   /** How far a flake normal tilts off the surface, 0..1. */
   spread: number;
+  /** Flake albedo. Omit to leave the base color alone and sparkle by specular only. */
   color?: number;
+  /** How far `color` pulls the base, 0..1. Ignored without a color. */
+  colorMix?: number;
   /** Smooth rounded cells (leather grain) instead of flat random facets. */
   bump?: boolean;
 }
@@ -18,6 +21,7 @@ export interface FlakeUniforms {
   uFlakeSpread: THREE.IUniform<number>;
   uFlakeBump: THREE.IUniform<number>;
   uFlakeColor: THREE.IUniform<THREE.Color>;
+  uFlakeColorMix: THREE.IUniform<number>;
 }
 
 export function createFlakeUniforms(): FlakeUniforms {
@@ -27,6 +31,7 @@ export function createFlakeUniforms(): FlakeUniforms {
     uFlakeSpread: { value: 0.4 },
     uFlakeBump: { value: 0 },
     uFlakeColor: { value: new THREE.Color(0xffffff) },
+    uFlakeColorMix: { value: 0 },
   };
 }
 
@@ -54,6 +59,9 @@ export function writeFlakeUniforms(u: FlakeUniforms, spec: FlakeSpec | undefined
   u.uFlakeSpread.value = spec.spread;
   u.uFlakeBump.value = spec.bump ? 1 : 0;
   u.uFlakeColor.value.set(spec.color ?? 0xffffff);
+  // No declared color means no albedo mixing at all. Defaulting it to white instead would wash
+  // a dense look — leather sets density 1 — 60% toward white and bury its own color.
+  u.uFlakeColorMix.value = spec.color === undefined ? 0 : (spec.colorMix ?? 0.3);
 }
 
 const COMMON = /* glsl */ `
@@ -62,6 +70,7 @@ uniform float uFlakeSize;
 uniform float uFlakeSpread;
 uniform float uFlakeBump;
 uniform vec3 uFlakeColor;
+uniform float uFlakeColorMix;
 varying vec3 vFlakePos;
 varying float vSeed;
 
@@ -75,6 +84,39 @@ vec3 bkHash3(vec3 p) {
 vec3 bkCellCoord() { return vFlakePos / uFlakeSize + vSeed; }
 
 float bkIsFlake(vec3 rnd) { return step(1.0 - uFlakeDensity, rnd.x * 0.5 + 0.5); }
+
+/**
+ * Nearest jittered cell centre in the 3x3x3 neighbourhood. A plain floor() lattice sliced by a
+ * flat glyph face gives a grid of squares, which reads as a mosaic however it is scaled —
+ * offsetting each centre breaks the boundaries out of rows so flakes vary in shape and size.
+ */
+vec3 bkCell(vec3 coord) {
+  vec3 base = floor(coord);
+  vec3 best = base;
+  float nearest = 1e9;
+
+  for (int x = -1; x <= 1; x++) {
+    for (int y = -1; y <= 1; y++) {
+      for (int z = -1; z <= 1; z++) {
+        vec3 cell = base + vec3(float(x), float(y), float(z));
+        vec3 centre = cell + 0.5 + bkHash3(cell + 11.3) * 0.5;
+        float d = dot(coord - centre, coord - centre);
+        if (d < nearest) { nearest = d; best = cell; }
+      }
+    }
+  }
+  return best;
+}
+
+/** Leather's grain is a regular tiling, so it keeps the cheap lattice. */
+vec3 bkCellOf(vec3 coord) { return uFlakeBump > 0.5 ? floor(coord) : bkCell(coord); }
+
+// How many cells a pixel spans. Measured per axis: the derivative of length() would track
+// distance from the origin rather than cell size, and never engage.
+float bkCellsPerPixel(vec3 coord) {
+  vec3 d = fwidth(coord);
+  return max(d.x, max(d.y, d.z));
+}
 `;
 
 // Sub-pixel flakes strobe violently under minification. Contrast fades and roughness widens as a
@@ -82,8 +124,8 @@ float bkIsFlake(vec3 rnd) { return step(1.0 - uFlakeDensity, rnd.x * 0.5 + 0.5);
 const PERTURB = /* glsl */ `
 if (uFlakeDensity > 0.0) {
   vec3 bkCoord = bkCellCoord();
-  vec3 bkRnd = bkHash3(floor(bkCoord));
-  float bkFade = 1.0 - smoothstep(0.35, 1.0, fwidth(length(bkCoord)));
+  vec3 bkRnd = bkHash3(bkCellOf(bkCoord));
+  float bkFade = 1.0 - smoothstep(0.25, 0.8, bkCellsPerPixel(bkCoord));
 
   vec3 bkLocal = fract(bkCoord) - 0.5;
   vec3 bkDome = normalize(vec3(bkLocal.xy * 2.0, 0.6));
@@ -95,9 +137,11 @@ if (uFlakeDensity > 0.0) {
 `;
 
 const TINT = /* glsl */ `
-if (uFlakeDensity > 0.0) {
-  vec3 bkRnd = bkHash3(floor(bkCellCoord()));
-  diffuseColor.rgb = mix(diffuseColor.rgb, uFlakeColor, bkIsFlake(bkRnd) * 0.6);
+if (uFlakeDensity > 0.0 && uFlakeColorMix > 0.0) {
+  vec3 bkCoord = bkCellCoord();
+  vec3 bkRnd = bkHash3(bkCellOf(bkCoord));
+  float bkFade = 1.0 - smoothstep(0.25, 0.8, bkCellsPerPixel(bkCoord));
+  diffuseColor.rgb = mix(diffuseColor.rgb, uFlakeColor, bkIsFlake(bkRnd) * uFlakeColorMix * bkFade);
 }
 `;
 
