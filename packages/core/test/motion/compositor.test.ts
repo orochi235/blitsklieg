@@ -39,6 +39,60 @@ const expectUnitWeight = (over: Partial<TimelineOptions> = {}) => {
   }
 };
 
+describe('Timeline held until release', () => {
+  const held = () =>
+    new Timeline({
+      enter: piece(100, 1),
+      active: piece(50, 10),
+      exit: piece(100, 100),
+      hold: 'until-release',
+      blendMs: 0,
+    });
+
+  it('never finishes while it is held', () => {
+    const tl = held();
+
+    expect(tl.duration).toBe(Number.POSITIVE_INFINITY);
+    expect(tl.isFinished(1e9)).toBe(false);
+  });
+
+  it('keeps looping the active phase while held', () => {
+    expect(held().poseAt(1e6, L).position[0]).toBe(10);
+  });
+
+  it('runs the exit once released', () => {
+    const tl = held();
+    tl.release(500);
+
+    expect(tl.duration).toBe(600);
+    expect(tl.isFinished(599)).toBe(false);
+    expect(tl.isFinished(600)).toBe(true);
+    expect(tl.poseAt(550, L).position[0]).toBe(100);
+  });
+
+  it('ignores a second release, so a double click cannot cut the exit short', () => {
+    const tl = held();
+    tl.release(500);
+    tl.release(900);
+
+    expect(tl.duration).toBe(600);
+  });
+
+  it('still plays a whole exit when released before the enter has finished', () => {
+    const tl = held();
+    tl.release(10);
+
+    expect(tl.duration).toBe(200);
+  });
+
+  it('leaves a numeric hold alone', () => {
+    const tl = build(100);
+    tl.release(10);
+
+    expect(tl.duration).toBe(300);
+  });
+});
+
 describe('Timeline', () => {
   it('reports total duration as enter + hold + exit', () => {
     expect(build(100).duration).toBe(300);

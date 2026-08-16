@@ -5,8 +5,8 @@ export interface TimelineOptions {
   enter: MotionPiece;
   active: MotionPiece;
   exit: MotionPiece;
-  /** Milliseconds spent in the active phase. */
-  hold: number;
+  /** Milliseconds in the active phase, or held open until `release()`. */
+  hold: number | 'until-release';
   /** Crossfade window straddling each phase boundary. */
   blendMs: number;
 }
@@ -19,20 +19,40 @@ interface Segment {
 }
 
 export class Timeline {
-  readonly duration: number;
-  private readonly segments: Segment[];
+  duration: number;
+  private segments: Segment[];
   private readonly blend: number;
+  private readonly opts: TimelineOptions;
+  private held: boolean;
 
   constructor(opts: TimelineOptions) {
-    const enterEnd = opts.enter.duration;
-    const activeEnd = enterEnd + opts.hold;
-    this.duration = activeEnd + opts.exit.duration;
+    this.opts = opts;
     this.blend = opts.blendMs;
+    this.held = opts.hold === 'until-release';
+    this.duration = 0;
+    this.segments = [];
+    this.build(this.held ? Number.POSITIVE_INFINITY : (opts.hold as number));
+  }
+
+  private build(hold: number): void {
+    const enterEnd = this.opts.enter.duration;
+    const activeEnd = enterEnd + hold;
+    this.duration = activeEnd + this.opts.exit.duration;
     this.segments = [
-      { piece: opts.enter, start: 0, end: enterEnd, loop: false },
-      { piece: opts.active, start: enterEnd, end: activeEnd, loop: true },
-      { piece: opts.exit, start: activeEnd, end: this.duration, loop: false },
+      { piece: this.opts.enter, start: 0, end: enterEnd, loop: false },
+      { piece: this.opts.active, start: enterEnd, end: activeEnd, loop: true },
+      { piece: this.opts.exit, start: activeEnd, end: this.duration, loop: false },
     ].filter((seg) => seg.end > seg.start);
+  }
+
+  /**
+   * Ends the held active phase at `elapsed` and lets the exit run. A no-op on a numeric hold or a
+   * second call, so a double click cannot truncate an exit already underway.
+   */
+  release(elapsed: number): void {
+    if (!this.held) return;
+    this.held = false;
+    this.build(Math.max(0, elapsed - this.opts.enter.duration));
   }
 
   isFinished(elapsed: number): boolean {
