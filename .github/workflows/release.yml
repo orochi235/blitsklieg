@@ -3,6 +3,13 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Retrying a failed publish must not mean moving the tag: once a tag has shipped artifacts,
+  # moving it to re-run a job is how the tag stops matching what was built.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish, e.g. v0.2.1'
+        required: true
 
 # No NPM_TOKEN: this publishes via npm trusted publishing (OIDC), so the
 # credential is short-lived and minted per run. `id-token: write` is what
@@ -17,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v7
         with:
@@ -26,14 +35,15 @@ jobs:
 
       - run: npm ci
 
-      # The version lives in the workspace, not the private root package,
-      # which has no version field at all.
+      # Reads the workspace package; the private root has no version field. TAG arrives through
+      # env rather than inline `${{ }}`, which would splice the input into the script.
       - name: Tag must match package.json version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          tag="${GITHUB_REF_NAME}"
           pkg="v$(node -p "require('./packages/core/package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "::error::tag $tag does not match packages/core/package.json $pkg"
+          if [ "$TAG" != "$pkg" ]; then
+            echo "::error::tag $TAG does not match packages/core/package.json $pkg"
             exit 1
           fi
 
