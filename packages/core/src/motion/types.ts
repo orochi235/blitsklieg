@@ -19,6 +19,8 @@ export interface MotionPiece {
   duration: number;
   /** `t` is normalized 0..1 within this pass. */
   offset(t: number, letter: LetterInfo): PoseOffset;
+  /** Rakes the environment highlight rather than moving the letters. `sweep` is the built-in. */
+  envRotation?: boolean;
 }
 
 export type EnterName = 'slam' | 'spin' | 'flip' | 'assemble' | 'rise' | 'none';
