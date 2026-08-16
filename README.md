@@ -86,6 +86,50 @@ crossfading `blendMs` across each boundary. Enter and exit run at a fixed length
 Each list is also exported as a runtime array — `ENTER_NAMES`, `ACTIVE_NAMES`, `EXIT_NAMES`,
 `LOOK_NAMES`, `POLICY_NAMES` — for building a picker.
 
+## Writing your own motion
+
+Every slot also takes a piece you built, or several layered together:
+
+```js
+import { spring, transition } from 'blitsklieg';
+
+const swoop = transition(800, {
+  from: { position: [0, -6, 0], opacity: 0 },
+  ease: spring({ stiffness: 180, damping: 11 }),
+  stagger: { each: 0.06, from: 'center' },
+});
+
+await bk.fire('YOU WIN', { enter: swoop, active: ['float', 'shimmer'] });
+```
+
+A `MotionPiece` is `{ duration, offset(t, letter) }` where `offset` returns a *relative* pose —
+position and rotation add onto rest, scale and opacity multiply. It must be a **pure function**:
+the compositor samples up to three pieces at three different points in the same frame to
+crossfade them, so a piece that remembers anything between calls will tear.
+
+`transition(duration, spec)` builds an arrival or a departure. `from` starts displaced and
+relaxes to rest; `to` starts at rest and departs. Either accepts a function of the letter, which
+is how per-letter scatter stays deterministic and screenshots stay stable. `keyframes` takes N
+stops instead. `ease` sets the curve, `easeBy` overrides it for one channel, and `stagger`
+controls per-letter delay: `spread` fixes the total ramp, `each` fixes per-letter cadence, and
+`from` picks the order — `start`, `end`, `center`, `edges` or `random`, with `grid: true`
+measuring it radially over a multiline block.
+
+`cycle(duration, spec)` builds a looping idle from a per-channel `amplitude`, an optional
+`harmonic`, and a `phase` function. `envRotation: true` rakes the environment highlight instead
+of moving the letters, which is what `sweep` does.
+
+`spring({ stiffness, damping, mass })` returns a curve, not an animation — it is the closed-form
+solution, so it stays a pure `(t) => number` and can go anywhere an easing goes.
+
+`Easing` is exactly `(t: number) => number`, which is also `d3-ease`'s signature, so any curve
+library drops straight in:
+
+```js
+import { easeElasticOut } from 'd3-ease';
+const bounce = transition(700, { from: { scale: 0 }, ease: easeElasticOut });
+```
+
 ## Options
 
 `createBlitsklieg(options)`:
@@ -102,7 +146,7 @@ Each list is also exported as a runtime array — `ENTER_NAMES`, `ACTIVE_NAMES`,
 
 | field | default | |
 |---|---|---|
-| `enter` | `'slam'` | how it arrives |
+| `enter` | `'slam'` | how it arrives — a name, your own piece, or an array of them |
 | `active` | `'sweep'` | what it does while it holds |
 | `exit` | `'fade'` | how it leaves |
 | `look` | `'gold'` | the material |
