@@ -1,6 +1,6 @@
 {
   "name": "blitsklieg",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Shiny extruded 3D type, slammed over the web app you already have, on a transparent WebGL overlay",
   "keywords": [
     "webgl",

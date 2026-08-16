@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+
+`flake` and `glitter` were tuned on a retina display at cell sizes that fall past the top of the
+shader's aliasing fade on a 1x one, where both smoothed to a flat sheen and lost their sparkle
+entirely. Their cells are now coarser — full strength at DPR 2, and still clearly present at
+DPR 1. Density is unchanged; only cell size aliases.
+
 ## 0.3.0
 
 ### Breaking

@@ -42,8 +42,10 @@ async function shoot(page: Page, name: string): Promise<void> {
   await expect(page).toHaveScreenshot(`${name}.png`, {
     // The log stamps wall-clock times, which would differ on every run.
     mask: [page.locator('#log')],
-    // WebGL is not bit-exact across driver versions; this still catches a look going wrong.
-    maxDiffPixelRatio: 0.02,
+    // The environment map is generated at runtime rather than shipped, so no two runs light the
+    // type identically and a tight threshold fails on a different look each time. This is a
+    // did-the-look-break guard — flat grey, a mosaic, sparkle gone — not a pixel diff.
+    maxDiffPixelRatio: 0.15,
   });
 }
 

@@ -128,7 +128,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     roughness: 0.5,
     clearcoat: 0.5,
     clearcoatRoughness: 0.15,
-    flake: { density: 0.33, size: 1 / 147, spread: 1, color: 0xff5ecb, colorMix: 0.12 },
+    flake: { density: 0.33, size: 1 / 100, spread: 1, color: 0xff5ecb, colorMix: 0.12 },
   },
   glitter: {
     color: 0x8a1c2b,
