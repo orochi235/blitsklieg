@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ActiveName, EnterName, ExitName, LetterInfo } from '../../src/motion/types.js';
-import { NONE, stagger } from '../../src/motion/types.js';
+import { NONE, orderKey, stagger } from '../../src/motion/types.js';
 
 function letter(index: number, count: number): LetterInfo {
   return { index, count };
@@ -111,5 +111,79 @@ describe('motion name unions are complete', () => {
   it('ExitName has the expected 5 members', () => {
     const names: ExitName[] = ['shatter', 'drop', 'recede', 'fade', 'none'];
     expect(names.length).toBe(5);
+  });
+});
+
+describe('orderKey', () => {
+  const word = (index: number, count = 5): LetterInfo => ({ index, count });
+
+  it('defaults to reading order, which is what the repertoire is written against', () => {
+    expect([0, 1, 2, 3, 4].map((i) => orderKey(word(i)))).toEqual([0, 0.2, 0.4, 0.6, 0.8]);
+  });
+
+  it('reverses for end', () => {
+    const keys = [0, 1, 2, 3, 4].map((i) => orderKey(word(i), { from: 'end' }));
+
+    expect(keys[0] as number).toBeGreaterThan(keys[4] as number);
+  });
+
+  it('sends the middle first for center, and the ends first for edges', () => {
+    const center = [0, 1, 2, 3, 4].map((i) => orderKey(word(i), { from: 'center' }));
+    const edges = [0, 1, 2, 3, 4].map((i) => orderKey(word(i), { from: 'edges' }));
+
+    expect(center[2]).toBe(0);
+    expect(center[0]).toBe(1);
+    expect(center[4]).toBe(1);
+    expect(edges[2]).toBe(1);
+    expect(edges[0]).toBe(0);
+  });
+
+  it('is deterministic for random, so screenshots stay comparable across runs', () => {
+    const once = [0, 1, 2, 3, 4].map((i) => orderKey(word(i), { from: 'random' }));
+    const twice = [0, 1, 2, 3, 4].map((i) => orderKey(word(i), { from: 'random' }));
+
+    expect(twice).toEqual(once);
+    for (const k of once) {
+      expect(k).toBeGreaterThanOrEqual(0);
+      expect(k).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('measures center radially over a block when grid is set', () => {
+    const at = (index: number, line: number, column: number): LetterInfo => ({
+      index,
+      count: 6,
+      line,
+      column,
+      lineCount: 2,
+      columnCount: 3,
+    });
+
+    // Two rows of three: the middle of a row is nearer the block center than its corner is.
+    expect(orderKey(at(1, 0, 1), { from: 'center', grid: true })).toBeLessThan(
+      orderKey(at(0, 0, 0), { from: 'center', grid: true }),
+    );
+  });
+
+  it('falls back to reading order when the letter carries no block position', () => {
+    expect(orderKey(word(2), { from: 'center', grid: true })).toBe(
+      orderKey(word(2), { from: 'center' }),
+    );
+  });
+});
+
+describe('stagger spec forms', () => {
+  const L = (index: number, count = 4): LetterInfo => ({ index, count });
+
+  it('takes a bare number as spread, which every existing piece passes', () => {
+    expect(stagger(0.5, L(2), 0.6)).toBe(stagger(0.5, L(2), { spread: 0.6 }));
+  });
+
+  it('derives spread from each times the letter count', () => {
+    expect(stagger(0.5, L(2), { each: 0.15 })).toBe(stagger(0.5, L(2), { spread: 0.6 }));
+  });
+
+  it('never lets each push spread past the whole pass', () => {
+    expect(Number.isNaN(stagger(0.5, L(3), { each: 0.9 }))).toBe(false);
   });
 });

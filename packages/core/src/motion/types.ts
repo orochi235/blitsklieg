@@ -25,10 +25,72 @@ export type EnterName = 'slam' | 'spin' | 'flip' | 'assemble' | 'rise' | 'none';
 export type ActiveName = 'sweep' | 'float' | 'pulse' | 'shimmer' | 'none';
 export type ExitName = 'shatter' | 'drop' | 'recede' | 'fade' | 'none';
 
+export type StaggerFrom = 'start' | 'end' | 'center' | 'edges' | 'random';
+
+export interface StaggerSpec {
+  /** Fraction of the pass consumed by the ramp-in. Ignored when `each` is given. */
+  spread?: number;
+  /** Fraction of the pass between consecutive letters; `spread = each × count`. */
+  each?: number;
+  from?: StaggerFrom;
+  /** Order by position in the block rather than by reading order. */
+  grid?: boolean;
+}
+
+/** Deterministic, so screenshots comparing frames across runs stay stable. A seeded generator
+ * whose call order depends on letter count would not be. */
+function hash01(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/** Radial distance from the middle of the laid-out block, 0 at the center and 1 at a corner. */
+function radial(letter: LetterInfo): number {
+  const multiRow = (letter.lineCount ?? 1) > 1;
+  const cols = Math.max(1, (letter.columnCount ?? 1) - 1);
+  const rows = Math.max(1, (letter.lineCount ?? 1) - 1);
+  const dx = (letter.column ?? 0) / cols - 0.5;
+  const dy = multiRow ? (letter.line ?? 0) / rows - 0.5 : 0;
+  // Normalized against this block's own corner, not a constant: dividing by a fixed factor
+  // clamps every letter of a wide block to 1 and flattens the ripple to nothing.
+  const corner = Math.hypot(0.5, multiRow ? 0.5 : 0);
+  return Math.min(1, Math.hypot(dx, dy) / corner);
+}
+
+/** Distance from the middle of the word in reading order, 0 at the center and 1 at either end. */
+function fromMiddle(letter: LetterInfo): number {
+  const mid = (Math.max(1, letter.count) - 1) / 2;
+  return mid > 0 ? Math.abs(letter.index - mid) / mid : 0;
+}
+
+/** Where a letter sits in the stagger order: 0 goes first, 1 goes last. */
+export function orderKey(letter: LetterInfo, spec: StaggerSpec = {}): number {
+  const from = spec.from ?? 'start';
+  // `grid` only changes what "middle" means; reading order is already the same either way.
+  const middle = spec.grid && letter.column !== undefined ? radial(letter) : fromMiddle(letter);
+
+  switch (from) {
+    case 'random':
+      return hash01(letter.index);
+    case 'end':
+      return 1 - letter.index / Math.max(1, letter.count);
+    case 'center':
+      return middle;
+    case 'edges':
+      return 1 - middle;
+    default:
+      return letter.index / Math.max(1, letter.count);
+  }
+}
+
 /** Stagger helper: returns 0..1 for how far along letter `index` should be at word-time `t`. */
-export function stagger(t: number, letter: LetterInfo, spread = 0.5): number {
+export function stagger(t: number, letter: LetterInfo, spec: number | StaggerSpec = 0.5): number {
+  const resolved: StaggerSpec = typeof spec === 'number' ? { spread: spec } : spec;
   const count = Math.max(1, letter.count);
-  const start = (letter.index / count) * spread;
+  const spread =
+    resolved.each !== undefined ? Math.min(1, resolved.each * count) : (resolved.spread ?? 0.5);
+
+  const start = orderKey(letter, resolved) * spread;
   // spread=1 would make span 0, and (t - start) is also 0 at t=start — 0/0 is NaN, which
   // clamps straight through into a transform and makes the letter vanish silently.
   const span = Math.max(1e-6, 1 - spread);
