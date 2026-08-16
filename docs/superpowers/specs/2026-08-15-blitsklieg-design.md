@@ -85,9 +85,10 @@ reflection. blitsklieg builds a small cubemap from a dark gradient and a handful
 a synthetic photo studio. Two consequences: nothing to download (real HDRIs are 2–50MB), and
 the bars are movable. Sliding a bright bar across the letters *is* the `sweep` effect.
 
-**Effects are a closed set.** No extension point until there is a second consumer asking for
-one. Reaching three.js internals through an escape hatch would make them blitsklieg's public API
-permanently.
+**Effects were a closed set in v0.** Superseded by the motion authoring design doc, which opens
+`MotionPiece` as public API. The risk this recorded was real but misattributed: it is reaching
+three.js internals that would make them blitsklieg's API permanently, and `MotionPiece` takes a
+number and returns a plain object without naming three at all.
 
 **Phases compose additively over a resting pose.** Each of `enter`, `active`, and `exit`
 contributes an *offset* — position, rotation, scale, material deltas — accumulated onto the
@@ -165,6 +166,6 @@ identical, which cancels at t=0 and pins the curve to the range [1.0, 1.281]. It
 therefore held final position and bulged toward the camera rather than arriving from depth.
 Judgements formed from the spike cover material, environment, and composite only.
 
-Easing is a closed set in v0, but callers supplying their own curves — and eventually scripting
-them — is wanted. `Easing` is `(t: number) => number` and motion pieces call curves by reference,
-so nothing here forecloses it.
+Easing was a closed set in v0. `Easing` is `(t: number) => number` and motion pieces call curves
+by reference, which is what let the motion authoring design doc export the type and accept
+caller-supplied curves without touching a piece.

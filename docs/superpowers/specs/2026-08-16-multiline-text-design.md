@@ -90,9 +90,15 @@ does across one.
 
 ## Stagger
 
-Unchanged. `letters` is flat in reading order, pushing line by line keeps it that way, and
-`index` / `count` continue to span the whole block. `LetterInfo`, `stagger()` and all 13 motion
-pieces are untouched. Newlines never become slots, so they do not inflate `count`.
+Default behavior is unchanged. `letters` is flat in reading order, pushing line by line keeps it
+that way, and `index` / `count` continue to span the whole block. All 13 motion pieces are
+untouched, and newlines never become slots, so they do not inflate `count`.
+
+`LetterInfo` gains `line`, `column`, `lineCount` and `columnCount`, which the motion authoring
+doc's grid-aware stagger reads to order letters by position in the block rather than by reading
+order. `columnCount` is the widest line's, so a short line's columns do not stretch to fill it —
+a ripple should cross the block at one speed, not accelerate through its narrow rows. The fields
+are additive and nothing consumes them by default.
 
 ## Indefinite hold
 
