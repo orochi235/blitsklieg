@@ -124,25 +124,28 @@ describe('Word', () => {
 
   it('adds pose x onto the layout x instead of replacing it', () => {
     const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const [restA, restB] = meshes(word).map((m) => m.position.x);
     word.apply(
       timelineOf(() => ({ position: [1, 0, 0] })),
       50,
     );
     const [a, b] = meshes(word);
 
-    expect(a?.position.x).toBeCloseTo(1, 10);
-    expect(b?.position.x).toBeCloseTo(1 + STEP, 10);
+    expect(a?.position.x).toBeCloseTo((restA as number) + 1, 10);
+    expect(b?.position.x).toBeCloseTo((restB as number) + 1, 10);
+    expect((restB as number) - (restA as number)).toBeCloseTo(STEP, 10);
   });
 
-  it('takes pose y, z, rotation and scale absolutely', () => {
+  it('adds pose y onto the layout y, and takes z, rotation and scale absolutely', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
+    const rest = (meshes(word)[0] as THREE.Mesh).position.y;
     word.apply(
       timelineOf(() => ({ position: [0, 2, 3], rotation: [0.1, 0.2, 0.3], scale: 4 })),
       50,
     );
     const [a] = meshes(word);
 
-    expect(a?.position.y).toBeCloseTo(2, 10);
+    expect(a?.position.y).toBeCloseTo(rest + 2, 10);
     expect(a?.position.z).toBeCloseTo(3, 10);
     expect([a?.rotation.x, a?.rotation.y, a?.rotation.z]).toEqual([0.1, 0.2, 0.3]);
     expect(a?.scale.x).toBeCloseTo(4, 10);
@@ -160,9 +163,9 @@ describe('Word', () => {
       50,
     );
 
-    expect(seen).toEqual([
-      { index: 0, count: 3 },
-      { index: 2, count: 3 },
+    expect(seen.map((l) => [l.index, l.count])).toEqual([
+      [0, 3],
+      [2, 3],
     ]);
   });
 
@@ -265,6 +268,7 @@ describe('Word', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
     const [a] = meshes(word);
     const material = materialOf(word);
+    const rest = (a as THREE.Mesh).position.x;
 
     word.dispose();
     word.apply(
@@ -272,7 +276,89 @@ describe('Word', () => {
       50,
     );
 
-    expect(a?.position.x).toBe(0);
+    expect(a?.position.x).toBe(rest);
     expect(material.opacity).toBe(1);
+  });
+});
+
+describe('Word as a block', () => {
+  it('gives every line its own row of letters', () => {
+    const word = new Word('AB\nCD', stubFont(), 'gold', ROOMY);
+
+    expect(word.letterCount).toBe(4);
+    expect(meshes(word)).toHaveLength(4);
+    expect(word.lineCount).toBe(2);
+  });
+
+  it('drops each line below the one above it', () => {
+    const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
+    const [first, second] = meshes(word);
+
+    expect((second as THREE.Mesh).position.y).toBeLessThan((first as THREE.Mesh).position.y);
+  });
+
+  it('centers each line independently', () => {
+    const word = new Word('AA\nB', stubFont(), 'gold', ROOMY);
+    const [a1, a2, b] = meshes(word);
+    const rowCenter = ((a1 as THREE.Mesh).position.x + (a2 as THREE.Mesh).position.x) / 2;
+
+    expect((b as THREE.Mesh).position.x).toBeCloseTo(rowCenter, 5);
+  });
+
+  it('adds pose y onto the line baseline instead of replacing it', () => {
+    const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
+    const before = meshes(word).map((m) => m.position.y);
+
+    word.apply(
+      timelineOf(() => ({ position: [0, 1, 0] })),
+      0,
+    );
+
+    const after = meshes(word).map((m) => m.position.y);
+    expect(after[0] as number).toBeCloseTo((before[0] as number) + 1, 5);
+    expect(after[1] as number).toBeCloseTo((before[1] as number) + 1, 5);
+    // The lines must stay apart; a replaced baseline collapses them onto one row.
+    expect(after[0] as number).not.toBeCloseTo(after[1] as number, 5);
+  });
+
+  it('reports each letter its position in the block', () => {
+    const word = new Word('AB\nC', stubFont(), 'gold', ROOMY);
+    const seen: LetterInfo[] = [];
+
+    word.apply(
+      timelineOf((_t, letter) => {
+        seen.push(letter);
+        return {};
+      }),
+      0,
+    );
+
+    expect(seen.map((l) => l.line)).toEqual([0, 0, 1]);
+    expect(seen.map((l) => l.column)).toEqual([0, 1, 0]);
+    expect(seen.map((l) => l.index)).toEqual([0, 1, 2]);
+    expect(seen[0]?.lineCount).toBe(2);
+    expect(seen[0]?.columnCount).toBe(2);
+  });
+
+  it('wraps only when asked', () => {
+    const narrow: Budget = { width: 1.2, height: 100 };
+
+    expect(new Word('AA BB', stubFont(), 'gold', narrow, true).lineCount).toBeGreaterThan(1);
+    expect(new Word('AA BB', stubFont(), 'gold', narrow, false).lineCount).toBe(1);
+  });
+
+  it('centers the block vertically, so a two-line block straddles the origin', () => {
+    const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
+    const ys = meshes(word).map((m) => word.group.position.y + word.group.scale.x * m.position.y);
+
+    expect((ys[0] as number) > 0).toBe(true);
+    expect((ys[1] as number) < 0).toBe(true);
+  });
+
+  it('a newline never reaches the glyph cache, so it draws no tofu', () => {
+    const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
+
+    expect(word.letterCount).toBe(2);
+    expect(meshes(word)).toHaveLength(2);
   });
 });
