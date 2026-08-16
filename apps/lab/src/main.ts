@@ -49,6 +49,8 @@ const tintOnInput = el<HTMLInputElement>('tintOn');
 const holdClickInput = el<HTMLInputElement>('holdClick');
 const modalInput = el<HTMLInputElement>('modal');
 const grainInput = el<HTMLInputElement>('grain');
+const densityInput = el<HTMLInputElement>('density');
+const flakeOnInput = el<HTMLInputElement>('flakeOn');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
 
 /**
@@ -66,6 +68,8 @@ const CONTROL_IDS = [
   'hold',
   'blend',
   'grain',
+  'density',
+  'flakeOn',
   'tint',
   'tintOn',
   'bloom',
@@ -116,15 +120,26 @@ function loadHash(): void {
 }
 
 /**
- * The slider reads as cells per em, which is the way to think about grain — bigger number,
- * finer flakes. Zero leaves the look's own tuning alone.
+ * Grain reads as cells per em — bigger number, finer flakes. An explicit checkbox rather than a
+ * sentinel slider position: a range input clamps its value into [min, max], so a "0 means leave
+ * it alone" reading silently becomes min and overrides every look.
  */
 function chosenLook(): Look {
   const name = look.get();
-  const cellsPerEm = number('grain');
   const spec = specOf(name);
-  if (!cellsPerEm || !spec.flake) return name;
-  return { ...spec, flake: { ...spec.flake, size: 1 / cellsPerEm } };
+  if (!flakeOnInput.checked || !spec.flake) return name;
+  return {
+    ...spec,
+    flake: { ...spec.flake, size: 1 / number('grain'), density: number('density') / 100 },
+  };
+}
+
+/** Start the sliders where the chosen look already sits, so enabling them changes nothing. */
+function seedFlakeSliders(): void {
+  const spec = specOf(look.get()).flake;
+  if (!spec) return;
+  grainInput.value = String(Math.round(1 / spec.size));
+  densityInput.value = String(Math.round(spec.density * 100));
 }
 
 function create(): Blitsklieg {
@@ -272,8 +287,16 @@ textInput.addEventListener('keydown', (e) => {
 // Greyed rather than ignored: only the flake looks read a grain, and a live slider that does
 // nothing reads as a broken slider.
 function syncGrain(): void {
-  grainInput.disabled = specOf(look.get()).flake === undefined;
+  const reads = specOf(look.get()).flake !== undefined;
+  flakeOnInput.disabled = !reads;
+  if (!reads) flakeOnInput.checked = false;
+  grainInput.disabled = densityInput.disabled = !flakeOnInput.checked;
 }
+
+look.select.addEventListener('change', seedFlakeSliders);
+flakeOnInput.addEventListener('change', () => {
+  if (flakeOnInput.checked) seedFlakeSliders();
+});
 
 loadHash();
 syncGrain();
