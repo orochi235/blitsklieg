@@ -6,6 +6,7 @@ import {
   easeInOutCubic,
   easeOutCubic,
   linear,
+  spring,
 } from '../src/easing.js';
 
 const CURVES = { linear, easeOutCubic, easeInCubic, easeInOutCubic, backOut };
@@ -75,5 +76,51 @@ describe('easing', () => {
     expect(clamp01(1)).toBe(1);
     expect(clamp01(0.42)).toBe(0.42);
     expect(clamp01(Number.NaN)).toBe(0);
+  });
+});
+
+describe('spring', () => {
+  const samples = (s: (t: number) => number) => Array.from({ length: 201 }, (_, i) => s(i / 200));
+
+  it('starts at 0 and lands exactly on 1', () => {
+    const s = spring();
+
+    expect(s(0)).toBe(0);
+    expect(s(1)).toBe(1);
+  });
+
+  it('lands exactly on 1 for any parameters, so no letter settles short of rest', () => {
+    for (const p of [
+      { stiffness: 60, damping: 4 },
+      { stiffness: 400, damping: 40 },
+      { stiffness: 120, damping: 9, mass: 2 },
+    ]) {
+      expect(spring(p)(1)).toBeCloseTo(1, 12);
+    }
+  });
+
+  it('overshoots when underdamped', () => {
+    expect(Math.max(...samples(spring({ stiffness: 180, damping: 8 })))).toBeGreaterThan(1);
+  });
+
+  it('does not overshoot when critically damped', () => {
+    for (const v of samples(spring({ stiffness: 100, damping: 20, mass: 1 }))) {
+      expect(v).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
+  it('rises monotonically toward rest when critically damped', () => {
+    const values = samples(spring({ stiffness: 100, damping: 20 }));
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i] as number).toBeGreaterThanOrEqual((values[i - 1] as number) - 1e-12);
+    }
+  });
+
+  it('is a pure function of t, resamplable in any order', () => {
+    const s = spring({ stiffness: 180, damping: 8 });
+    const forward = [0.2, 0.4, 0.6].map(s);
+    const backward = [0.6, 0.4, 0.2].map(s).reverse();
+
+    expect(backward).toEqual(forward);
   });
 });
