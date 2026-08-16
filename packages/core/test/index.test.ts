@@ -469,6 +469,156 @@ describe('createBlitsklieg', () => {
   });
 });
 
+describe('holding until dismissed', () => {
+  type Listener = (e: unknown) => void;
+  let listeners: Map<string, Listener[]>;
+
+  /** node has no window event target, so the dismissal listeners need one to attach to. */
+  function stubListeners(): void {
+    listeners = new Map();
+    vi.stubGlobal('addEventListener', (type: string, fn: Listener) => {
+      listeners.set(type, [...(listeners.get(type) ?? []), fn]);
+    });
+    vi.stubGlobal('removeEventListener', (type: string, fn: Listener) => {
+      listeners.set(
+        type,
+        (listeners.get(type) ?? []).filter((f) => f !== fn),
+      );
+    });
+  }
+
+  const dispatch = (type: string, e: unknown = {}) => {
+    for (const fn of [...(listeners.get(type) ?? [])]) fn(e);
+  };
+  const attached = () =>
+    (listeners.get('pointerdown')?.length ?? 0) + (listeners.get('keydown')?.length ?? 0);
+
+  const HELD = { enter: 'none', active: 'none', exit: 'none', hold: 'click' } as const;
+
+  beforeEach(stubListeners);
+
+  it('stays on screen while a numeric hold would long since have ended', async () => {
+    const bk = create();
+    const done = bk.fire('HI', HELD);
+    await flush();
+
+    clock.advance(60_000);
+    await flush();
+
+    expect(words()).toHaveLength(1);
+    expect(calls).toEqual(['mount']);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    await done;
+
+    expect(words()).toHaveLength(0);
+  });
+
+  it('dismisses on Escape as well, so a modal hold is not a keyboard trap', async () => {
+    const bk = create();
+    const done = bk.fire('HI', { ...HELD, modal: true });
+    await flush();
+    clock.advance(1000);
+
+    dispatch('keydown', { key: 'Escape' });
+    clock.advance(16);
+    await done;
+
+    expect(words()).toHaveLength(0);
+  });
+
+  it('ignores keys that are not Escape', async () => {
+    const bk = create();
+    void bk.fire('HI', HELD);
+    await flush();
+    clock.advance(1000);
+
+    dispatch('keydown', { key: 'a' });
+    clock.advance(16);
+    await flush();
+
+    expect(words()).toHaveLength(1);
+  });
+
+  it('makes the overlay swallow the click only when modal', async () => {
+    const interactive = vi.spyOn(Stage.prototype, 'setInteractive').mockImplementation(() => {});
+
+    const bk = create();
+    const done = bk.fire('HI', { ...HELD, modal: true });
+    await flush();
+
+    expect(interactive).toHaveBeenCalledWith(true);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    await done;
+
+    expect(interactive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('leaves the overlay click-through when not modal', async () => {
+    const interactive = vi.spyOn(Stage.prototype, 'setInteractive').mockImplementation(() => {});
+
+    const bk = create();
+    const done = bk.fire('HI', HELD);
+    await flush();
+
+    expect(interactive).not.toHaveBeenCalledWith(true);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    await done;
+  });
+
+  it('detaches its listeners once dismissed', async () => {
+    const bk = create();
+    const done = bk.fire('HI', HELD);
+    await flush();
+
+    expect(attached()).toBe(2);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    await done;
+
+    expect(attached()).toBe(0);
+  });
+
+  it('detaches its listeners when destroyed while still held', async () => {
+    const bk = create();
+    const done = bk.fire('HI', HELD);
+    await flush();
+    expect(attached()).toBe(2);
+
+    bk.destroy();
+    await done;
+
+    expect(attached()).toBe(0);
+  });
+
+  it('a second press cannot cut the exit short', async () => {
+    const bk = create();
+    const done = bk.fire('HI', { enter: 'none', active: 'none', exit: 'fade', hold: 'click' });
+    await flush();
+    clock.advance(1000);
+
+    dispatch('pointerdown');
+    clock.advance(100);
+    // The exit is underway; pressing again must not re-release at a later elapsed.
+    dispatch('pointerdown');
+    clock.advance(16);
+    await flush();
+
+    expect(words()).toHaveLength(1);
+
+    clock.advance(500);
+    await done;
+
+    expect(words()).toHaveLength(0);
+  });
+});
+
 describe('published name lists', () => {
   // Literal rather than derived: the arrays are already exhaustive by construction, so what is
   // left to pin is the order a picker shows and the fact that dropping one is a breaking change.

@@ -92,6 +92,11 @@ export class Stage {
     return { width: vh * this.camera.aspect * widthFrac, height: vh * heightFrac };
   }
 
+  /** A modal hold is the one state in which the overlay is not click-through. */
+  setInteractive(on: boolean): void {
+    if (this.canvas) this.canvas.style.pointerEvents = on ? 'auto' : 'none';
+  }
+
   scheduleIdleTeardown(): void {
     this.cancelIdle();
     this.idleTimer = setTimeout(() => this.unmount(), this.opts.idleTimeoutMs);

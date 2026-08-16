@@ -44,10 +44,19 @@ export interface FireOptions {
   active?: ActiveName;
   exit?: ExitName;
   look?: LookName;
-  hold?: number;
+  /**
+   * Milliseconds in the active phase, or `'click'` to hold until the viewer dismisses it.
+   * A held effect blocks the queue under the default `queue` policy, and its promise stays
+   * pending until it leaves the screen.
+   */
+  hold?: number | 'click';
   bloom?: boolean;
   blendMs?: number;
   placement?: Placement;
+  /** Break long lines to whatever arrangement renders largest. Explicit newlines always break. */
+  wrap?: boolean;
+  /** Let the overlay swallow the dismissing click instead of passing it through to the page. */
+  modal?: boolean;
 }
 
 export interface Blitsklieg {
@@ -86,7 +95,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     const bloom = opts.bloom ? new BloomPath(renderer) : null;
     let word: Word;
     try {
-      word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget());
+      word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget(), opts.wrap);
     } catch (err) {
       // This rejects before the settle() that would otherwise free the bloom's render targets.
       bloom?.dispose();
@@ -97,11 +106,12 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     const enter = ENTER[opts.enter ?? 'slam'];
     const activeName = opts.active ?? 'sweep';
     const hold = opts.hold ?? 1200;
+    const untilClick = hold === 'click';
     const timeline = new Timeline({
       enter,
       active: ACTIVE[activeName],
       exit: EXIT[opts.exit ?? 'fade'],
-      hold,
+      hold: untilClick ? 'until-release' : (hold as number),
       blendMs: opts.blendMs ?? 120,
     });
 
@@ -111,10 +121,14 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let released = false;
+      let detachDismiss = () => {};
+
       const settle = (done: () => void) => {
         if (settled) return;
         settled = true;
         off();
+        detachDismiss();
         stage.scene.remove(word.group);
         word.dispose();
         bloom?.dispose();
@@ -122,6 +136,32 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
         done();
       };
       const finish = () => settle(resolve);
+
+      if (untilClick) {
+        const dismiss = () => {
+          if (released) return;
+          released = true;
+          timeline.release(clock.now() - startedAt);
+          detachDismiss();
+        };
+        // Capture on window catches the press in both modes; `modal` only decides whether the
+        // canvas absorbs it on the way down or the page underneath sees it too.
+        const onPointer = () => dismiss();
+        const onKey = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') dismiss();
+        };
+        globalThis.addEventListener('pointerdown', onPointer, { capture: true, passive: true });
+        globalThis.addEventListener('keydown', onKey);
+        // A modal hold is a keyboard trap without Escape: it swallows input and never times out.
+        if (opts.modal) stage.setInteractive(true);
+
+        detachDismiss = () => {
+          globalThis.removeEventListener('pointerdown', onPointer, { capture: true });
+          globalThis.removeEventListener('keydown', onKey);
+          stage.setInteractive(false);
+          detachDismiss = () => {};
+        };
+      }
 
       const off = clock.subscribe((now) => {
         if (signal.aborted) return finish();
@@ -146,7 +186,8 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
             renderer.render(stage.scene, stage.camera);
           }
 
-          if (still ? since >= hold : timeline.isFinished(since)) finish();
+          const stillDone = untilClick ? released : since >= (hold as number);
+          if (still ? stillDone : timeline.isFinished(since)) finish();
         } catch (err) {
           // RafClock keeps a throwing subscriber subscribed, so a lost context would otherwise
           // throw every frame forever with the word still on a stage destroy() can never settle.
