@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { Timeline, type TimelineOptions } from '../../src/motion/compositor.js';
+import {
+  blankPose,
+  slotDrivesEnv,
+  Timeline,
+  type TimelineOptions,
+} from '../../src/motion/compositor.js';
 import type { MotionPiece } from '../../src/motion/types.js';
+import { NONE } from '../../src/motion/types.js';
 import { REST } from '../../src/pose.js';
 
 const piece = (duration: number, x: number): MotionPiece => ({
@@ -189,5 +195,93 @@ describe('Timeline with degenerate durations', () => {
     expect(tl.duration).toBe(0);
     expect(tl.isFinished(0)).toBe(true);
     expect(tl.poseAt(0, L)).toEqual(REST);
+  });
+});
+
+describe('Timeline layers', () => {
+  const layered = (active: MotionPiece[]) =>
+    new Timeline({
+      enter: NONE,
+      active,
+      exit: NONE,
+      hold: 100,
+      blendMs: 0,
+    });
+
+  it('sums the offsets of every piece in a slot', () => {
+    const tl = layered([piece(100, 1), piece(100, 10)]);
+
+    expect(tl.poseAt(50, L).position[0]).toBe(11);
+  });
+
+  it('takes the longest duration in the slot', () => {
+    const tl = new Timeline({
+      enter: [piece(100, 1), piece(400, 1)],
+      active: NONE,
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+    });
+
+    expect(tl.duration).toBe(400);
+  });
+
+  it('loops a layered active phase on the longest of its pieces', () => {
+    const short: MotionPiece = { duration: 100, offset: (t) => ({ position: [t, 0, 0] }) };
+    const long: MotionPiece = { duration: 400, offset: () => ({}) };
+    const tl = layered([short, long]);
+
+    // Local t runs over 400ms, so 200ms in is halfway rather than back at the start.
+    expect(tl.poseAt(200, L).position[0]).toBeCloseTo(0.5, 10);
+  });
+
+  it('reads envRotation off any member of the slot', () => {
+    const plain: MotionPiece = { duration: 100, offset: () => ({}) };
+    const driver: MotionPiece = { duration: 100, offset: () => ({}), envRotation: true };
+
+    expect(slotDrivesEnv([plain, driver])).toBe(true);
+    expect(slotDrivesEnv([plain])).toBe(false);
+    expect(slotDrivesEnv(driver)).toBe(true);
+  });
+
+  it('takes a bare piece exactly as it did before slots held layers', () => {
+    const one = new Timeline({
+      enter: piece(100, 1),
+      active: piece(50, 10),
+      exit: piece(100, 100),
+      hold: 100,
+      blendMs: 20,
+    });
+
+    expect(one.duration).toBe(300);
+    expect(one.poseAt(150, L).position[0]).toBe(10);
+  });
+});
+
+describe('poseAt out-parameter', () => {
+  it('writes into the pose it is given and returns it', () => {
+    const tl = build(100);
+    const out = blankPose();
+
+    const returned = tl.poseAt(150, L, out);
+
+    expect(returned).toBe(out);
+    expect(out.position[0]).toBe(10);
+  });
+
+  it('resets the pose each call rather than accumulating into it', () => {
+    const tl = build(100);
+    const out = blankPose();
+
+    tl.poseAt(150, L, out);
+    tl.poseAt(150, L, out);
+
+    expect(out.position[0]).toBe(10);
+  });
+
+  it('still allocates a pose when none is offered', () => {
+    const tl = build(100);
+
+    expect(tl.poseAt(150, L)).not.toBe(tl.poseAt(150, L));
   });
 });

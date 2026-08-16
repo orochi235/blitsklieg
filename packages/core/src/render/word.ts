@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Timeline } from '../motion/compositor.js';
+import { blankPose, type Timeline } from '../motion/compositor.js';
 import type { LoadedFont } from '../text/font.js';
 import { buildGlyphGeometry, DEFAULT_GLYPH_OPTIONS, GlyphCache } from '../text/glyphs.js';
 import type { Budget, Line } from '../text/layout.js';
@@ -23,6 +23,7 @@ export class Word {
   private readonly columnCount: number;
   private readonly material: THREE.MeshPhysicalMaterial;
   private readonly cache: GlyphCache;
+  private readonly pose = blankPose();
   private disposed = false;
 
   constructor(text: string, font: LoadedFont, look: LookName, budget: Budget, wrap = false) {
@@ -117,14 +118,21 @@ export class Word {
       const mesh = this.letters[i];
       if (!mesh) continue;
 
-      const pose = timeline.poseAt(elapsed, {
-        index: i,
-        count: this.letters.length,
-        line: this.lineOf[i] as number,
-        column: this.columnOf[i] as number,
-        lineCount: this.lineCount,
-        columnCount: this.columnCount,
-      });
+      // One scratch pose for the whole word; this loop runs per letter per frame. LetterInfo is
+      // still fresh each time — a caller-supplied piece receives it, and a reused one would be
+      // an aliasing trap with nothing in the signature to warn about it.
+      const pose = timeline.poseAt(
+        elapsed,
+        {
+          index: i,
+          count: this.letters.length,
+          line: this.lineOf[i] as number,
+          column: this.columnOf[i] as number,
+          lineCount: this.lineCount,
+          columnCount: this.columnCount,
+        },
+        this.pose,
+      );
       mesh.position.x = (this.baseX[i] as number) + pose.position[0];
       mesh.position.y = (this.baseY[i] as number) + pose.position[1];
       mesh.position.z = pose.position[2];

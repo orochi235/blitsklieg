@@ -1,21 +1,64 @@
-import { accumulate, type Pose, type PoseOffset, REST, scaleOffset } from '../pose.js';
+import type { Pose, PoseOffset } from '../pose.js';
+import { REST } from '../pose.js';
 import type { LetterInfo, MotionPiece } from './types.js';
 
+/** A fresh pose at rest, for callers that do not keep their own scratch. */
+export const blankPose = (): Pose => ({
+  position: [...REST.position],
+  rotation: [...REST.rotation],
+  scale: REST.scale,
+  opacity: REST.opacity,
+});
+
+/**
+ * `scaleOffset` then `accumulate`, fused and in place. Additive channels fade toward 0 and
+ * multiplicative ones toward 1 — scaling those toward 0 would collapse the word rather than
+ * remove the contribution.
+ */
+function addScaled(out: Pose, o: PoseOffset, weight: number): void {
+  if (o.position) {
+    for (let i = 0; i < 3; i++) {
+      out.position[i] = (out.position[i] as number) + (o.position[i] as number) * weight;
+    }
+  }
+  if (o.rotation) {
+    for (let i = 0; i < 3; i++) {
+      out.rotation[i] = (out.rotation[i] as number) + (o.rotation[i] as number) * weight;
+    }
+  }
+  if (o.scale !== undefined) out.scale *= 1 + (o.scale - 1) * weight;
+  if (o.opacity !== undefined) out.opacity *= 1 + (o.opacity - 1) * weight;
+}
+
+/** One piece, or several layered together — `['float', 'shimmer']` runs both at once. */
+export type Slot = MotionPiece | MotionPiece[];
+
 export interface TimelineOptions {
-  enter: MotionPiece;
-  active: MotionPiece;
-  exit: MotionPiece;
+  enter: Slot;
+  active: Slot;
+  exit: Slot;
   /** Milliseconds in the active phase, or held open until `release()`. */
   hold: number | 'until-release';
   /** Crossfade window straddling each phase boundary. */
   blendMs: number;
 }
 
+const layers = (slot: Slot): MotionPiece[] => (Array.isArray(slot) ? slot : [slot]);
+
+/** A layered slot lasts as long as its longest member. */
+export const slotDuration = (slot: Slot): number =>
+  Math.max(0, ...layers(slot).map((p) => p.duration));
+
+/** A layered slot rakes the highlight if any member does. */
+export const slotDrivesEnv = (slot: Slot): boolean =>
+  layers(slot).some((p) => p.envRotation === true);
+
 interface Segment {
-  piece: MotionPiece;
+  pieces: MotionPiece[];
   start: number;
   end: number;
   loop: boolean;
+  duration: number;
 }
 
 export class Timeline {
@@ -35,13 +78,26 @@ export class Timeline {
   }
 
   private build(hold: number): void {
-    const enterEnd = this.opts.enter.duration;
+    const enterEnd = slotDuration(this.opts.enter);
     const activeEnd = enterEnd + hold;
-    this.duration = activeEnd + this.opts.exit.duration;
+    const activeFor = slotDuration(this.opts.active);
+    this.duration = activeEnd + slotDuration(this.opts.exit);
     this.segments = [
-      { piece: this.opts.enter, start: 0, end: enterEnd, loop: false },
-      { piece: this.opts.active, start: enterEnd, end: activeEnd, loop: true },
-      { piece: this.opts.exit, start: activeEnd, end: this.duration, loop: false },
+      { pieces: layers(this.opts.enter), start: 0, end: enterEnd, loop: false, duration: enterEnd },
+      {
+        pieces: layers(this.opts.active),
+        start: enterEnd,
+        end: activeEnd,
+        loop: true,
+        duration: activeFor,
+      },
+      {
+        pieces: layers(this.opts.exit),
+        start: activeEnd,
+        end: this.duration,
+        loop: false,
+        duration: slotDuration(this.opts.exit),
+      },
     ].filter((seg) => seg.end > seg.start);
   }
 
@@ -52,32 +108,47 @@ export class Timeline {
   release(elapsed: number): void {
     if (!this.held) return;
     this.held = false;
-    this.build(Math.max(0, elapsed - this.opts.enter.duration));
+    this.build(Math.max(0, elapsed - slotDuration(this.opts.enter)));
   }
 
   isFinished(elapsed: number): boolean {
     return elapsed >= this.duration;
   }
 
-  poseAt(elapsed: number, letter: LetterInfo): Pose {
-    const parts: { seg: Segment; weight: number }[] = [];
+  /**
+   * Writes the composed pose into `out` and returns it. An explicit out-parameter rather than a
+   * quietly reused return value: this runs once per letter per frame, and an aliased return is a
+   * trap for the next caller who retains what they were handed.
+   */
+  poseAt(elapsed: number, letter: LetterInfo, out: Pose = blankPose()): Pose {
     let total = 0;
-
-    for (const seg of this.segments) {
-      const weight = this.weight(seg, elapsed);
-      if (weight <= 0) continue;
-      parts.push({ seg, weight });
-      total += weight;
-    }
+    for (const seg of this.segments) total += Math.max(0, this.weight(seg, elapsed));
 
     // Pairwise-complementary ramps sum to 1, but a `hold` shorter than `blendMs` overlaps all
     // three phases at once and the total runs past 1 — which reads as the word lurching.
     const norm = total > 1 ? 1 / total : 1;
-    const offsets: PoseOffset[] = parts.map(({ seg, weight }) =>
-      scaleOffset(seg.piece.offset(this.localT(seg, elapsed), letter), weight * norm),
-    );
 
-    return accumulate(REST, offsets);
+    out.position[0] = 0;
+    out.position[1] = 0;
+    out.position[2] = 0;
+    out.rotation[0] = 0;
+    out.rotation[1] = 0;
+    out.rotation[2] = 0;
+    out.scale = 1;
+    out.opacity = 1;
+
+    for (const seg of this.segments) {
+      const weight = this.weight(seg, elapsed);
+      if (weight <= 0) continue;
+      const t = this.localT(seg, elapsed);
+      // Layers within a slot share its weight; `accumulate` already took a list, so nothing about
+      // the blend math changes.
+      for (const piece of seg.pieces) {
+        addScaled(out, piece.offset(t, letter), weight * norm);
+      }
+    }
+
+    return out;
   }
 
   /** Ramps 0→1 over the blend window at the segment's leading edge and back down at its trailing. */
@@ -106,7 +177,7 @@ export class Timeline {
     const into = elapsed - seg.start;
 
     if (seg.loop) {
-      const d = seg.piece.duration;
+      const d = seg.duration;
       if (d <= 0) return 0;
       return (((into % d) + d) % d) / d;
     }
