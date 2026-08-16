@@ -104,7 +104,8 @@ export class Stage {
 
   unmount(): void {
     this.cancelIdle();
-    const { canvas, renderer, environment, detachResize } = this;
+    const { canvas, renderer, environment } = this;
+    const detachResize = this.detachResize;
     this.canvas = null;
     this.renderer = null;
     this.environment = null;
