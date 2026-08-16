@@ -93,6 +93,110 @@ test('the bloom path lights the letters and leaves the rest of the overlay trans
   expectTransparentOverlay(await readOverlay(page, SAMPLE_FRAMES));
 });
 
+/**
+ * Number of separated horizontal bands of lit rows. Counting bands rather than pixels is what
+ * makes this independent of the fitted scale: a block that wraps to two lines shrinks to stay
+ * inside the budget, so it does not reliably light more pixels than one line does.
+ */
+function litBands(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        const canvas = document.querySelector('canvas');
+        if (!canvas) return reject(new Error('the overlay never created a canvas'));
+        const gl = canvas.getContext('webgl2');
+        if (!gl) return reject(new Error('the overlay canvas has no webgl2 context'));
+
+        const { width, height } = canvas;
+        const px = new Uint8Array(width * height * 4);
+
+        // Inside rAF, after the library's own draw: the buffer is not preserveDrawingBuffer, so
+        // reading it any later returns a cleared frame and every band census comes back zero.
+        requestAnimationFrame(() => {
+          gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+
+          let bands = 0;
+          let inBand = false;
+          for (let y = 0; y < height; y++) {
+            let lit = false;
+            for (let x = 0; x < width && !lit; x++) {
+              if (px[(y * width + x) * 4 + 3] !== 0) lit = true;
+            }
+            if (lit && !inBand) bands++;
+            inBand = lit;
+          }
+          resolve(bands);
+        });
+      }),
+  );
+}
+
+/** Holds a still, fully-arrived word so the band census is not sampled mid-flight. */
+async function fireStill(page: Page, text: string): Promise<void> {
+  await page.goto('/');
+  await page.locator('#enter').selectOption('none');
+  await page.locator('#active').selectOption('none');
+  await page.locator('#hold').fill('4000');
+  await page.locator('#text').fill(text);
+  await page.getByRole('button', { name: 'FIRE', exact: true }).click();
+  await expect(page.locator('canvas')).toBeAttached();
+  await page.waitForTimeout(200);
+}
+
+test('a two-line block draws a second row of letters', async ({ page }) => {
+  await fireStill(page, 'BIG');
+  expect(await litBands(page)).toBe(1);
+
+  await fireStill(page, 'BIG\nMONEY');
+  expect(await litBands(page)).toBe(2);
+});
+
+test('wrap breaks a long line into rows, and leaves it alone unchecked', async ({ page }) => {
+  await fireStill(page, 'BIG MONEY PRIZE');
+  expect(await litBands(page)).toBe(1);
+
+  await page.goto('/');
+  await page.locator('#enter').selectOption('none');
+  await page.locator('#active').selectOption('none');
+  await page.locator('#hold').fill('4000');
+  await page.locator('#wrap').check();
+  await page.locator('#text').fill('BIG MONEY PRIZE');
+  await page.getByRole('button', { name: 'FIRE', exact: true }).click();
+  await expect(page.locator('canvas')).toBeAttached();
+  await page.waitForTimeout(200);
+
+  expect(await litBands(page)).toBeGreaterThan(1);
+});
+
+test('an effect held until click stays up, and the click dismisses it', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#holdClick').check();
+  await page.getByRole('button', { name: 'FIRE', exact: true }).click();
+  await expect(page.locator('canvas')).toBeAttached();
+
+  // Far past the 1200ms default hold: a held effect has no timeout to reach.
+  await page.waitForTimeout(3000);
+  expect((await readOverlay(page, 4)).drawn).toBeGreaterThan(0);
+  await expect(page.locator('#log')).not.toContainText('done');
+
+  await page.mouse.click(400, 500);
+  await expect(page.locator('#log')).toContainText('done');
+});
+
+test('the dismissing click still reaches the page when the hold is not modal', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#holdClick').check();
+  await page.getByRole('button', { name: 'FIRE', exact: true }).click();
+  await expect(page.locator('canvas')).toBeAttached();
+  await page.waitForTimeout(500);
+
+  // One click on FIRE: it dismisses the held effect and presses the button underneath.
+  await page.getByRole('button', { name: 'FIRE', exact: true }).click({ timeout: 5000 });
+
+  await expect(page.locator('#log')).toContainText('done');
+  expect((await page.locator('#log').innerText()).match(/fire /g)?.length).toBe(2);
+});
+
 test('the overlay does not intercept clicks meant for the page beneath it', async ({ page }) => {
   await fire(page, { bloom: false });
   // The canvas covers the panel at z-index 2147483000, so this second click only reaches the

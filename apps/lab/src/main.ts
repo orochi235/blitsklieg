@@ -37,8 +37,11 @@ const exit = choice('exit', EXIT_NAMES);
 const look = choice('look', LOOK_NAMES);
 const policy = choice('policy', POLICY_NAMES);
 
-const textInput = el<HTMLInputElement>('text');
+const textInput = el<HTMLTextAreaElement>('text');
 const bloomInput = el<HTMLInputElement>('bloom');
+const wrapInput = el<HTMLInputElement>('wrap');
+const holdClickInput = el<HTMLInputElement>('holdClick');
+const modalInput = el<HTMLInputElement>('modal');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
 
 function create(): Blitsklieg {
@@ -55,20 +58,22 @@ let bk = create();
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function fire(text: string): void {
-  log(`fire "${text}"`);
+  log(`fire ${JSON.stringify(text)}`);
   bk.fire(text, {
     enter: enter.get(),
     active: active.get(),
     exit: exit.get(),
     look: look.get(),
-    hold: number('hold'),
+    hold: holdClickInput.checked ? 'click' : number('hold'),
     blendMs: number('blend'),
     bloom: bloomInput.checked,
+    wrap: wrapInput.checked,
+    modal: modalInput.checked,
     placement: { kind: 'fullscreen' },
   }).then(
-    () => log(`done  "${text}"`),
+    () => log(`done  ${JSON.stringify(text)}`),
     (err: unknown) => {
-      log(`FAILED "${text}": ${message(err)}`);
+      log(`FAILED ${JSON.stringify(text)}: ${message(err)}`);
       console.error(err);
     },
   );
@@ -171,8 +176,17 @@ policy.select.addEventListener('change', () => {
   bk = create();
 });
 
+// Enter fires, Shift+Enter breaks the line — the convention every chat box uses.
 textInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') fireCurrent();
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    fireCurrent();
+  }
+});
+
+holdClickInput.addEventListener('change', () => {
+  modalInput.disabled = !holdClickInput.checked;
+  if (!holdClickInput.checked) modalInput.checked = false;
 });
 addEventListener('keydown', (e) => {
   // Space must not swallow typing, nor double-fire the button it already activated.

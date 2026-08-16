@@ -7,7 +7,8 @@
       body { margin: 0; font: 15px/1.6 system-ui; background: #10131a; color: #e6e9f0; }
       main { max-width: 900px; margin: 0 auto; padding: 24px; min-height: 150vh; }
       a { color: #d8b25f; }
-      input, select, button { font: 12px ui-monospace, monospace; padding: 5px; }
+      input, select, button, textarea { font: 12px ui-monospace, monospace; padding: 5px; }
+      textarea { width: 100%; box-sizing: border-box; resize: vertical; }
       .panel { position: fixed; top: 12px; right: 12px; width: 250px; display: grid; gap: 6px;
                background: #0c0f16e8; border: 1px solid #2a3142; border-radius: 10px;
                padding: 12px; font: 12px ui-monospace, monospace; z-index: 10; }
@@ -26,7 +27,8 @@
       <p><a href="https://github.com/orochi235/blitsklieg">blitsklieg</a> slams shiny extruded 3D
          type over the web app you already have. This page is its lab: every effect it ships,
          behind pickers.</p>
-      <p>Press <b>FIRE</b> in the panel, or hit space anywhere outside it. An effect is three
+      <p>Press <b>FIRE</b> in the panel, or hit space anywhere outside it. Shift+Enter in the text
+         box breaks a line; <b>wrap</b> lets long text find its own breaks. An effect is three
          motion slots — <b>enter</b>, <b>active</b>, <b>exit</b> — plus a material <b>look</b>,
          and each select lists everything available for that slot. <b>moment</b> plays a canned
          countdown if you would rather just watch one.</p>
@@ -35,7 +37,7 @@
       <p id="filler"></p>
     </main>
     <div class="panel">
-      <input id="text" type="text" value="JACKPOT!" autocomplete="off" spellcheck="false" />
+      <textarea id="text" rows="2" autocomplete="off" spellcheck="false">JACKPOT!</textarea>
       <label>enter <select id="enter"></select></label>
       <label>active <select id="active"></select></label>
       <label>exit <select id="exit"></select></label>
@@ -44,6 +46,9 @@
       <label>hold ms <input id="hold" type="number" value="1200" min="0" step="100" /></label>
       <label>blend ms <input id="blend" type="number" value="120" min="0" step="10" /></label>
       <label>bloom <input id="bloom" type="checkbox" /></label>
+      <label>wrap <input id="wrap" type="checkbox" /></label>
+      <label>hold until click <input id="holdClick" type="checkbox" /></label>
+      <label>modal <input id="modal" type="checkbox" disabled /></label>
       <div class="row">
         <button type="button" id="fire">FIRE</button>
         <button type="button" id="burst">FIRE x3</button>
