@@ -32,7 +32,7 @@ export type LookParams = {
   [K in LookKey]: K extends 'iridescenceThicknessRange' ? [number, number] : number;
 };
 
-const DEFAULTS: LookParams = {
+export const DEFAULTS: LookParams = {
   color: 0xffffff,
   metalness: 0,
   roughness: 0.2,
@@ -107,19 +107,21 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
 
 export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor', 'sheenColor', 'emissive']);
 
+export type TintTarget = 'color' | 'attenuationColor' | 'emissive' | 'sheenColor';
+
 /**
- * Which property carries each look's hue. Not always `color`: `gem` is clear stone at
- * `color: 0xffffff`, and its red is what light picks up passing through it. Tinting `color`
- * there changes nothing visible.
+ * Which property carries a look's hue. Not always `color`: `gem` is clear stone at
+ * `color: 0xffffff` and its red is what light picks up passing through it, and `neon` is a
+ * near-black body whose color is entirely its emissive. `sheenColor` is reachable only by
+ * declaring it — a velvet reads by its body, and tinting only the highlight would answer
+ * "make it red" with red-lit maroon.
  */
-const HUE_KEY: Record<LookName, 'color' | 'attenuationColor' | 'emissive'> = {
-  gold: 'color',
-  chrome: 'color',
-  oil: 'color',
-  gem: 'attenuationColor',
-  velvet: 'color',
-  neon: 'emissive',
-};
+export function tintTargetOf(params: LookParams, declared?: TintTarget): TintTarget {
+  if (declared) return declared;
+  if (params.transmission > 0) return 'attenuationColor';
+  if (params.emissive !== 0x000000) return 'emissive';
+  return 'color';
+}
 
 export function createMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
@@ -135,7 +137,7 @@ export function applyLook(
   tint?: number,
 ): void {
   const params = { ...DEFAULTS, ...LOOKS[name] };
-  if (tint !== undefined) params[HUE_KEY[name]] = tint;
+  if (tint !== undefined) params[tintTargetOf(params)] = tint;
   const target = material as unknown as Record<string, unknown>;
 
   for (const key of Object.keys(params) as LookKey[]) {

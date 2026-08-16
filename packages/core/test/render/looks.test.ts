@@ -4,9 +4,12 @@ import {
   applyLook,
   COLOR_KEYS,
   createMaterial,
+  DEFAULTS as DEFAULT_PARAMS,
   LOOKS,
   type LookName,
   type LookParams,
+  type TintTarget,
+  tintTargetOf,
 } from '../../src/render/looks.js';
 
 const KEY_SET: Record<keyof LookParams, true> = {
@@ -177,6 +180,29 @@ describe('applyLook', () => {
     const before = material.version;
     applyLook(material, 'gem');
     expect(material.version).toBeGreaterThan(before);
+  });
+});
+
+describe('tintTargetOf', () => {
+  it('routes a transmissive look to attenuation, where its hue actually lives', () => {
+    expect(tintTargetOf({ ...DEFAULT_PARAMS, transmission: 1 })).toBe('attenuationColor');
+  });
+
+  it('routes an emissive look to its emissive', () => {
+    expect(tintTargetOf({ ...DEFAULT_PARAMS, emissive: 0xff2d95 })).toBe('emissive');
+  });
+
+  it('routes everything else to the base color', () => {
+    expect(tintTargetOf({ ...DEFAULT_PARAMS, metalness: 1 })).toBe('color');
+  });
+
+  it('never infers sheenColor: a velvet reads by its body, not its highlight', () => {
+    expect(tintTargetOf({ ...DEFAULT_PARAMS, sheen: 1 })).toBe('color');
+  });
+
+  it('lets a declared target win over every inference', () => {
+    const declared: TintTarget = 'sheenColor';
+    expect(tintTargetOf({ ...DEFAULT_PARAMS, transmission: 1 }, declared)).toBe('sheenColor');
   });
 });
 
