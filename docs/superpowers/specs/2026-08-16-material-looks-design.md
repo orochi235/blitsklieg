@@ -72,8 +72,12 @@ in that record, so the rule becomes explicit and applies to built-ins and specs 
 1. `tintTarget`, if the spec sets it.
 2. `attenuationColor` when `transmission > 0`.
 3. `emissive` when `emissive` is non-black.
-4. `sheenColor` when `sheen > 0`.
-5. `color` otherwise.
+4. `color` otherwise.
+
+`sheenColor` is reachable only by declaring `tintTarget` explicitly, never by inference. A
+velvet's perceived color is its body; the sheen is the highlight riding on top. Tinting the
+highlight and leaving the body would make `tint: 0xff0000` on `velvet` produce red-lit
+maroon rather than red velvet, which is not what asking for red means.
 
 This reproduces the existing built-in routing, so `gold` still tints `color` and `gem` still
 tints attenuation. `flake.color`, when set, tints alongside the target rather than replacing it —
