@@ -1,59 +1,48 @@
 import { backOut, easeOutCubic } from '../easing.js';
-import type { PoseOffset } from '../pose.js';
-import { type EnterName, type MotionPiece, NONE, stagger } from './types.js';
+import { transition } from './build.js';
+import type { EnterName, MotionPiece } from './types.js';
+import { NONE } from './types.js';
 
-const slam: MotionPiece = {
-  duration: 900,
-  offset(t): PoseOffset {
-    const e = backOut(t);
-    return { position: [0, 0, (e - 1) * 26], scale: 0.55 + 0.45 * e };
-  },
-};
+const TAU = Math.PI * 2;
+/** Golden angle: consecutive letters land far apart without an RNG, so screenshots stay stable. */
+const SCATTER = 2.399963;
 
-const spin: MotionPiece = {
-  duration: 1100,
-  offset(t, letter): PoseOffset {
-    const s = stagger(t, letter, 0.55);
-    const e = easeOutCubic(s);
-    return { rotation: [0, (1 - e) * Math.PI * 2, 0], opacity: e };
-  },
-};
+const slam = transition(900, {
+  from: { position: [0, 0, -26], scale: 0.55 },
+  ease: backOut,
+});
 
-const flip: MotionPiece = {
-  duration: 1000,
-  offset(t, letter): PoseOffset {
-    const s = stagger(t, letter, 0.6);
-    const e = easeOutCubic(s);
-    return { rotation: [(1 - e) * -Math.PI, 0, 0], opacity: e < 0.05 ? 0 : 1 };
-  },
-};
+const spin = transition(1100, {
+  from: { rotation: [0, TAU, 0], opacity: 0 },
+  stagger: 0.55,
+});
 
-const assemble: MotionPiece = {
-  duration: 1200,
-  offset(t, letter): PoseOffset {
-    const e = easeOutCubic(t);
-    // Deterministic per-letter scatter: no RNG, so tests and screenshots stay stable.
-    const a = letter.index * 2.399963;
+const flip = transition(1000, {
+  from: { rotation: [-Math.PI, 0, 0], opacity: 0 },
+  stagger: 0.6,
+  // Steps rather than ramps: a half-turned letter reads as a stray edge, so it stays hidden
+  // until it is nearly face-on.
+  easeBy: { opacity: (s) => (easeOutCubic(s) < 0.05 ? 0 : 1) },
+});
+
+const assemble = transition(1200, {
+  from: (letter) => {
+    const a = letter.index * SCATTER;
     return {
-      position: [
-        (1 - e) * Math.cos(a) * 9,
-        (1 - e) * Math.sin(a) * 6,
-        (1 - e) * Math.sin(a * 2) * 5,
-      ],
-      rotation: [(1 - e) * a, (1 - e) * a * 0.7, 0],
-      opacity: easeOutCubic(Math.min(1, t * 2)),
+      position: [Math.cos(a) * 9, Math.sin(a) * 6, Math.sin(a * 2) * 5],
+      rotation: [a, a * 0.7, 0],
+      opacity: 0,
     };
   },
-};
+  easeBy: { opacity: (s) => easeOutCubic(Math.min(1, s * 2)) },
+});
 
-const rise: MotionPiece = {
-  duration: 900,
-  offset(t, letter): PoseOffset {
-    const s = stagger(t, letter, 0.35);
-    const e = backOut(s);
-    return { position: [0, (e - 1) * 5, 0], opacity: Math.min(1, s * 3) };
-  },
-};
+const rise = transition(900, {
+  from: { position: [0, -5, 0], opacity: 0 },
+  ease: backOut,
+  stagger: 0.35,
+  easeBy: { opacity: (s) => Math.min(1, s * 3) },
+});
 
 export const ENTER: Record<EnterName, MotionPiece> = {
   slam,

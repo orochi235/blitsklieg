@@ -1,4 +1,4 @@
-import { type Easing, easeOutCubic } from '../easing.js';
+import { type Easing, easeOutCubic, linear } from '../easing.js';
 import type { PoseOffset, Vec3 } from '../pose.js';
 import { type LetterInfo, type MotionPiece, type StaggerSpec, stagger } from './types.js';
 
@@ -46,16 +46,21 @@ const lerp = (a: number | undefined, b: number | undefined, u: number, rest: num
 
 /**
  * Interpolates between two stops channel-wise, absent channels reading as identity. Reduces to
- * `scaleOffset(from, 1 - u)` in the two-stop case, which is what keeps the sugar and the general
- * form the same arithmetic.
+ * `scaleOffset(from, 1 - ease(s))` in the two-stop case, which is what keeps the sugar and the
+ * general form the same arithmetic.
+ *
+ * Every curve is applied to `s`, the staggered parameter — not to the already-eased value. A
+ * channel easing on a curve of a curve is a different motion, and `rise` is written against the
+ * former.
  */
 function between(
   a: PoseOffset,
   b: PoseOffset,
-  u: number,
+  s: number,
+  ease: Easing,
   easeBy: TransitionSpec['easeBy'],
 ): PoseOffset {
-  const at = (channel: Channel) => easeBy?.[channel]?.(u) ?? u;
+  const at = (channel: Channel) => (easeBy?.[channel] ?? ease)(s);
   return {
     position: lerpVec(a.position, b.position, at('position')),
     rotation: lerpVec(a.rotation, b.rotation, at('rotation')),
@@ -77,8 +82,8 @@ export function transition(duration: number, spec: TransitionSpec): MotionPiece 
         const stops = [...spec.keyframes].sort((x, y) => x.at - y.at);
         const first = stops[0] as Keyframe;
         const last = stops[stops.length - 1] as Keyframe;
-        if (s <= first.at) return between(first, first, 0, spec.easeBy);
-        if (s >= last.at) return between(last, last, 0, spec.easeBy);
+        if (s <= first.at) return between(first, first, 0, linear, spec.easeBy);
+        if (s >= last.at) return between(last, last, 0, linear, spec.easeBy);
 
         for (let i = 1; i < stops.length; i++) {
           const b = stops[i] as Keyframe;
@@ -86,14 +91,14 @@ export function transition(duration: number, spec: TransitionSpec): MotionPiece 
           const a = stops[i - 1] as Keyframe;
           const span = b.at - a.at;
           const local = span > 0 ? (s - a.at) / span : 0;
-          return between(a, b, (b.ease ?? ease)(local), spec.easeBy);
+          return between(a, b, local, b.ease ?? ease, spec.easeBy);
         }
       }
 
       // `from` relaxes toward identity; `to` departs from it.
       return spec.to === undefined
-        ? between(resolve(spec.from, letter), {}, ease(s), spec.easeBy)
-        : between({}, resolve(spec.to, letter), ease(s), spec.easeBy);
+        ? between(resolve(spec.from, letter), {}, s, ease, spec.easeBy)
+        : between({}, resolve(spec.to, letter), s, ease, spec.easeBy);
     },
   };
 }

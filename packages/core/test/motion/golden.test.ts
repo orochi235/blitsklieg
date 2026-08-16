@@ -9,6 +9,7 @@ import { GOLDEN } from './golden.js';
 // wearing a refactor's clothes, and nothing else in the suite would catch one.
 const COUNT = 5;
 const STEPS = 20;
+const CHANNELS = ['px', 'py', 'pz', 'rx', 'ry', 'rz', 'scale', 'opacity'];
 
 function sample(piece: MotionPiece): number[] {
   const out: number[] = [];
@@ -38,8 +39,38 @@ function capture(): Record<string, number[]> {
 }
 
 describe('motion golden', () => {
-  it('every piece samples exactly as it did before the vocabulary rewrite', () => {
-    expect(capture()).toEqual(GOLDEN);
+  it('every piece samples as it did before the vocabulary rewrite', () => {
+    const now = capture();
+    const drift: string[] = [];
+
+    for (const [name, want] of Object.entries(GOLDEN)) {
+      const got = now[name];
+      if (!got) {
+        drift.push(`${name}: piece is gone`);
+        continue;
+      }
+      if (got.length !== want.length) {
+        drift.push(`${name}: ${got.length} samples, expected ${want.length}`);
+        continue;
+      }
+      for (let i = 0; i < want.length; i++) {
+        const a = want[i] as number;
+        const b = got[i] as number;
+        // A tolerance, not equality: `(1 - e) * a` and `a + (0 - a) * e` are the same number
+        // mathematically and differ in the last bit, and the constructors reassociate every
+        // expression. 1e-8 is still five orders tighter than any change you could see.
+        if (Math.abs(a - b) > 1e-8) {
+          const slot = Math.floor(i / CHANNELS.length);
+          drift.push(
+            `${name} t=${(Math.floor(slot / COUNT) / STEPS).toFixed(2)} letter=${slot % COUNT} ` +
+              `${CHANNELS[i % CHANNELS.length]}: expected ${a}, got ${b}`,
+          );
+          break;
+        }
+      }
+    }
+
+    expect(drift, `motion drifted:\n${drift.join('\n')}`).toEqual([]);
   });
 
   it('samples every piece the library ships', () => {

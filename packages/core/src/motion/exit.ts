@@ -1,47 +1,43 @@
-import { easeInCubic, easeOutCubic } from '../easing.js';
-import type { PoseOffset } from '../pose.js';
-import { type ExitName, type MotionPiece, NONE } from './types.js';
+import { easeInCubic, linear } from '../easing.js';
+import { transition } from './build.js';
+import type { ExitName, MotionPiece } from './types.js';
+import { NONE } from './types.js';
 
-const shatter: MotionPiece = {
-  duration: 800,
-  offset(t, letter): PoseOffset {
-    const e = easeOutCubic(t);
-    // Deterministic per-letter scatter: no RNG, so tests and screenshots stay stable.
-    const a = letter.index * 2.399963;
+/** Golden angle: consecutive letters fly apart without an RNG, so screenshots stay stable. */
+const SCATTER = 2.399963;
+
+const shatter = transition(800, {
+  to: (letter) => {
+    const a = letter.index * SCATTER;
     return {
-      position: [Math.cos(a) * 10 * e, Math.sin(a) * 7 * e, Math.sin(a * 3) * 6 * e],
-      rotation: [a * e * 3, a * e * 2, a * e],
-      opacity: 1 - easeInCubic(t),
+      position: [Math.cos(a) * 10, Math.sin(a) * 7, Math.sin(a * 3) * 6],
+      rotation: [a * 3, a * 2, a],
+      opacity: 0,
     };
   },
-};
+  easeBy: { opacity: easeInCubic },
+});
 
-const drop: MotionPiece = {
-  duration: 700,
-  offset(t, letter): PoseOffset {
-    const g = t * t; // gravity
-    return {
-      position: [0, -22 * g, 0],
-      rotation: [0, 0, g * (letter.index % 2 === 0 ? 0.9 : -0.9)],
-      opacity: 1 - easeInCubic(t),
-    };
-  },
-};
+const drop = transition(700, {
+  to: (letter) => ({
+    position: [0, -22, 0],
+    rotation: [0, 0, letter.index % 2 === 0 ? 0.9 : -0.9],
+    opacity: 0,
+  }),
+  // Gravity, not an easing curve: distance goes with the square of the time.
+  ease: (t) => t * t,
+  easeBy: { opacity: easeInCubic },
+});
 
-const recede: MotionPiece = {
-  duration: 650,
-  offset(t): PoseOffset {
-    const e = easeInCubic(t);
-    return { position: [0, 0, -30 * e], scale: 1 - 0.5 * e, opacity: 1 - e };
-  },
-};
+const recede = transition(650, {
+  to: { position: [0, 0, -30], scale: 0.5, opacity: 0 },
+  ease: easeInCubic,
+});
 
-const fade: MotionPiece = {
-  duration: 500,
-  offset(t): PoseOffset {
-    return { opacity: 1 - t, scale: 1 + 0.06 * t };
-  },
-};
+const fade = transition(500, {
+  to: { opacity: 0, scale: 1.06 },
+  ease: linear,
+});
 
 export const EXIT: Record<ExitName, MotionPiece> = {
   shatter,
