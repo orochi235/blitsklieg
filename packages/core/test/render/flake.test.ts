@@ -116,8 +116,17 @@ describe('patchForFlakes', () => {
   it('picks cells from a jittered neighbourhood, or flakes tile into a visible mosaic', () => {
     const shader = patched();
 
+    expect(shader.fragmentShader).toContain('bkVoronoi(');
     expect(shader.fragmentShader).toContain('bkCell(');
-    expect(shader.fragmentShader).toContain('bkCellOf(');
+  });
+
+  it('declares no helper it does not define, which only a GL compile would otherwise catch', () => {
+    const source = patched().fragmentShader;
+    const called = [...source.matchAll(/\b(bk[A-Za-z0-9]*)\s*\(/g)].map((m) => m[1] as string);
+
+    for (const name of new Set(called)) {
+      expect(source, name).toMatch(new RegExp(`(void|vec3|float)\\s+${name}\\s*\\(`));
+    }
   });
 
   it('keeps the three chunks it patches into', () => {

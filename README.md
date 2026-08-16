@@ -86,9 +86,9 @@ crossfading `blendMs` across each boundary. Enter and exit run at a fixed length
 | `gem` | clear stone, lit through, dispersing to rainbow at the edges |
 | `velvet` | deep matte nap, bright at grazing angles |
 | `neon` | glowing tube-lit sign; turns bloom on by itself |
-| `flake` | metallic car paint |
-| `glitter` | craft glitter over glue |
-| `leather` | pebbled hide |
+| `flake` | dark body shot through with catching flecks |
+| `glitter` | fine metallic sparkle, close to car paint |
+| `leather` | upholstery panels, creased at the seams |
 
 ### lighting
 

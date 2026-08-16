@@ -28,9 +28,12 @@ the option while it is active.
 
 `velvet` is a matte nap that lights up at grazing angles. `neon` glows, and turns the bloom pass
 on by itself unless you pass `bloom: false`. `flake`, `glitter` and `leather` share one
-procedural shader that hashes object-space position into cells: fine facets for car paint, large
-irregular ones for craft glitter, rounded ones for hide. Cell centres are jittered — a plain
-lattice sliced by a flat glyph face reads as a pixel mosaic at any scale.
+procedural shader that cuts object-space position into jittered voronoi cells — a plain lattice
+sliced by a flat glyph face reads as a pixel mosaic at any scale.
+
+`flake` and `glitter` sparkle by sharpening each cell into a tiny mirror, so only the few
+aligned with the environment blaze while the rest stay dark. `leather` uses the same cells as
+upholstery panels instead, each bulging slightly and creased where it meets its neighbours.
 
 Each letter seeds its own flake field, so repeated letters do not sparkle in lockstep.
 

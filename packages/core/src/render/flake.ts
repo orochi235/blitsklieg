@@ -7,6 +7,12 @@ export interface FlakeSpec {
   size: number;
   /** How far a flake normal tilts off the surface, 0..1. */
   spread: number;
+  /**
+   * Roughness a flake takes on, 0..1. Low is the point: a flake is a tiny mirror, and only the
+   * few aligned with the environment blaze. Raising it instead lights every flake dimly at once,
+   * which reads as suspended grit rather than sparkle.
+   */
+  gloss?: number;
   /** Flake albedo. Omit to leave the base color alone and sparkle by specular only. */
   color?: number;
   /** How far `color` pulls the base, 0..1. Ignored without a color. */
@@ -22,6 +28,7 @@ export interface FlakeUniforms {
   uFlakeBump: THREE.IUniform<number>;
   uFlakeColor: THREE.IUniform<THREE.Color>;
   uFlakeColorMix: THREE.IUniform<number>;
+  uFlakeGloss: THREE.IUniform<number>;
 }
 
 export function createFlakeUniforms(): FlakeUniforms {
@@ -32,6 +39,7 @@ export function createFlakeUniforms(): FlakeUniforms {
     uFlakeBump: { value: 0 },
     uFlakeColor: { value: new THREE.Color(0xffffff) },
     uFlakeColorMix: { value: 0 },
+    uFlakeGloss: { value: 0.06 },
   };
 }
 
@@ -62,6 +70,7 @@ export function writeFlakeUniforms(u: FlakeUniforms, spec: FlakeSpec | undefined
   // No declared color means no albedo mixing at all. Defaulting it to white instead would wash
   // a dense look — leather sets density 1 — 60% toward white and bury its own color.
   u.uFlakeColorMix.value = spec.color === undefined ? 0 : (spec.colorMix ?? 0.3);
+  u.uFlakeGloss.value = spec.gloss ?? 0.06;
 }
 
 const COMMON = /* glsl */ `
@@ -71,6 +80,7 @@ uniform float uFlakeSpread;
 uniform float uFlakeBump;
 uniform vec3 uFlakeColor;
 uniform float uFlakeColorMix;
+uniform float uFlakeGloss;
 varying vec3 vFlakePos;
 varying float vSeed;
 
@@ -90,26 +100,35 @@ float bkIsFlake(vec3 rnd) { return step(1.0 - uFlakeDensity, rnd.x * 0.5 + 0.5);
  * flat glyph face gives a grid of squares, which reads as a mosaic however it is scaled —
  * offsetting each centre breaks the boundaries out of rows so flakes vary in shape and size.
  */
-vec3 bkCell(vec3 coord) {
+void bkVoronoi(vec3 coord, out vec3 cell, out vec3 toCentre, out float seam) {
   vec3 base = floor(coord);
-  vec3 best = base;
-  float nearest = 1e9;
+  float f1 = 1e9;
+  float f2 = 1e9;
+  cell = base;
+  toCentre = vec3(0.0);
 
   for (int x = -1; x <= 1; x++) {
     for (int y = -1; y <= 1; y++) {
       for (int z = -1; z <= 1; z++) {
-        vec3 cell = base + vec3(float(x), float(y), float(z));
-        vec3 centre = cell + 0.5 + bkHash3(cell + 11.3) * 0.5;
-        float d = dot(coord - centre, coord - centre);
-        if (d < nearest) { nearest = d; best = cell; }
+        vec3 c = base + vec3(float(x), float(y), float(z));
+        vec3 centre = c + 0.5 + bkHash3(c + 11.3) * 0.5;
+        float d = length(coord - centre);
+        if (d < f1) { f2 = f1; f1 = d; cell = c; toCentre = coord - centre; }
+        else if (d < f2) { f2 = d; }
       }
     }
   }
-  return best;
+  // Gap between nearest and next-nearest: near zero on a boundary between two cells.
+  seam = f2 - f1;
 }
 
-/** Leather's grain is a regular tiling, so it keeps the cheap lattice. */
-vec3 bkCellOf(vec3 coord) { return uFlakeBump > 0.5 ? floor(coord) : bkCell(coord); }
+vec3 bkCell(vec3 coord) {
+  vec3 cell;
+  vec3 toCentre;
+  float seam;
+  bkVoronoi(coord, cell, toCentre, seam);
+  return cell;
+}
 
 // How many cells a pixel spans. Measured per axis: the derivative of length() would track
 // distance from the origin rather than cell size, and never engage.
@@ -124,23 +143,39 @@ float bkCellsPerPixel(vec3 coord) {
 const PERTURB = /* glsl */ `
 if (uFlakeDensity > 0.0) {
   vec3 bkCoord = bkCellCoord();
-  vec3 bkRnd = bkHash3(bkCellOf(bkCoord));
-  float bkFade = 1.0 - smoothstep(0.25, 0.8, bkCellsPerPixel(bkCoord));
+  vec3 bkCellId;
+  vec3 bkToCentre;
+  float bkSeam;
+  bkVoronoi(bkCoord, bkCellId, bkToCentre, bkSeam);
 
-  vec3 bkLocal = fract(bkCoord) - 0.5;
-  vec3 bkDome = normalize(vec3(bkLocal.xy * 2.0, 0.6));
-  vec3 bkOffset = mix(bkRnd, bkDome, uFlakeBump);
+  vec3 bkRnd = bkHash3(bkCellId);
+  float bkFade = 1.0 - smoothstep(0.6, 2.0, bkCellsPerPixel(bkCoord));
 
-  normal = normalize(normal + bkOffset * uFlakeSpread * bkIsFlake(bkRnd) * bkFade);
-  roughnessFactor = clamp(roughnessFactor + (1.0 - bkFade) * 0.25, 0.0, 1.0);
+  if (uFlakeBump > 0.5) {
+    // Upholstery: each cell is a panel that is nearly flat, bulging gently from its middle, and
+    // the surface reads from the creases where panels meet. The gap to the next-nearest centre
+    // is what finds those seams.
+    float bkCrease = 1.0 - smoothstep(0.0, 0.18, bkSeam);
+    vec3 bkPanel = bkToCentre * 0.8 - bkToCentre * bkCrease * 3.0;
+    normal = normalize(normal + bkPanel * uFlakeSpread * bkFade);
+    roughnessFactor = clamp(roughnessFactor + bkCrease * 0.15 * bkFade, 0.0, 1.0);
+  } else {
+    float bkFlake = bkIsFlake(bkRnd) * bkFade;
+    normal = normalize(normal + bkRnd * uFlakeSpread * bkFlake);
+    // Sharpening the flake is what makes only the few aligned with the environment blaze;
+    // widening it lights every flake dimly at once, which reads as suspended grit.
+    roughnessFactor = mix(roughnessFactor, uFlakeGloss, bkFlake);
+    // Past the point where a cell is smaller than a pixel, widen the lobe instead of aliasing.
+    roughnessFactor = clamp(roughnessFactor + (1.0 - bkFade) * 0.25, 0.0, 1.0);
+  }
 }
 `;
 
 const TINT = /* glsl */ `
 if (uFlakeDensity > 0.0 && uFlakeColorMix > 0.0) {
   vec3 bkCoord = bkCellCoord();
-  vec3 bkRnd = bkHash3(bkCellOf(bkCoord));
-  float bkFade = 1.0 - smoothstep(0.25, 0.8, bkCellsPerPixel(bkCoord));
+  vec3 bkRnd = bkHash3(bkCell(bkCoord));
+  float bkFade = 1.0 - smoothstep(0.6, 2.0, bkCellsPerPixel(bkCoord));
   diffuseColor.rgb = mix(diffuseColor.rgb, uFlakeColor, bkIsFlake(bkRnd) * uFlakeColorMix * bkFade);
 }
 `;

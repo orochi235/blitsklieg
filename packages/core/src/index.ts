@@ -34,7 +34,10 @@ export type { LetterInfo, MotionPiece, StaggerFrom, StaggerSpec } from './motion
 export { stagger } from './motion/types.js';
 export type { Pose, PoseOffset, Vec3 } from './pose.js';
 export { POLICY_NAMES } from './queue.js';
+export type { FlakeSpec } from './render/flake.js';
 export type { LookParams, TintTarget } from './render/looks.js';
+/** The spec behind a built-in name, for building a variation on one. */
+export { specOf } from './render/looks.js';
 export type {
   ActiveName,
   Clock,

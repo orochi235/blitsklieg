@@ -7,7 +7,9 @@ import {
   type FireOptions,
   LIGHTING_NAMES,
   LOOK_NAMES,
+  type Look,
   POLICY_NAMES,
+  specOf,
 } from 'blitsklieg';
 
 function el<T extends HTMLElement>(id: string): T {
@@ -46,7 +48,84 @@ const tintInput = el<HTMLInputElement>('tint');
 const tintOnInput = el<HTMLInputElement>('tintOn');
 const holdClickInput = el<HTMLInputElement>('holdClick');
 const modalInput = el<HTMLInputElement>('modal');
+const grainInput = el<HTMLInputElement>('grain');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
+
+/**
+ * Every control's value, base64 in the hash. Tuning a shader means reloading constantly, and
+ * losing the whole panel on each reload makes comparing two settings impossible.
+ */
+const CONTROL_IDS = [
+  'text',
+  'enter',
+  'active',
+  'exit',
+  'look',
+  'lighting',
+  'policy',
+  'hold',
+  'blend',
+  'grain',
+  'tint',
+  'tintOn',
+  'bloom',
+  'wrap',
+  'holdClick',
+  'modal',
+];
+
+type ControlState = Record<string, string | boolean>;
+
+function controls(): HTMLInputElement[] {
+  return CONTROL_IDS.map((id) => el<HTMLInputElement>(id));
+}
+
+function readState(): ControlState {
+  const state: ControlState = {};
+  for (const input of controls()) {
+    state[input.id] = input.type === 'checkbox' ? input.checked : input.value;
+  }
+  return state;
+}
+
+function writeState(state: ControlState): void {
+  for (const input of controls()) {
+    const value = state[input.id];
+    if (value === undefined) continue;
+    if (input.type === 'checkbox') input.checked = Boolean(value);
+    else input.value = String(value);
+  }
+}
+
+function saveHash(): void {
+  // replaceState rather than location.hash: assigning the hash pushes a history entry, and
+  // tweaking a slider would bury the back button under hundreds of them.
+  const encoded = btoa(encodeURIComponent(JSON.stringify(readState())));
+  history.replaceState(null, '', `#${encoded}`);
+}
+
+function loadHash(): void {
+  const raw = location.hash.slice(1);
+  if (!raw) return;
+  try {
+    writeState(JSON.parse(decodeURIComponent(atob(raw))) as ControlState);
+  } catch {
+    // A hand-edited or truncated hash is not worth failing the page over.
+    log('ignored an unreadable hash');
+  }
+}
+
+/**
+ * The slider reads as cells per em, which is the way to think about grain — bigger number,
+ * finer flakes. Zero leaves the look's own tuning alone.
+ */
+function chosenLook(): Look {
+  const name = look.get();
+  const cellsPerEm = number('grain');
+  const spec = specOf(name);
+  if (!cellsPerEm || !spec.flake) return name;
+  return { ...spec, flake: { ...spec.flake, size: 1 / cellsPerEm } };
+}
 
 function create(): Blitsklieg {
   const instance = createBlitsklieg({
@@ -67,7 +146,7 @@ function fire(text: string): void {
     enter: enter.get(),
     active: active.get(),
     exit: exit.get(),
-    look: look.get(),
+    look: chosenLook(),
     lighting: lighting.get(),
     tint: tintOnInput.checked ? Number.parseInt(tintInput.value.slice(1), 16) : undefined,
     hold: holdClickInput.checked ? 'click' : number('hold'),
@@ -189,6 +268,22 @@ textInput.addEventListener('keydown', (e) => {
     fireCurrent();
   }
 });
+
+// Greyed rather than ignored: only the flake looks read a grain, and a live slider that does
+// nothing reads as a broken slider.
+function syncGrain(): void {
+  grainInput.disabled = specOf(look.get()).flake === undefined;
+}
+
+loadHash();
+syncGrain();
+for (const input of controls()) {
+  input.addEventListener('change', () => {
+    syncGrain();
+    saveHash();
+  });
+  input.addEventListener('input', saveHash);
+}
 
 holdClickInput.addEventListener('change', () => {
   modalInput.disabled = !holdClickInput.checked;

@@ -202,12 +202,27 @@ describe('applyLook', () => {
 });
 
 describe('flake looks', () => {
-  it('gives glitter larger, wider-tilted cells than car-paint flake', () => {
+  it('gives flake larger, wider-tilted cells than car-paint glitter', () => {
     const flake = specOf('flake').flake as FlakeSpec;
     const glitter = specOf('glitter').flake as FlakeSpec;
 
-    expect(glitter.size).toBeGreaterThan(flake.size);
-    expect(glitter.spread).toBeGreaterThan(flake.spread);
+    expect(flake.size).toBeGreaterThan(glitter.size);
+    expect(flake.spread).toBeGreaterThan(glitter.spread);
+  });
+
+  it('keeps sparkling cells tiny, or they read as grit suspended in the letter', () => {
+    for (const name of ['flake', 'glitter'] as const) {
+      const spec = specOf(name).flake as FlakeSpec;
+      expect(spec.size, name).toBeLessThan(0.02);
+    }
+  });
+
+  it('gives leather panels far larger than any flake, being upholstery rather than sparkle', () => {
+    const leather = specOf('leather').flake as FlakeSpec;
+    const flake = specOf('flake').flake as FlakeSpec;
+
+    expect(leather.size).toBeGreaterThan(flake.size * 5);
+    expect(leather.bump).toBe(true);
   });
 
   it('makes leather the only one with rounded cells rather than facets', () => {

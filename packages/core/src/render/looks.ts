@@ -121,20 +121,22 @@ export const LOOKS: Record<LookName, LookSpec> = {
     bloom: true,
   },
   flake: {
+    // Dark and metallic on purpose: a bright diffuse base drowns the glints, and sparkle is
+    // entirely a contrast effect — the flecks have to be much brighter than what surrounds them.
+    color: 0x2b2740,
+    metalness: 0.85,
+    roughness: 0.5,
+    clearcoat: 0.5,
+    clearcoatRoughness: 0.15,
+    flake: { density: 0.4, size: 0.014, spread: 1, color: 0xff5ecb, colorMix: 0.12 },
+  },
+  glitter: {
     color: 0x8a1c2b,
     metalness: 0.9,
     roughness: 0.28,
     clearcoat: 1,
     clearcoatRoughness: 0.04,
-    flake: { density: 0.3, size: 0.028, spread: 0.4, color: 0xffd9c0, colorMix: 0.25 },
-  },
-  glitter: {
-    color: 0xf6f2ea,
-    metalness: 0.25,
-    roughness: 0.55,
-    clearcoat: 0.4,
-    clearcoatRoughness: 0.2,
-    flake: { density: 0.45, size: 0.055, spread: 1, color: 0xff5ecb, colorMix: 0.2 },
+    flake: { density: 0.3, size: 0.011, spread: 0.9, color: 0xffd9c0, colorMix: 0.06 },
   },
   leather: {
     color: 0x5a2f1d,
@@ -144,7 +146,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     clearcoatRoughness: 0.5,
     sheen: 0.35,
     sheenColor: 0xd8a071,
-    flake: { density: 1, size: 0.045, spread: 0.3, bump: true },
+    flake: { density: 1, size: 0.16, spread: 0.5, bump: true },
   },
 };
 
