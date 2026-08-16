@@ -1,18 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ACTIVE } from '../../src/motion/active.js';
 import { ENTER } from '../../src/motion/enter.js';
 import { EXIT } from '../../src/motion/exit.js';
 import type { MotionPiece } from '../../src/motion/types.js';
+import { GOLDEN } from './golden.js';
 
-/**
- * A frozen sample of every motion piece. The vocabulary rewrite has to reproduce these numbers
- * exactly — a diff here is a re-tune wearing a refactor's clothes, and nothing else in the suite
- * would catch one.
- */
-const GOLDEN = fileURLToPath(new URL('./golden.json', import.meta.url));
-
+// The vocabulary rewrite has to reproduce these numbers exactly — a diff here is a re-tune
+// wearing a refactor's clothes, and nothing else in the suite would catch one.
 const COUNT = 5;
 const STEPS = 20;
 
@@ -45,14 +39,7 @@ function capture(): Record<string, number[]> {
 
 describe('motion golden', () => {
   it('every piece samples exactly as it did before the vocabulary rewrite', () => {
-    const now = capture();
-
-    if (!existsSync(GOLDEN)) {
-      writeFileSync(GOLDEN, `${JSON.stringify(now, null, 2)}\n`);
-      throw new Error('golden.json did not exist; it has been written. Re-run to compare.');
-    }
-
-    expect(now).toEqual(JSON.parse(readFileSync(GOLDEN, 'utf8')));
+    expect(capture()).toEqual(GOLDEN);
   });
 
   it('samples every piece the library ships', () => {
