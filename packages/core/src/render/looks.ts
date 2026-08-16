@@ -136,7 +136,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     roughness: 0.28,
     clearcoat: 1,
     clearcoatRoughness: 0.04,
-    flake: { density: 0.3, size: 0.011, spread: 0.9, color: 0xffd9c0, colorMix: 0.06 },
+    flake: { density: 0.81, size: 1 / 315, spread: 0.9, color: 0xffd9c0, colorMix: 0.06 },
   },
   leather: {
     color: 0x5a2f1d,
