@@ -26,9 +26,16 @@ export class Word {
   private readonly pose = blankPose();
   private disposed = false;
 
-  constructor(text: string, font: LoadedFont, look: LookName, budget: Budget, wrap = false) {
+  constructor(
+    text: string,
+    font: LoadedFont,
+    look: LookName,
+    budget: Budget,
+    wrap = false,
+    tint?: number,
+  ) {
     this.material = createMaterial();
-    applyLook(this.material, look);
+    applyLook(this.material, look, tint);
     // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
     this.material.transparent = true;
     this.cache = new GlyphCache((char, depth) =>

@@ -78,6 +78,12 @@ export interface FireOptions {
   exit?: ExitSlot;
   look?: LookName;
   /**
+   * Recolors the look, as `0xff2d6f`. Routed to whichever property carries that look's hue —
+   * `ruby` is clear glass whose red comes from what light picks up passing through it, so
+   * tinting its base color would do nothing.
+   */
+  tint?: number;
+  /**
    * Milliseconds in the active phase, or `'click'` to hold until the viewer dismisses it.
    * A held effect blocks the queue under the default `queue` policy, and its promise stays
    * pending until it leaves the screen.
@@ -128,7 +134,14 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     const bloom = opts.bloom ? new BloomPath(renderer) : null;
     let word: Word;
     try {
-      word = new Word(text, loaded, opts.look ?? 'gold', stage.viewportBudget(), opts.wrap);
+      word = new Word(
+        text,
+        loaded,
+        opts.look ?? 'gold',
+        stage.viewportBudget(),
+        opts.wrap,
+        opts.tint,
+      );
     } catch (err) {
       // This rejects before the settle() that would otherwise free the bloom's render targets.
       bloom?.dispose();

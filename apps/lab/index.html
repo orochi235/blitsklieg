@@ -9,6 +9,8 @@
       a { color: #d8b25f; }
       input, select, button, textarea { font: 12px ui-monospace, monospace; padding: 5px; }
       textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+      .tint { display: flex; align-items: center; gap: 4px; }
+      .tint input[type="color"] { width: 40px; padding: 1px; }
       .panel { position: fixed; top: 12px; right: 12px; width: 250px; display: grid; gap: 6px;
                background: #0c0f16e8; border: 1px solid #2a3142; border-radius: 10px;
                padding: 12px; font: 12px ui-monospace, monospace; z-index: 10; }
@@ -42,6 +44,8 @@
       <label>active <select id="active"></select></label>
       <label>exit <select id="exit"></select></label>
       <label>look <select id="look"></select></label>
+      <label>tint <span class="tint"><input id="tintOn" type="checkbox" /><input id="tint"
+             type="color" value="#ff2d6f" /></span></label>
       <label>policy <select id="policy"></select></label>
       <label>hold ms <input id="hold" type="number" value="1200" min="0" step="100" /></label>
       <label>blend ms <input id="blend" type="number" value="120" min="0" step="10" /></label>

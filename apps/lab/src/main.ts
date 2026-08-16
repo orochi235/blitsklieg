@@ -40,6 +40,8 @@ const policy = choice('policy', POLICY_NAMES);
 const textInput = el<HTMLTextAreaElement>('text');
 const bloomInput = el<HTMLInputElement>('bloom');
 const wrapInput = el<HTMLInputElement>('wrap');
+const tintInput = el<HTMLInputElement>('tint');
+const tintOnInput = el<HTMLInputElement>('tintOn');
 const holdClickInput = el<HTMLInputElement>('holdClick');
 const modalInput = el<HTMLInputElement>('modal');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
@@ -64,6 +66,7 @@ function fire(text: string): void {
     active: active.get(),
     exit: exit.get(),
     look: look.get(),
+    tint: tintOnInput.checked ? Number.parseInt(tintInput.value.slice(1), 16) : undefined,
     hold: holdClickInput.checked ? 'click' : number('hold'),
     blendMs: number('blend'),
     bloom: bloomInput.checked,

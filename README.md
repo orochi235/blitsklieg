@@ -86,6 +86,17 @@ crossfading `blendMs` across each boundary. Enter and exit run at a fixed length
 Each list is also exported as a runtime array — `ENTER_NAMES`, `ACTIVE_NAMES`, `EXIT_NAMES`,
 `LOOK_NAMES`, `POLICY_NAMES` — for building a picker.
 
+`tint` recolors any look to your own color, keeping everything else about the material:
+
+```js
+await bk.fire('YOU WIN', { look: 'gold', tint: 0xff2d6f });   // pink metal
+await bk.fire('YOU WIN', { look: 'ruby', tint: 0x2dff8f });   // green glass
+```
+
+It goes to whichever property actually carries that look's hue. For the metals that is the base
+color; `ruby` is clear glass whose red comes from what light picks up passing *through* it, so
+tinting its base color would change nothing you could see.
+
 ## Writing your own motion
 
 Every slot also takes a piece you built, or several layered together:
@@ -150,6 +161,7 @@ const bounce = transition(700, { from: { scale: 0 }, ease: easeElasticOut });
 | `active` | `'sweep'` | what it does while it holds |
 | `exit` | `'fade'` | how it leaves |
 | `look` | `'gold'` | the material |
+| `tint` | none | recolors the look, as `0xff2d6f` |
 | `hold` | `1200` | milliseconds in the active phase, or `'click'` to hold until dismissed |
 | `blendMs` | `120` | crossfade window straddling each phase boundary |
 | `bloom` | `false` | adds a glow pass, at the cost of three render targets while the effect runs |

@@ -139,3 +139,82 @@ describe('applyLook', () => {
     expect(material.version).toBeGreaterThan(before);
   });
 });
+
+describe('tint', () => {
+  const hex = (c: THREE.Color) => c.getHex();
+
+  it('recolors a metal through its base color', () => {
+    const material = createMaterial();
+    applyLook(material, 'gold', 0xff2d6f);
+
+    expect(hex(material.color)).toBe(0xff2d6f);
+  });
+
+  it('recolors ruby through attenuation, which is where its hue actually lives', () => {
+    const material = createMaterial();
+    applyLook(material, 'ruby', 0x2dff8f);
+
+    expect(hex(material.attenuationColor)).toBe(0x2dff8f);
+    // Clear glass: tinting the base color instead would have changed nothing visible.
+    expect(hex(material.color)).toBe(0xffffff);
+  });
+
+  it('leaves every look untinted by default', () => {
+    for (const name of Object.keys(LOOKS) as LookName[]) {
+      const tinted = createMaterial();
+      const plain = createMaterial();
+      applyLook(tinted, name);
+      applyLook(plain, name);
+
+      expect(hex(tinted.color), name).toBe(hex(plain.color));
+      expect(hex(tinted.attenuationColor), name).toBe(hex(plain.attenuationColor));
+    }
+  });
+
+  it('changes exactly one channel, whichever carries the hue', () => {
+    for (const name of Object.keys(LOOKS) as LookName[]) {
+      const plain = createMaterial();
+      const tinted = createMaterial();
+      applyLook(plain, name);
+      applyLook(tinted, name, 0x123456);
+
+      const moved = [
+        hex(plain.color) !== hex(tinted.color),
+        hex(plain.attenuationColor) !== hex(tinted.attenuationColor),
+      ].filter(Boolean);
+
+      expect(moved, name).toHaveLength(1);
+    }
+  });
+
+  it('touches nothing but the hue', () => {
+    const plain = createMaterial();
+    const tinted = createMaterial();
+    applyLook(plain, 'oil');
+    applyLook(tinted, 'oil', 0x00ff00);
+
+    expect(tinted.metalness).toBe(plain.metalness);
+    expect(tinted.roughness).toBe(plain.roughness);
+    expect(tinted.iridescence).toBe(plain.iridescence);
+    expect(tinted.clearcoat).toBe(plain.clearcoat);
+  });
+
+  it('goes through .set() rather than replacing the Color object', () => {
+    const material = createMaterial();
+    const before = material.color;
+
+    applyLook(material, 'gold', 0xff2d6f);
+
+    // Replacing it with a number leaves a material that silently stops working.
+    expect(material.color).toBe(before);
+    expect(material.color).toBeInstanceOf(THREE.Color);
+  });
+
+  it('does not leak a tint into the next look applied to the same material', () => {
+    const material = createMaterial();
+    applyLook(material, 'gold', 0xff2d6f);
+    applyLook(material, 'gold');
+
+    expect(hex(material.color)).toBe(0xffc44d);
+  });
+});

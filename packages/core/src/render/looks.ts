@@ -70,6 +70,18 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
 
 export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor']);
 
+/**
+ * Which property carries each look's hue. Not always `color`: `ruby` is clear glass at
+ * `color: 0xffffff`, and its red is what light picks up passing through it. Tinting `color`
+ * there changes nothing visible.
+ */
+const HUE_KEY: Record<LookName, 'color' | 'attenuationColor'> = {
+  gold: 'color',
+  chrome: 'color',
+  oil: 'color',
+  ruby: 'attenuationColor',
+};
+
 export function createMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
 }
@@ -78,8 +90,13 @@ export function createMaterial(): THREE.MeshPhysicalMaterial {
  * Color-valued params are THREE.Color objects. Assigning a hex number over one replaces the
  * object and the material silently stops working, so they must go through .set().
  */
-export function applyLook(material: THREE.MeshPhysicalMaterial, name: LookName): void {
+export function applyLook(
+  material: THREE.MeshPhysicalMaterial,
+  name: LookName,
+  tint?: number,
+): void {
   const params = { ...DEFAULTS, ...LOOKS[name] };
+  if (tint !== undefined) params[HUE_KEY[name]] = tint;
   const target = material as unknown as Record<string, unknown>;
 
   for (const key of Object.keys(params) as LookKey[]) {
