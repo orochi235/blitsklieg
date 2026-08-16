@@ -1,14 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Tint
-
-`tint` recolors any look to your own color, keeping the rest of the material. It is routed to
-whichever property carries that look's hue — the base color for the metals, attenuation for
-`ruby`, whose red comes from what light picks up passing through it rather than from its base
-color.
-
 ## 0.2.0
 
 ### Multiple lines
@@ -27,6 +18,13 @@ A newline is now consumed as a separator rather than laid out, so it no longer r
 plays the exit normally. The dismissing click passes through to your page by default; `modal:
 true` makes the overlay swallow it instead. Under the default `queue` policy a held effect blocks
 later fires — use `replace` if a later effect should cancel it.
+
+### Tint
+
+`tint` recolors any look to your own color, keeping the rest of the material. It goes to
+whichever property carries that look's hue — the base color for the metals, attenuation for
+`ruby`, whose red comes from what light picks up passing through it rather than from its base
+color.
 
 ### Writing your own motion
 
