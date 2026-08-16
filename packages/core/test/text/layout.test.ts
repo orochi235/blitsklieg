@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitScale, layoutLine } from '../../src/text/layout.js';
+import { fitScale, layoutBlock, layoutLine } from '../../src/text/layout.js';
 
 // Every glyph is 10 wide; the pair A|V is kerned 3 tighter.
 const metrics = {
@@ -42,6 +42,54 @@ describe('layoutLine', () => {
     expect(line.glyphs.map((g) => g.char)).toEqual(['A', '\u{1F600}', 'B']);
     expect(line.glyphs.map((g) => g.index)).toEqual([0, 1, 2]);
     expect(line.glyphs[2]?.x).toBe(20);
+  });
+});
+
+describe('layoutBlock', () => {
+  it('returns one line when there is no newline', () => {
+    const block = layoutBlock('AB', metrics);
+    expect(block.lines).toHaveLength(1);
+    expect(block.lines[0]?.width).toBe(20);
+  });
+
+  it('splits on newlines', () => {
+    const block = layoutBlock('AB\nC', metrics);
+    expect(block.lines.map((l) => l.glyphs.map((g) => g.char).join(''))).toEqual(['AB', 'C']);
+  });
+
+  it('splits on CRLF as well', () => {
+    expect(layoutBlock('A\r\nB', metrics).lines).toHaveLength(2);
+  });
+
+  it('width is the widest line', () => {
+    expect(layoutBlock('ABC\nA', metrics).width).toBe(30);
+  });
+
+  it('keeps a blank line as an empty line rather than dropping it', () => {
+    const block = layoutBlock('A\n\nB', metrics);
+    expect(block.lines).toHaveLength(3);
+    expect(block.lines[1]?.glyphs).toEqual([]);
+  });
+
+  it('never asks the font about the newline character', () => {
+    const strict = {
+      advanceOf: (ch: string) => {
+        if (ch === '\n' || ch === '\r') throw new Error('newline reached the font');
+        return 10;
+      },
+      kernOf: () => 0,
+    };
+    expect(() => layoutBlock('A\r\nB', strict)).not.toThrow();
+  });
+
+  it('an empty string is a single empty line', () => {
+    expect(layoutBlock('', metrics).lines).toHaveLength(1);
+  });
+
+  it('restarts glyph indices on each line', () => {
+    const block = layoutBlock('AB\nCD', metrics);
+    expect(block.lines[1]?.glyphs.map((g) => g.index)).toEqual([0, 1]);
+    expect(block.lines[1]?.glyphs.map((g) => g.x)).toEqual([0, 10]);
   });
 });
 

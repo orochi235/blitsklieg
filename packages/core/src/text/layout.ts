@@ -32,6 +32,21 @@ export function layoutLine(text: string, metrics: GlyphMetrics): Line {
   return { glyphs, width: pen };
 }
 
+/** Leading between baselines. Display capitals want less than the 1.2 that suits body text. */
+export const LINE_HEIGHT_EM = 1.1;
+
+export interface Block {
+  lines: Line[];
+  /** Widest line, in font units. */
+  width: number;
+}
+
+/** Splits on newlines and lays each line out. The separator is consumed, never laid out. */
+export function layoutBlock(text: string, metrics: GlyphMetrics): Block {
+  const lines = text.split(/\r?\n/).map((seg) => layoutLine(seg, metrics));
+  return { lines, width: Math.max(0, ...lines.map((l) => l.width)) };
+}
+
 export interface Budget {
   width: number;
   height: number;
