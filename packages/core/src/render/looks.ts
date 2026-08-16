@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import {
+  createFlakeUniforms,
+  type FlakeSpec,
+  type FlakeUniforms,
+  patchForFlakes,
+  writeFlakeUniforms,
+} from './flake.js';
 
 export type LookName = 'gold' | 'chrome' | 'oil' | 'gem' | 'velvet' | 'neon';
 
@@ -134,6 +141,7 @@ export interface LookSpec extends Partial<LookParams> {
   tintTarget?: TintTarget;
   /** Turns the bloom pass on for this look unless the caller says otherwise. */
   bloom?: boolean;
+  flake?: FlakeSpec;
 }
 
 export type Look = LookName | LookSpec;
@@ -175,8 +183,16 @@ function resolveParams(spec: LookSpec): LookParams {
   return params;
 }
 
+/**
+ * The flake chunk is always injected and gated on `uFlakeDensity > 0`, so switching looks never
+ * needs a recompile and one program serves every look.
+ */
 export function createMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
+  const material = new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
+  const uniforms = createFlakeUniforms();
+  material.userData.flake = uniforms;
+  material.onBeforeCompile = (shader) => patchForFlakes(shader, uniforms);
+  return material;
 }
 
 /**
@@ -197,5 +213,6 @@ export function applyLook(material: THREE.MeshPhysicalMaterial, look: Look, tint
     else if (Array.isArray(value)) target[key] = [...value];
     else target[key] = value;
   }
+  writeFlakeUniforms(material.userData.flake as FlakeUniforms, spec.flake);
   material.needsUpdate = true;
 }
