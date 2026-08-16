@@ -37,7 +37,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -b tsconfig.json --force",
