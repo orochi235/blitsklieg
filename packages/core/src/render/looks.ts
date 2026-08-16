@@ -60,7 +60,7 @@ export const DEFAULTS: LookParams = {
 
 // Every look is applied over DEFAULTS, never over the previous look, so switching cannot
 // leave a stale transmission or iridescence behind.
-export const LOOKS: Record<LookName, Partial<LookParams>> = {
+export const LOOKS: Record<LookName, LookSpec> = {
   gold: { color: 0xffc44d, metalness: 1, roughness: 0.16, clearcoatRoughness: 0.08 },
   chrome: { color: 0xf2f5fa, metalness: 1, roughness: 0.05, clearcoatRoughness: 0.03 },
   oil: {
@@ -102,6 +102,7 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
     clearcoat: 0,
     emissive: 0xff2d95,
     emissiveIntensity: 3.2,
+    bloom: true,
   },
 };
 

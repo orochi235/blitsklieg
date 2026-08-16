@@ -10,6 +10,7 @@ import {
   EXIT_NAMES,
   LOOK_NAMES,
   POLICY_NAMES,
+  wantsBloom,
 } from '../src/index.js';
 import type { Vec3 } from '../src/pose.js';
 import { BloomPath } from '../src/render/bloom.js';
@@ -629,6 +630,24 @@ describe('published name lists', () => {
     expect(EXIT_NAMES).toEqual(['shatter', 'drop', 'recede', 'fade', 'none']);
     expect(LOOK_NAMES).toEqual(['gold', 'chrome', 'oil', 'gem', 'velvet', 'neon']);
     expect(POLICY_NAMES).toEqual(['queue', 'replace', 'concurrent']);
+  });
+});
+
+describe('wantsBloom', () => {
+  it('turns bloom on for a look that asks for it', () => {
+    expect(wantsBloom(undefined, 'neon')).toBe(true);
+  });
+
+  it('lets an explicit false override the look', () => {
+    expect(wantsBloom(false, 'neon')).toBe(false);
+  });
+
+  it('lets an explicit true override a look that never asked', () => {
+    expect(wantsBloom(true, 'gold')).toBe(true);
+  });
+
+  it('stays off by default', () => {
+    expect(wantsBloom(undefined, 'gold')).toBe(false);
   });
 });
 

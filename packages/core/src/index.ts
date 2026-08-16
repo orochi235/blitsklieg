@@ -6,7 +6,7 @@ import { EXIT } from './motion/exit.js';
 import type { ActiveName, EnterName, ExitName, MotionPiece } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
 import { BloomPath } from './render/bloom.js';
-import { LOOKS, type Look, type LookName, type LookSpec } from './render/looks.js';
+import { LOOKS, type Look, type LookName, type LookSpec, specOf } from './render/looks.js';
 import { prefersReducedMotion, Stage, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
@@ -44,6 +44,11 @@ export const EXIT_NAMES: readonly ExitName[] = Object.keys(EXIT) as ExitName[];
 export const LOOK_NAMES: readonly LookName[] = Object.keys(LOOKS) as LookName[];
 
 const TAU = Math.PI * 2;
+
+/** An explicit `bloom` always wins; a look may only ask when the caller said nothing. */
+export function wantsBloom(explicit: boolean | undefined, look: Look): boolean {
+  return explicit ?? specOf(look).bloom ?? false;
+}
 
 /**
  * Names index the built-in record; anything else is already a piece the caller supplied. Names
@@ -139,7 +144,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     if (signal.aborted) return;
 
     const renderer = stage.mount();
-    const bloom = opts.bloom ? new BloomPath(renderer) : null;
+    const bloom = wantsBloom(opts.bloom, opts.look ?? 'gold') ? new BloomPath(renderer) : null;
     let word: Word;
     try {
       word = new Word(

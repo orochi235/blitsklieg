@@ -9,6 +9,7 @@ import {
   type LookName,
   type LookParams,
   type LookSpec,
+  specOf,
   type TintTarget,
   tintTargetOf,
 } from '../../src/render/looks.js';
@@ -82,6 +83,11 @@ describe('LOOKS', () => {
     expect(velvet.clearcoat).toBe(0);
     expect(velvet.metalness).toBe(0);
     expect(velvet.roughness).toBeGreaterThan(0.8);
+  });
+
+  it('has neon request bloom, which it is flat without', () => {
+    expect(specOf('neon').bloom).toBe(true);
+    expect(specOf('gold').bloom).toBeUndefined();
   });
 
   it('gives neon an emissive above the bloom threshold over a near-black base', () => {
