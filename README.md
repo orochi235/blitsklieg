@@ -106,10 +106,37 @@ Each list is also exported as a runtime array — `ENTER_NAMES`, `ACTIVE_NAMES`,
 | `active` | `'sweep'` | what it does while it holds |
 | `exit` | `'fade'` | how it leaves |
 | `look` | `'gold'` | the material |
-| `hold` | `1200` | milliseconds in the active phase |
+| `hold` | `1200` | milliseconds in the active phase, or `'click'` to hold until dismissed |
 | `blendMs` | `120` | crossfade window straddling each phase boundary |
 | `bloom` | `false` | adds a glow pass, at the cost of three render targets while the effect runs |
+| `wrap` | `false` | break long text into the arrangement that renders largest |
+| `modal` | `false` | with `hold: 'click'`, let the overlay swallow the dismissing click |
 | `placement` | `{ kind: 'fullscreen' }` | accepted but unread in v0; the overlay is always fullscreen |
+
+## Multiple lines
+
+A `\n` in the text always breaks a line, and each line is centered on its own:
+
+```js
+await bk.fire('BIG\nMONEY');
+```
+
+`wrap: true` additionally breaks long text for you. It picks whichever arrangement renders
+*largest* rather than fitting to some column count, so it wraps only when wrapping makes the
+type bigger — short text is already at the scale cap and stays on one line. Words are never
+split, and the viewport budget means a block realistically runs to two or three lines before
+height binds; blitsklieg renders banners, not paragraphs.
+
+## Holding until dismissed
+
+`hold: 'click'` keeps the effect on screen until the viewer presses a pointer or Escape, then
+plays the exit normally. The promise stays pending until then, and under the default `queue`
+policy a held effect blocks every later `fire()` — use `replace` if a later effect should cancel
+it instead.
+
+The dismissing click passes through to your page by default, so it both dismisses the effect and
+presses whatever was underneath. `modal: true` makes the overlay swallow it instead; that is the
+one state in which blitsklieg is not click-through, which is why Escape is always bound.
 
 ## Queue policies
 
