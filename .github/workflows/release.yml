@@ -1,55 +1,47 @@
-name: release
+name: Release
 
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Existing tag to publish, e.g. v0.2.1'
-        required: true
 
+# No NPM_TOKEN: this publishes via npm trusted publishing (OIDC), so the
+# credential is short-lived and minted per run. `id-token: write` is what
+# makes that possible — without it npm falls back to looking for a token
+# and fails. The npmjs.com side must name this exact filename.
 permissions:
   contents: read
-  # Mints the OIDC token npm exchanges for a provenance attestation. Without it the publish
-  # still succeeds and silently ships unattested.
   id-token: write
-
-concurrency:
-  group: release
-  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
           cache: npm
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: https://registry.npmjs.org
 
       - run: npm ci
 
-      # prepublishOnly runs this too; running it here fails the job before anything is published
-      # rather than during, when a half-finished publish is not something you can take back.
-      - run: npm run check
-
-      # The tag names the release, so a tag that disagrees with package.json means one of the two
-      # is wrong — and finding out after publishing is finding out too late.
-      - name: Check the tag matches the package version
+      # The version lives in the workspace, not the private root package,
+      # which has no version field at all.
+      - name: Tag must match package.json version
         run: |
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
-          version="v$(node -p "require('./packages/core/package.json').version")"
-          if [ "$tag" != "$version" ]; then
-            echo "tag $tag does not match package version $version" >&2
+          tag="${GITHUB_REF_NAME}"
+          pkg="v$(node -p "require('./packages/core/package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag $tag does not match packages/core/package.json $pkg"
             exit 1
           fi
 
-      - run: npm publish --workspace blitsklieg --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+      # prepublishOnly runs the checks again; these steps exist so a failure
+      # names which one broke instead of surfacing as a failed publish.
+      - name: Publish
+        run: npm publish --workspace blitsklieg --provenance --access public
