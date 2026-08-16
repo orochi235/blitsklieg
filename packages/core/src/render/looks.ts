@@ -18,6 +18,14 @@ type LookKey = Extract<
   | 'iridescence'
   | 'iridescenceIOR'
   | 'iridescenceThicknessRange'
+  | 'sheen'
+  | 'sheenColor'
+  | 'sheenRoughness'
+  | 'anisotropy'
+  | 'anisotropyRotation'
+  | 'dispersion'
+  | 'emissive'
+  | 'emissiveIntensity'
 >;
 
 export type LookParams = {
@@ -38,6 +46,16 @@ const DEFAULTS: LookParams = {
   iridescence: 0,
   iridescenceIOR: 1.3,
   iridescenceThicknessRange: [100, 400],
+  sheen: 0,
+  // three defaults this to black, which mutes the lobe even at sheen: 1. White means a spec
+  // that sets only `sheen` gets a visible one.
+  sheenColor: 0xffffff,
+  sheenRoughness: 1,
+  anisotropy: 0,
+  anisotropyRotation: 0,
+  dispersion: 0,
+  emissive: 0x000000,
+  emissiveIntensity: 1,
 };
 
 // Every look is applied over DEFAULTS, never over the previous look, so switching cannot
@@ -68,7 +86,7 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
   },
 };
 
-export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor']);
+export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor', 'sheenColor', 'emissive']);
 
 /**
  * Which property carries each look's hue. Not always `color`: `ruby` is clear glass at

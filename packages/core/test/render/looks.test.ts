@@ -23,6 +23,14 @@ const KEY_SET: Record<keyof LookParams, true> = {
   iridescence: true,
   iridescenceIOR: true,
   iridescenceThicknessRange: true,
+  sheen: true,
+  sheenColor: true,
+  sheenRoughness: true,
+  anisotropy: true,
+  anisotropyRotation: true,
+  dispersion: true,
+  emissive: true,
+  emissiveIntensity: true,
 };
 const KEYS = Object.keys(KEY_SET) as (keyof LookParams)[];
 const NAMES: LookName[] = ['gold', 'chrome', 'oil', 'ruby'];
@@ -77,6 +85,18 @@ describe('applyLook', () => {
     expect(gold.thickness).toBe(0);
     expect(gold.iridescence).toBe(0);
     expect(gold.attenuationDistance).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('resets every new channel from the defaults', () => {
+    const gold = withLook('gold');
+    expect(gold.sheen).toBe(0);
+    expect(gold.sheenRoughness).toBe(1);
+    expect(gold.sheenColor.getHex()).toBe(0xffffff);
+    expect(gold.anisotropy).toBe(0);
+    expect(gold.anisotropyRotation).toBe(0);
+    expect(gold.dispersion).toBe(0);
+    expect(gold.emissive.getHex()).toBe(0x000000);
+    expect(gold.emissiveIntensity).toBe(1);
   });
 
   it.each(NAMES)('%s applied over another look matches a fresh material', (name) => {
