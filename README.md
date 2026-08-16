@@ -20,6 +20,9 @@ npm install blitsklieg three
 `instanceof` and double the download. Any version from 0.185 up will do. The package is
 ESM-only, and ships as `dist/` with type declarations.
 
+TypeScript users also want `npm install -D @types/three` — three ships no declarations of its
+own, and blitsklieg's types reference it.
+
 ## Usage
 
 ```ts
@@ -112,6 +115,8 @@ const swoop = transition(800, {
 
 await bk.fire('YOU WIN', { enter: swoop, active: ['float', 'shimmer'] });
 ```
+
+Names and pieces mix freely in a layered slot — `active: ['sweep', myShimmer]`.
 
 A `MotionPiece` is `{ duration, offset(t, letter) }` where `offset` returns a *relative* pose —
 position and rotation add onto rest, scale and opacity multiply. It must be a **pure function**:

@@ -44,12 +44,18 @@ export const LOOK_NAMES: readonly LookName[] = Object.keys(LOOKS) as LookName[];
 
 const TAU = Math.PI * 2;
 
-/** Names index the built-in record; anything else is already a piece the caller supplied. */
+/**
+ * Names index the built-in record; anything else is already a piece the caller supplied. Names
+ * inside a layered slot are resolved too — leaving a bare string in the array puts it where a
+ * piece is expected, and reading `.duration` off it yields NaN rather than throwing.
+ */
 function resolveSlot<N extends string>(
-  slot: N | MotionPiece | MotionPiece[],
+  slot: N | MotionPiece | (N | MotionPiece)[],
   builtin: Record<N, MotionPiece>,
 ): Slot {
-  return typeof slot === 'string' ? builtin[slot] : slot;
+  if (typeof slot === 'string') return builtin[slot];
+  if (Array.isArray(slot)) return slot.map((s) => (typeof s === 'string' ? builtin[s] : s));
+  return slot;
 }
 
 export interface BlitskliegOptions {
@@ -67,10 +73,10 @@ export interface BlitskliegOptions {
 /** Closed union so element-anchoring can arrive in v1.2 without an API break. */
 export type Placement = { kind: 'fullscreen' };
 
-/** A built-in name, your own piece, or several layered together. */
-export type EnterSlot = EnterName | MotionPiece | MotionPiece[];
-export type ActiveSlot = ActiveName | MotionPiece | MotionPiece[];
-export type ExitSlot = ExitName | MotionPiece | MotionPiece[];
+/** A built-in name, your own piece, or several layered together — names and pieces may mix. */
+export type EnterSlot = EnterName | MotionPiece | (EnterName | MotionPiece)[];
+export type ActiveSlot = ActiveName | MotionPiece | (ActiveName | MotionPiece)[];
+export type ExitSlot = ExitName | MotionPiece | (ExitName | MotionPiece)[];
 
 export interface FireOptions {
   enter?: EnterSlot;

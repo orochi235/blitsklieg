@@ -706,3 +706,41 @@ describe('caller-supplied motion', () => {
     expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
   });
 });
+
+describe('mixed name and piece slots', () => {
+  it('resolves a built-in name sitting alongside a caller piece', async () => {
+    const lift = { duration: 1000, offset: () => ({ position: [0, 1, 0] as Vec3 }) };
+
+    const bk = create();
+    void bk.fire('HI', {
+      enter: 'none',
+      // 'sweep' contributes no transform but drives the environment; the piece supplies the move.
+      active: ['sweep', lift],
+      exit: 'none',
+      hold: 1000,
+      blendMs: 0,
+    });
+    await flush();
+    clock.advance(500);
+
+    // A bare string left unresolved makes duration NaN, which collapses the pose to rest.
+    expect(firstMesh().position.y).toBeCloseTo(1, 6);
+    expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
+  });
+
+  it('keeps a layered slot of names alone working', async () => {
+    const bk = create();
+    void bk.fire('HI', {
+      enter: 'none',
+      active: ['sweep', 'float'],
+      exit: 'none',
+      hold: 1000,
+      blendMs: 0,
+    });
+    await flush();
+    clock.advance(500);
+
+    expect(Number.isNaN(firstMesh().position.y)).toBe(false);
+    expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
+  });
+});

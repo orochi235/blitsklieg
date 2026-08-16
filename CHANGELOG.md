@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+### Fixed
+
+Mixing names and pieces in one layered slot — `active: ['sweep', myShimmer]`, which the 0.2.0
+README documented — was rejected by the types and broken at runtime: names inside an array were
+passed through unresolved, leaving a bare string where a piece was expected and turning the
+slot's duration into `NaN`. Arrays now accept either and resolve names in place.
+
+The install notes now mention `@types/three`, which TypeScript consumers need because three
+ships no declarations of its own.
+
 ## 0.2.0
 
 ### Multiple lines
