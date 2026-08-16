@@ -17,7 +17,7 @@ npm install blitsklieg three
 ```
 
 `three` is a peer dependency, so the app owns the copy: two copies of three in one bundle break
-`instanceof` and double the download. Any version from 0.170 up will do. The package is
+`instanceof` and double the download. Any version from 0.185 up will do. The package is
 ESM-only, and ships as `dist/` with type declarations.
 
 ## Usage

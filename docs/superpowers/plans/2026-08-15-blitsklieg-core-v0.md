@@ -11,7 +11,7 @@ geometry, environment, materials, render paths). One mesh per letter so per-lett
 glyph caching both work. Everything reads time from an injected clock, which is what makes the
 motion testable at all.
 
-**Tech Stack:** TypeScript, three.js r170+, opentype.js, Vite, Vitest, Biome, npm workspaces.
+**Tech Stack:** TypeScript, three.js r185+, opentype.js, Vite, Vitest, Biome, npm workspaces.
 
 **Spec:** `docs/superpowers/specs/2026-08-15-blitsklieg-design.md`
 
@@ -108,12 +108,12 @@ imports three.js. That boundary is what keeps the test suite fast and meaningful
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "opentype.js": "^1.3.4",
-    "three": "^0.170.0"
+    "opentype.js": "^2.0.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/opentype.js": "^1.3.10",
-    "@types/three": "^0.170.0"
+    "@types/three": "^0.185.4"
   }
 }
 ```
@@ -1919,12 +1919,22 @@ git commit -m "add kerned text layout and two-axis viewport fit"
 
 - [ ] **Step 1: Write font.ts**
 
-`@types/opentype.js` declares no default export; the named `parse` import avoids relying on
-synthetic default interop.
+`opentype.js` ships no type declarations, so `@types/opentype.js` supplies them, and it declares
+no default export. The value import cannot be the named `parse`: opentype.js 2.0 publishes ESM
+under `module` and a UMD bundle under `main`, only bundlers read `module`, and Node takes the UMD
+one, whose named exports it cannot detect. Take the namespace and reach through the interop
+default when Node put one there.
 
 ```ts
-import { type Font, parse } from 'opentype.js';
+import type { Font } from 'opentype.js';
+import * as opentype from 'opentype.js';
 import type { GlyphMetrics } from './layout.js';
+
+// opentype.js 2.0 publishes ESM under `module` and a UMD bundle under `main`. Only bundlers read
+// `module`; Node takes the UMD one, whose named exports it cannot detect, so `import { parse }`
+// throws on any server that loads this package (SSR). Reach through the interop default instead.
+const ns = opentype as typeof opentype & { default?: typeof opentype };
+const { parse } = 'default' in ns && ns.default ? ns.default : ns;
 
 export interface LoadedFont {
   font: Font;

@@ -1,5 +1,12 @@
-import { type Font, parse } from 'opentype.js';
+import type { Font } from 'opentype.js';
+import * as opentype from 'opentype.js';
 import type { GlyphMetrics } from './layout.js';
+
+// opentype.js 2.0 publishes ESM under `module` and a UMD bundle under `main`. Only bundlers read
+// `module`; Node takes the UMD one, whose named exports it cannot detect, so `import { parse }`
+// throws on any server that loads this package (SSR). Reach through the interop default instead.
+const ns = opentype as typeof opentype & { default?: typeof opentype };
+const { parse } = 'default' in ns && ns.default ? ns.default : ns;
 
 export interface LoadedFont {
   font: Font;

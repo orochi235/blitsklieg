@@ -70,13 +70,17 @@ function fontDrawing(commands: PathCommand[]): Font {
   return { charToGlyph: () => ({ getPath: () => ({ commands }) }) } as unknown as Font;
 }
 
+/**
+ * Shaped like what opentype 2.0 hands a fill path: the ring walks back to its start and no `Z`
+ * follows, because `Glyph.getPath` forwards `Z` only when the path is stroked.
+ */
 function box(x: number, y: number, w: number, h: number): PathCommand[] {
   return [
     { type: 'M', x, y },
     { type: 'L', x: x + w, y },
     { type: 'L', x: x + w, y: y + h },
     { type: 'L', x, y: y + h },
-    { type: 'Z' },
+    { type: 'L', x, y },
   ];
 }
 
@@ -200,6 +204,23 @@ describe('glyphToShapes', () => {
 
     expect(shapes).toHaveLength(1);
     expect(leftOf(shapes[0] as THREE.Shape)).toBe(0);
+  });
+
+  it('closes a contour on Z, which a stroked or SVG-sourced path still emits', () => {
+    const shapes = glyphToShapes(
+      fontDrawing([
+        { type: 'M', x: 0, y: 0 },
+        { type: 'L', x: 10, y: 0 },
+        { type: 'L', x: 10, y: 10 },
+        { type: 'Z' },
+      ]),
+      'A',
+      1,
+    );
+
+    expect(shapes).toHaveLength(1);
+    expect(topOf(shapes[0] as THREE.Shape)).toBe(0);
+    expect(bottomOf(shapes[0] as THREE.Shape)).toBe(-10);
   });
 
   it('skips a contour closed without drawing rather than letting three throw', () => {
