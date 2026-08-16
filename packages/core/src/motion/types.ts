@@ -5,6 +5,13 @@ export interface LetterInfo {
   index: number;
   /** Total letters in the word. */
   count: number;
+  /** 0-based line within the block. */
+  line?: number;
+  /** 0-based column within its own line. */
+  column?: number;
+  lineCount?: number;
+  /** The widest line's length, so a short line's columns do not stretch to fill it. */
+  columnCount?: number;
 }
 
 export interface MotionPiece {
