@@ -33,13 +33,10 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      # Node 22 bundles npm 10, which signs provenance but cannot authenticate via trusted
-      # publishing — that landed in 11.5.1. Without it the PUT goes up unauthenticated and the
-      # registry answers 404 for a package that exists.
-      - name: Upgrade npm to a version that can authenticate via OIDC
-        run: |
-          npm install -g npm@latest
-          npm -v
+      # Trusted publishing needs npm >=11.5.1 to authenticate; below it the PUT goes up
+      # unauthenticated and the registry answers 404 for a package that exists. .nvmrc carries
+      # a Node new enough to bundle it — this only records which npm actually ran.
+      - run: npm -v
 
       - run: npm ci
 
