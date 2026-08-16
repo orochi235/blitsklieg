@@ -152,13 +152,13 @@ if (uFlakeDensity > 0.0) {
   float bkFade = 1.0 - smoothstep(0.6, 2.0, bkCellsPerPixel(bkCoord));
 
   if (uFlakeBump > 0.5) {
-    // Upholstery: each cell is a panel that is nearly flat, bulging gently from its middle, and
-    // the surface reads from the creases where panels meet. The gap to the next-nearest centre
-    // is what finds those seams.
-    float bkCrease = 1.0 - smoothstep(0.0, 0.18, bkSeam);
-    vec3 bkPanel = bkToCentre * 0.8 - bkToCentre * bkCrease * 3.0;
+    // Upholstery: soft panels rolling into shallow valleys where they meet. The crease band is
+    // wide and its falloff gentle on purpose — a narrow band with a strong pull faceted the
+    // surface into something closer to armour plate than hide.
+    float bkCrease = 1.0 - smoothstep(0.0, 0.55, bkSeam);
+    vec3 bkPanel = bkToCentre * 0.5 - bkToCentre * bkCrease * bkCrease * 0.9;
     normal = normalize(normal + bkPanel * uFlakeSpread * bkFade);
-    roughnessFactor = clamp(roughnessFactor + bkCrease * 0.15 * bkFade, 0.0, 1.0);
+    roughnessFactor = clamp(roughnessFactor + bkCrease * 0.1 * bkFade, 0.0, 1.0);
   } else {
     float bkFlake = bkIsFlake(bkRnd) * bkFade;
     normal = normalize(normal + bkRnd * uFlakeSpread * bkFlake);

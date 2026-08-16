@@ -146,7 +146,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     clearcoatRoughness: 0.5,
     sheen: 0.35,
     sheenColor: 0xd8a071,
-    flake: { density: 1, size: 1 / 3, spread: 0.5, bump: true },
+    flake: { density: 1, size: 1 / 7, spread: 0.5, bump: true },
   },
 };
 
