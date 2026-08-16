@@ -50,7 +50,6 @@ const holdClickInput = el<HTMLInputElement>('holdClick');
 const modalInput = el<HTMLInputElement>('modal');
 const grainInput = el<HTMLInputElement>('grain');
 const densityInput = el<HTMLInputElement>('density');
-const flakeOnInput = el<HTMLInputElement>('flakeOn');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
 
 /**
@@ -69,7 +68,6 @@ const CONTROL_IDS = [
   'blend',
   'grain',
   'density',
-  'flakeOn',
   'tint',
   'tintOn',
   'bloom',
@@ -108,36 +106,45 @@ function saveHash(): void {
   history.replaceState(null, '', `#${encoded}`);
 }
 
-function loadHash(): void {
+function loadHash(): boolean {
   const raw = location.hash.slice(1);
-  if (!raw) return;
+  if (!raw) return false;
   try {
     writeState(JSON.parse(decodeURIComponent(atob(raw))) as ControlState);
+    return true;
   } catch {
     // A hand-edited or truncated hash is not worth failing the page over.
     log('ignored an unreadable hash');
+    return false;
   }
 }
 
 /**
- * Grain reads as cells per em — bigger number, finer flakes. An explicit checkbox rather than a
- * sentinel slider position: a range input clamps its value into [min, max], so a "0 means leave
- * it alone" reading silently becomes min and overrides every look.
+ * Grain reads as cells per em — bigger number, finer flakes. The sliders always apply and are
+ * seeded from whichever look is chosen, so they read as that look's own tuning until dragged.
+ * A sentinel position cannot do this job: a range input clamps its value into [min, max], so a
+ * "0 means leave it alone" reading silently becomes min and overrides every look.
  */
 function chosenLook(): Look {
   const name = look.get();
   const spec = specOf(name);
-  if (!flakeOnInput.checked || !spec.flake) return name;
+  if (!spec.flake) return name;
   return {
     ...spec,
     flake: { ...spec.flake, size: 1 / number('grain'), density: number('density') / 100 },
   };
 }
 
-/** Start the sliders where the chosen look already sits, so enabling them changes nothing. */
+/**
+ * Panels and flakes live at different scales — leather sits near 3 cells per em where glitter
+ * sits near 90 — so one range cannot serve both. A shared range clamps whichever look falls
+ * outside it and silently retunes that look the moment it is picked.
+ */
 function seedFlakeSliders(): void {
   const spec = specOf(look.get()).flake;
   if (!spec) return;
+  grainInput.min = spec.bump ? '1' : '20';
+  grainInput.max = spec.bump ? '24' : '400';
   grainInput.value = String(Math.round(1 / spec.size));
   densityInput.value = String(Math.round(spec.density * 100));
 }
@@ -287,18 +294,13 @@ textInput.addEventListener('keydown', (e) => {
 // Greyed rather than ignored: only the flake looks read a grain, and a live slider that does
 // nothing reads as a broken slider.
 function syncGrain(): void {
-  const reads = specOf(look.get()).flake !== undefined;
-  flakeOnInput.disabled = !reads;
-  if (!reads) flakeOnInput.checked = false;
-  grainInput.disabled = densityInput.disabled = !flakeOnInput.checked;
+  grainInput.disabled = densityInput.disabled = specOf(look.get()).flake === undefined;
 }
 
 look.select.addEventListener('change', seedFlakeSliders);
-flakeOnInput.addEventListener('change', () => {
-  if (flakeOnInput.checked) seedFlakeSliders();
-});
 
-loadHash();
+// A hash carries the sliders the viewer left them at; without one they start at the look's own.
+if (!loadHash()) seedFlakeSliders();
 syncGrain();
 for (const input of controls()) {
   input.addEventListener('change', () => {

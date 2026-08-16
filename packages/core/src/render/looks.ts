@@ -128,7 +128,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     roughness: 0.5,
     clearcoat: 0.5,
     clearcoatRoughness: 0.15,
-    flake: { density: 0.4, size: 0.014, spread: 1, color: 0xff5ecb, colorMix: 0.12 },
+    flake: { density: 0.33, size: 1 / 147, spread: 1, color: 0xff5ecb, colorMix: 0.12 },
   },
   glitter: {
     color: 0x8a1c2b,
@@ -146,7 +146,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     clearcoatRoughness: 0.5,
     sheen: 0.35,
     sheenColor: 0xd8a071,
-    flake: { density: 1, size: 0.38, spread: 0.5, bump: true },
+    flake: { density: 1, size: 1 / 3, spread: 0.5, bump: true },
   },
 };
 

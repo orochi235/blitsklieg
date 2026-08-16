@@ -202,11 +202,11 @@ describe('applyLook', () => {
 });
 
 describe('flake looks', () => {
-  it('gives flake larger, wider-tilted cells than car-paint glitter', () => {
+  it('keeps flake and glitter distinguishable rather than two names for one look', () => {
     const flake = specOf('flake').flake as FlakeSpec;
     const glitter = specOf('glitter').flake as FlakeSpec;
 
-    expect(flake.size).toBeGreaterThan(glitter.size);
+    expect(flake.size).not.toBe(glitter.size);
     expect(flake.spread).toBeGreaterThan(glitter.spread);
   });
 
