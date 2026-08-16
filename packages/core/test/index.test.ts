@@ -11,6 +11,7 @@ import {
   LOOK_NAMES,
   POLICY_NAMES,
 } from '../src/index.js';
+import type { Vec3 } from '../src/pose.js';
 import { BloomPath } from '../src/render/bloom.js';
 import { Stage } from '../src/render/stage.js';
 
@@ -628,5 +629,80 @@ describe('published name lists', () => {
     expect(EXIT_NAMES).toEqual(['shatter', 'drop', 'recede', 'fade', 'none']);
     expect(LOOK_NAMES).toEqual(['gold', 'chrome', 'oil', 'ruby']);
     expect(POLICY_NAMES).toEqual(['queue', 'replace', 'concurrent']);
+  });
+});
+
+describe('caller-supplied motion', () => {
+  it('accepts a piece in place of a name', async () => {
+    const seen: number[] = [];
+    const mine = {
+      duration: 100,
+      offset: (t: number) => {
+        seen.push(t);
+        return { position: [0, 0, 0] as [number, number, number] };
+      },
+    };
+
+    const bk = create();
+    const done = bk.fire('HI', { enter: mine, active: 'none', exit: 'none', hold: 0 });
+    await flush();
+    clock.advance(50);
+    clock.advance(60);
+    await done;
+
+    expect(seen.length).toBeGreaterThan(0);
+  });
+
+  it('layers several pieces in one slot', async () => {
+    const lift = { duration: 100, offset: () => ({ position: [0, 1, 0] as Vec3 }) };
+    const shift = { duration: 100, offset: () => ({ position: [2, 0, 0] as Vec3 }) };
+
+    const bk = create();
+    // blendMs 0: at the default the enter is already crossfading at t=50 and carries <1 weight.
+    void bk.fire('HI', {
+      enter: [lift, shift],
+      active: 'none',
+      exit: 'none',
+      hold: 1000,
+      blendMs: 0,
+    });
+    await flush();
+    clock.advance(50);
+
+    const mesh = firstMesh();
+    expect(mesh.position.y).toBeCloseTo(1, 6);
+    // Layout x is baked into the mesh, so the layer's contribution is the delta from rest.
+    expect(mesh.position.x).toBeGreaterThan(0);
+  });
+
+  it('lets a caller-supplied active piece rake the highlight', async () => {
+    const raker = { duration: 1000, offset: () => ({}), envRotation: true };
+
+    const bk = create();
+    void bk.fire('HI', { enter: 'none', active: raker, exit: 'none', hold: 1000 });
+    await flush();
+    clock.advance(500);
+
+    expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
+  });
+
+  it('leaves the environment alone for an active piece that does not drive it', async () => {
+    const plain = { duration: 1000, offset: () => ({}) };
+
+    const bk = create();
+    void bk.fire('HI', { enter: 'none', active: plain, exit: 'none', hold: 1000 });
+    await flush();
+    clock.advance(500);
+
+    expect(stage().scene.environmentRotation.y).toBe(0);
+  });
+
+  it('still rakes for the built-in sweep, which callers name rather than construct', async () => {
+    const bk = create();
+    void bk.fire('HI', { enter: 'none', active: 'sweep', exit: 'none', hold: 1000 });
+    await flush();
+    clock.advance(500);
+
+    expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
   });
 });

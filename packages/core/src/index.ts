@@ -1,9 +1,9 @@
 import { type Clock, RafClock } from './clock.js';
-import { ACTIVE, ENV_DRIVEN } from './motion/active.js';
-import { Timeline } from './motion/compositor.js';
+import { ACTIVE } from './motion/active.js';
+import { type Slot, slotDrivesEnv, slotDuration, Timeline } from './motion/compositor.js';
 import { ENTER } from './motion/enter.js';
 import { EXIT } from './motion/exit.js';
-import type { ActiveName, EnterName, ExitName } from './motion/types.js';
+import type { ActiveName, EnterName, ExitName, MotionPiece } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
 import { BloomPath } from './render/bloom.js';
 import { LOOKS, type LookName } from './render/looks.js';
@@ -12,6 +12,26 @@ import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
 
 export { ManualClock } from './clock.js';
+export {
+  backOut,
+  type Easing,
+  easeInCubic,
+  easeInOutCubic,
+  easeOutCubic,
+  linear,
+  type SpringParams,
+  spring,
+} from './easing.js';
+export {
+  type CycleSpec,
+  cycle,
+  type Keyframe,
+  type TransitionSpec,
+  transition,
+} from './motion/build.js';
+export type { LetterInfo, MotionPiece, StaggerFrom, StaggerSpec } from './motion/types.js';
+export { stagger } from './motion/types.js';
+export type { Pose, PoseOffset, Vec3 } from './pose.js';
 export { POLICY_NAMES } from './queue.js';
 export type { ActiveName, Clock, EnterName, ExitName, LookName, QueuePolicy };
 
@@ -23,6 +43,14 @@ export const EXIT_NAMES: readonly ExitName[] = Object.keys(EXIT) as ExitName[];
 export const LOOK_NAMES: readonly LookName[] = Object.keys(LOOKS) as LookName[];
 
 const TAU = Math.PI * 2;
+
+/** Names index the built-in record; anything else is already a piece the caller supplied. */
+function resolveSlot<N extends string>(
+  slot: N | MotionPiece | MotionPiece[],
+  builtin: Record<N, MotionPiece>,
+): Slot {
+  return typeof slot === 'string' ? builtin[slot] : slot;
+}
 
 export interface BlitskliegOptions {
   target?: HTMLElement;
@@ -39,10 +67,15 @@ export interface BlitskliegOptions {
 /** Closed union so element-anchoring can arrive in v1.2 without an API break. */
 export type Placement = { kind: 'fullscreen' };
 
+/** A built-in name, your own piece, or several layered together. */
+export type EnterSlot = EnterName | MotionPiece | MotionPiece[];
+export type ActiveSlot = ActiveName | MotionPiece | MotionPiece[];
+export type ExitSlot = ExitName | MotionPiece | MotionPiece[];
+
 export interface FireOptions {
-  enter?: EnterName;
-  active?: ActiveName;
-  exit?: ExitName;
+  enter?: EnterSlot;
+  active?: ActiveSlot;
+  exit?: ExitSlot;
   look?: LookName;
   /**
    * Milliseconds in the active phase, or `'click'` to hold until the viewer dismisses it.
@@ -103,14 +136,15 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     }
     stage.scene.add(word.group);
 
-    const enter = ENTER[opts.enter ?? 'slam'];
-    const activeName = opts.active ?? 'sweep';
+    const enter = resolveSlot(opts.enter ?? 'slam', ENTER);
+    const active = resolveSlot(opts.active ?? 'sweep', ACTIVE);
+    const envDriven = slotDrivesEnv(active);
     const hold = opts.hold ?? 1200;
     const untilClick = hold === 'click';
     const timeline = new Timeline({
       enter,
-      active: ACTIVE[activeName],
-      exit: EXIT[opts.exit ?? 'fade'],
+      active,
+      exit: resolveSlot(opts.exit ?? 'fade', EXIT),
       hold: untilClick ? 'until-release' : (hold as number),
       blendMs: opts.blendMs ?? 120,
     });
@@ -169,13 +203,14 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
         try {
           // rAF reports the frame's start time, which can precede a now() sampled moments earlier.
           const since = now - startedAt;
-          const elapsed = Math.min(Math.max(still ? enter.duration : since, 0), timeline.duration);
+          const settled = slotDuration(enter);
+          const elapsed = Math.min(Math.max(still ? settled : since, 0), timeline.duration);
           word.apply(timeline, elapsed);
 
           // Effect-relative and zeroed off-sweep: absolute clock time would start every sweep at
           // an arbitrary angle and leave the last one's angle behind on the next effect.
-          stage.scene.environmentRotation.y = ENV_DRIVEN.has(activeName)
-            ? (elapsed / ACTIVE[activeName].duration) * TAU
+          stage.scene.environmentRotation.y = envDriven
+            ? (elapsed / Math.max(1, slotDuration(active))) * TAU
             : 0;
 
           if (bloom) {
