@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type LookName = 'gold' | 'chrome' | 'oil' | 'gem';
+export type LookName = 'gold' | 'chrome' | 'oil' | 'gem' | 'velvet' | 'neon';
 
 /** Extract silently drops a name that is not a real material property, so a typo fails DEFAULTS. */
 type LookKey = Extract<
@@ -85,6 +85,24 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
     clearcoatRoughness: 0.03,
     dispersion: 4,
   },
+  velvet: {
+    color: 0x7a1030,
+    metalness: 0,
+    roughness: 0.95,
+    // A clearcoat sits above the nap and mirrors over it; the sheen lobe needs it off.
+    clearcoat: 0,
+    sheen: 1,
+    sheenColor: 0xff6ea8,
+    sheenRoughness: 0.35,
+  },
+  neon: {
+    color: 0x120018,
+    metalness: 0,
+    roughness: 0.4,
+    clearcoat: 0,
+    emissive: 0xff2d95,
+    emissiveIntensity: 3.2,
+  },
 };
 
 export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor', 'sheenColor', 'emissive']);
@@ -94,11 +112,13 @@ export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor', 'sheenC
  * `color: 0xffffff`, and its red is what light picks up passing through it. Tinting `color`
  * there changes nothing visible.
  */
-const HUE_KEY: Record<LookName, 'color' | 'attenuationColor'> = {
+const HUE_KEY: Record<LookName, 'color' | 'attenuationColor' | 'emissive'> = {
   gold: 'color',
   chrome: 'color',
   oil: 'color',
   gem: 'attenuationColor',
+  velvet: 'color',
+  neon: 'emissive',
 };
 
 export function createMaterial(): THREE.MeshPhysicalMaterial {

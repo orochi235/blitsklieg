@@ -33,7 +33,7 @@ const KEY_SET: Record<keyof LookParams, true> = {
   emissiveIntensity: true,
 };
 const KEYS = Object.keys(KEY_SET) as (keyof LookParams)[];
-const NAMES: LookName[] = ['gold', 'chrome', 'oil', 'gem'];
+const NAMES: LookName[] = ['gold', 'chrome', 'oil', 'gem', 'velvet', 'neon'];
 
 function snapshot(material: THREE.MeshPhysicalMaterial): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -70,6 +70,21 @@ describe('LOOKS', () => {
 
   it('gives gem dispersion, which is what separates a stone from red glass', () => {
     expect(withLook('gem').dispersion).toBeGreaterThan(0);
+  });
+
+  it('gives velvet a sheen lobe and no clearcoat, since a coat flattens the nap', () => {
+    const velvet = withLook('velvet');
+    expect(velvet.sheen).toBe(1);
+    expect(velvet.clearcoat).toBe(0);
+    expect(velvet.metalness).toBe(0);
+    expect(velvet.roughness).toBeGreaterThan(0.8);
+  });
+
+  it('gives neon an emissive above the bloom threshold over a near-black base', () => {
+    const neon = withLook('neon');
+    expect(neon.emissive.getHex()).not.toBe(0x000000);
+    expect(neon.emissiveIntensity).toBeGreaterThan(1);
+    expect(neon.clearcoat).toBe(0);
   });
 });
 
@@ -193,6 +208,7 @@ describe('tint', () => {
 
       expect(hex(tinted.color), name).toBe(hex(plain.color));
       expect(hex(tinted.attenuationColor), name).toBe(hex(plain.attenuationColor));
+      expect(hex(tinted.emissive), name).toBe(hex(plain.emissive));
     }
   });
 
@@ -206,6 +222,7 @@ describe('tint', () => {
       const moved = [
         hex(plain.color) !== hex(tinted.color),
         hex(plain.attenuationColor) !== hex(tinted.attenuationColor),
+        hex(plain.emissive) !== hex(tinted.emissive),
       ].filter(Boolean);
 
       expect(moved, name).toHaveLength(1);
