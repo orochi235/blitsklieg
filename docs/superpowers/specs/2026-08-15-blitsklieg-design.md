@@ -138,6 +138,18 @@ layered above the film flattens it — `oil` needs `clearcoat: 0`.
   transmission samples what is behind the object *in the WebGL scene*, and the DOM is not in
   it. Real refraction would mean rasterizing the page every frame.
 - Sound, screen shake, element-anchored placement.
+- **Precompiled single-effect builds.** A build-time path where a consumer compiles one fixed
+  phrase in one fixed style and ships a library that can say only that, trading the runtime look
+  and motion vocabulary for payload. Unscoped, and worth revisiting once the vocabulary stops
+  growing.
+- **Handwriting animation.** Drawing a glyph the way a hand would write it needs the stroke
+  *centerline*, its segmentation into pen strokes, and a stroke order — none of which a font
+  outline carries. It is tractable from a single-stroke font (Hershey and engraving fonts are
+  centerline data by construction) or from stroke paths authored once per typeface; it is a
+  research project from outlines alone. It also shares nothing with this library's premise:
+  a matte 2D line has no surface for the environment map, so the looks, the klieg light and
+  the bloom path all do nothing for it. If it gets built it is a second renderer on a shared
+  overlay harness, not a look.
 
 ## Lifecycle
 
