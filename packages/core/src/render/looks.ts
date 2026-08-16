@@ -136,7 +136,10 @@ export const LOOKS: Record<LookName, LookSpec> = {
     roughness: 0.28,
     clearcoat: 1,
     clearcoatRoughness: 0.04,
-    flake: { density: 0.81, size: 1 / 315, spread: 0.9, color: 0xffd9c0, colorMix: 0.06 },
+    // 315 cells per em looked right on a retina display but sits past the top of the shader's
+    // fade band on a 1x one, where it smooths to a flat sheen. 120 is full strength at DPR 2 and
+    // still about two thirds at DPR 1. Density is untouched: it does not alias.
+    flake: { density: 0.81, size: 1 / 120, spread: 0.9, color: 0xffd9c0, colorMix: 0.06 },
   },
   leather: {
     color: 0x5a2f1d,
