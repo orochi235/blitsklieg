@@ -8,6 +8,7 @@ import {
   LOOKS,
   type LookName,
   type LookParams,
+  type LookSpec,
   type TintTarget,
   tintTargetOf,
 } from '../../src/render/looks.js';
@@ -180,6 +181,50 @@ describe('applyLook', () => {
     const before = material.version;
     applyLook(material, 'gem');
     expect(material.version).toBeGreaterThan(before);
+  });
+});
+
+describe('LookSpec', () => {
+  it('applies a caller spec the same way a built-in name is applied', () => {
+    const material = createMaterial();
+    applyLook(material, { metalness: 1, roughness: 0.5, color: 0x00ff00 });
+
+    expect(material.metalness).toBe(1);
+    expect(material.roughness).toBe(0.5);
+    expect(material.color.getHex()).toBe(0x00ff00);
+  });
+
+  it('fills the rest of a spec from the defaults', () => {
+    const material = createMaterial();
+    applyLook(material, { metalness: 1 });
+
+    expect(material.clearcoat).toBe(1);
+    expect(material.transmission).toBe(0);
+    expect(material.sheen).toBe(0);
+  });
+
+  it('clamps an out-of-range value rather than throwing mid-effect', () => {
+    const material = createMaterial();
+    applyLook(material, { roughness: 40, metalness: -3 });
+
+    expect(material.roughness).toBe(1);
+    expect(material.metalness).toBe(0);
+  });
+
+  it('ignores a key that is not a material param', () => {
+    const material = createMaterial();
+    expect(() =>
+      applyLook(material, { metalness: 1, nonsense: 7 } as unknown as LookSpec),
+    ).not.toThrow();
+    expect(material.metalness).toBe(1);
+  });
+
+  it('honors a declared tint target on a spec', () => {
+    const material = createMaterial();
+    applyLook(material, { sheen: 1, tintTarget: 'sheenColor' }, 0x00ff00);
+
+    expect(material.sheenColor.getHex()).toBe(0x00ff00);
+    expect(material.color.getHex()).toBe(0xffffff);
   });
 });
 

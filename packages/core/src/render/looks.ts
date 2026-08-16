@@ -123,6 +123,57 @@ export function tintTargetOf(params: LookParams, declared?: TintTarget): TintTar
   return 'color';
 }
 
+/**
+ * A material of your own, in plain numbers. No THREE type appears here: three is a peer
+ * dependency and an implementation detail, and accepting a MeshPhysicalMaterial instead would
+ * put its types in every consumer's signatures and its churn in this package's compatibility
+ * range.
+ */
+export interface LookSpec extends Partial<LookParams> {
+  tintTarget?: TintTarget;
+  /** Turns the bloom pass on for this look unless the caller says otherwise. */
+  bloom?: boolean;
+}
+
+export type Look = LookName | LookSpec;
+
+const RANGES: Partial<Record<LookKey, [number, number]>> = {
+  metalness: [0, 1],
+  roughness: [0, 1],
+  clearcoat: [0, 1],
+  clearcoatRoughness: [0, 1],
+  transmission: [0, 1],
+  iridescence: [0, 1],
+  sheen: [0, 1],
+  sheenRoughness: [0, 1],
+  anisotropy: [0, 1],
+  thickness: [0, Number.POSITIVE_INFINITY],
+  attenuationDistance: [0, Number.POSITIVE_INFINITY],
+  emissiveIntensity: [0, Number.POSITIVE_INFINITY],
+  ior: [1, 2.333],
+  iridescenceIOR: [1, 5],
+  dispersion: [0, 10],
+};
+
+const PARAM_KEYS = Object.keys(DEFAULTS) as LookKey[];
+
+export function specOf(look: Look): LookSpec {
+  return typeof look === 'string' ? LOOKS[look] : look;
+}
+
+/** Out of range clamps rather than throws: a bad number should dull a material, not kill an effect. */
+function resolveParams(spec: LookSpec): LookParams {
+  const params = { ...DEFAULTS };
+  for (const key of PARAM_KEYS) {
+    const value = spec[key];
+    if (value === undefined) continue;
+    const range = RANGES[key];
+    (params[key] as unknown) =
+      range && typeof value === 'number' ? Math.min(Math.max(value, range[0]), range[1]) : value;
+  }
+  return params;
+}
+
 export function createMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({ envMapIntensity: 2.2 });
 }
@@ -131,16 +182,15 @@ export function createMaterial(): THREE.MeshPhysicalMaterial {
  * Color-valued params are THREE.Color objects. Assigning a hex number over one replaces the
  * object and the material silently stops working, so they must go through .set().
  */
-export function applyLook(
-  material: THREE.MeshPhysicalMaterial,
-  name: LookName,
-  tint?: number,
-): void {
-  const params = { ...DEFAULTS, ...LOOKS[name] };
-  if (tint !== undefined) params[tintTargetOf(params)] = tint;
+export function applyLook(material: THREE.MeshPhysicalMaterial, look: Look, tint?: number): void {
+  const spec = specOf(look);
+  const params = resolveParams(spec);
+  if (tint !== undefined) params[tintTargetOf(params, spec.tintTarget)] = tint;
   const target = material as unknown as Record<string, unknown>;
 
-  for (const key of Object.keys(params) as LookKey[]) {
+  // PARAM_KEYS rather than the resolved object's own keys: that is what drops a key a caller
+  // invented from ever reaching the material.
+  for (const key of PARAM_KEYS) {
     const value = params[key];
     if (COLOR_KEYS.has(key)) (material[key] as THREE.Color).set(value as number);
     else if (Array.isArray(value)) target[key] = [...value];
