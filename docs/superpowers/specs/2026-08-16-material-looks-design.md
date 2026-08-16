@@ -181,10 +181,21 @@ Crunchy scatters an `InstancedMesh` of chunks across the glyph surface; piping a
 a tube along the contours `glyphToShapes()` already returns. Building that plumbing once is the
 reason these are held back together rather than bolted onto 0.3.0 one at a time.
 
-One question stays open for that spec: whether neon tubing follows the glyph **outline** or the
-stroke **centerline**. Outline is nearly free from the existing contours but reads as a glowing
-rim around a fat letter. Centerline is what people picture when they hear "neon" and needs the
-glyph's medial axis, which is fragile across fonts and is a project of its own.
+**Neon tubing is that spec's lead case, not an afterthought.** What a neon sign actually is:
+glowing tube piped around selected edges of a letter volume that is itself mostly invisible.
+The `neon` look shipping here cannot be that — an emissive material shades the whole volume
+uniformly, and a solid has no edges to pipe. It stays what it is, a glowing solid.
+
+Two requirements fall out of that framing:
+
+- **The body and its decoration need independent opacity.** A mostly-transparent volume carrying
+  fully opaque tubing is the whole effect, and is also the honest way to debug the tube geometry
+  in isolation. `Word` today shares one material across every letter and drives it from a single
+  `pose.opacity`, which cannot express that.
+- **Outline, not centerline, is what piped edges want.** Tracing the silhouette is exactly what
+  `glyphToShapes()` already returns, so the cheap path is the correct one here. The medial-axis
+  problem only bites if the goal is a single bent tube forming the stroke, which is a different
+  effect from piped edges and can stay deferred.
 
 Longer-range ideas that are not look scope — precompiled single-effect builds, handwriting
 animation — are recorded under Non-goals in the root design doc.
