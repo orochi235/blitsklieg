@@ -30,7 +30,7 @@ import { createBlitsklieg } from 'blitsklieg';
 
 const bk = createBlitsklieg({ fontUrl: '/fonts/display.ttf' });
 
-await bk.fire('JACKPOT!', { enter: 'slam', active: 'sweep', exit: 'shatter', look: 'gold' });
+await bk.fire('JACKPOT!', { enter: 'slam', active: 'float', exit: 'shatter', look: 'gold' });
 
 bk.destroy();
 ```
@@ -61,7 +61,6 @@ crossfading `blendMs` across each boundary. Enter and exit run at a fixed length
 
 | name | |
 |---|---|
-| `sweep` | a highlight rakes across the letters; the word itself holds still |
 | `float` | a slow bob and yaw, as if the word were hanging |
 | `pulse` | a gentle scale breath, a few percent |
 | `shimmer` | a small yaw ripple travelling letter to letter |
@@ -84,21 +83,47 @@ crossfading `blendMs` across each boundary. Enter and exit run at a fixed length
 | `gold` | warm polished metal |
 | `chrome` | near-white mirror metal |
 | `oil` | near-black metal under an iridescent thin film |
-| `ruby` | clear red glass, lit through |
+| `gem` | clear stone, lit through, dispersing to rainbow at the edges |
+| `velvet` | deep matte nap, bright at grazing angles |
+| `neon` | glowing tube-lit sign; turns bloom on by itself |
+| `flake` | metallic car paint |
+| `glitter` | craft glitter over glue |
+| `leather` | pebbled hide |
+
+### lighting
+
+The environment is what makes metal read as metal, and it is independent of all three motion
+slots.
+
+| name | |
+|---|---|
+| `sweep` | rakes the highlight across the letters, on its own period |
+| `static` | holds the environment still |
 
 Each list is also exported as a runtime array — `ENTER_NAMES`, `ACTIVE_NAMES`, `EXIT_NAMES`,
-`LOOK_NAMES`, `POLICY_NAMES` — for building a picker.
+`LOOK_NAMES`, `LIGHTING_NAMES`, `POLICY_NAMES` — for building a picker.
 
 `tint` recolors any look to your own color, keeping everything else about the material:
 
 ```js
 await bk.fire('YOU WIN', { look: 'gold', tint: 0xff2d6f });   // pink metal
-await bk.fire('YOU WIN', { look: 'ruby', tint: 0x2dff8f });   // green glass
+await bk.fire('YOU WIN', { look: 'gem', tint: 0x2dff8f });    // green stone
 ```
 
 It goes to whichever property actually carries that look's hue. For the metals that is the base
-color; `ruby` is clear glass whose red comes from what light picks up passing *through* it, so
-tinting its base color would change nothing you could see.
+color; `gem` is clear stone whose red comes from what light picks up passing *through* it, and
+`neon` is a near-black body whose color is entirely its glow, so tinting either one's base color
+would change nothing you could see.
+
+`look` also takes a plain object instead of a name, for a material of your own:
+
+```js
+await bk.fire('YOU WIN', { look: { metalness: 1, roughness: 0.3, color: 0x00e5ff } });
+```
+
+Every field is a number, so nothing about three appears in your types. Out-of-range values clamp
+rather than throw. `tintTarget` overrides which channel `tint` writes to when the default
+routing guesses wrong.
 
 ## Writing your own motion
 
@@ -116,7 +141,7 @@ const swoop = transition(800, {
 await bk.fire('YOU WIN', { enter: swoop, active: ['float', 'shimmer'] });
 ```
 
-Names and pieces mix freely in a layered slot — `active: ['sweep', myShimmer]`.
+Names and pieces mix freely in a layered slot — `active: ['float', myShimmer]`.
 
 A `MotionPiece` is `{ duration, offset(t, letter) }` where `offset` returns a *relative* pose —
 position and rotation add onto rest, scale and opacity multiply. It must be a **pure function**:
@@ -133,7 +158,7 @@ measuring it radially over a multiline block.
 
 `cycle(duration, spec)` builds a looping idle from a per-channel `amplitude`, an optional
 `harmonic`, and a `phase` function. `envRotation: true` rakes the environment highlight instead
-of moving the letters, which is what `sweep` does.
+of moving the letters, and overrides the `lighting` option for as long as that piece is active.
 
 `spring({ stiffness, damping, mass })` returns a curve, not an animation — it is the closed-form
 solution, so it stays a pure `(t) => number` and can go anywhere an easing goes.
@@ -163,13 +188,14 @@ const bounce = transition(700, { from: { scale: 0 }, ease: easeElasticOut });
 | field | default | |
 |---|---|---|
 | `enter` | `'slam'` | how it arrives — a name, your own piece, or an array of them |
-| `active` | `'sweep'` | what it does while it holds |
+| `active` | `'none'` | what it does while it holds |
 | `exit` | `'fade'` | how it leaves |
-| `look` | `'gold'` | the material |
+| `look` | `'gold'` | the material — a name, or a spec of your own |
+| `lighting` | `'sweep'` | how the environment lights it |
 | `tint` | none | recolors the look, as `0xff2d6f` |
 | `hold` | `1200` | milliseconds in the active phase, or `'click'` to hold until dismissed |
 | `blendMs` | `120` | crossfade window straddling each phase boundary |
-| `bloom` | `false` | adds a glow pass, at the cost of three render targets while the effect runs |
+| `bloom` | look's choice | adds a glow pass, at the cost of three render targets while the effect runs |
 | `wrap` | `false` | break long text into the arrangement that renders largest |
 | `modal` | `false` | with `hold: 'click'`, let the overlay swallow the dismissing click |
 | `placement` | `{ kind: 'fullscreen' }` | accepted but unread in v0; the overlay is always fullscreen |
@@ -203,8 +229,8 @@ one state in which blitsklieg is not click-through, which is why Escape is alway
 
 - `queue` — effects play one at a time, in the order fired.
 - `replace` — a new fire aborts the running effect and drops anything still waiting.
-- `concurrent` — effects play on top of each other. Avoid it with `sweep`: the live effects
-  fight over the one shared highlight and it sawtooths between their phases.
+- `concurrent` — effects play on top of each other. Avoid it with `lighting: 'sweep'`: the live
+  effects fight over the one shared highlight and it sawtooths between their phases.
 
 ## Browser support
 

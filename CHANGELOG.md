@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.0
+
+### Breaking
+
+`ruby` is now `gem`, with no alias. It also gained `dispersion`, which splits transmitted light
+into rainbow fringes at the edges — the reason the name changed.
+
+`sweep` has left `active`, and `active` now defaults to `'none'`. It never contributed a
+transform; it existed only to tell the stage to rotate the environment. Living in a motion slot
+also meant its period came from whatever the longest layered sibling happened to be, so
+`active: ['float', 'sweep']` silently stretched its tuned 3400ms to 5200ms.
+
+The minimum Node version is now 24.
+
+### Lighting
+
+`lighting` is its own option, orthogonal to all three motion slots and running across the whole
+timeline rather than the active phase. `sweep` rakes the highlight on its own period, `static`
+holds the environment still. It defaults to `sweep`, so the type stays lit whatever the motion
+is doing.
+
+A piece built with `cycle({ envRotation: true })` still drives the environment, and overrides
+the option while it is active.
+
+### Six looks
+
+`velvet` is a matte nap that lights up at grazing angles. `neon` glows, and turns the bloom pass
+on by itself unless you pass `bloom: false`. `flake`, `glitter` and `leather` share one
+procedural shader that hashes object-space position into cells: fine facets for car paint, large
+irregular ones for craft glitter, rounded ones for hide. Cell centres are jittered — a plain
+lattice sliced by a flat glyph face reads as a pixel mosaic at any scale.
+
+Each letter seeds its own flake field, so repeated letters do not sparkle in lockstep.
+
+### Materials of your own
+
+`look` now takes a plain object as well as a name — every field a number, no three types in your
+signatures. Out-of-range values clamp rather than throw. `tintTarget` overrides which channel
+`tint` writes to when the default routing guesses wrong.
+
 ## 0.2.1
 
 ### Fixed
