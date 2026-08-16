@@ -627,7 +627,7 @@ describe('published name lists', () => {
     expect(ENTER_NAMES).toEqual(['slam', 'spin', 'flip', 'assemble', 'rise', 'none']);
     expect(ACTIVE_NAMES).toEqual(['sweep', 'float', 'pulse', 'shimmer', 'none']);
     expect(EXIT_NAMES).toEqual(['shatter', 'drop', 'recede', 'fade', 'none']);
-    expect(LOOK_NAMES).toEqual(['gold', 'chrome', 'oil', 'ruby']);
+    expect(LOOK_NAMES).toEqual(['gold', 'chrome', 'oil', 'gem']);
     expect(POLICY_NAMES).toEqual(['queue', 'replace', 'concurrent']);
   });
 });

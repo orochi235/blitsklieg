@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type LookName = 'gold' | 'chrome' | 'oil' | 'ruby';
+export type LookName = 'gold' | 'chrome' | 'oil' | 'gem';
 
 /** Extract silently drops a name that is not a real material property, so a typo fails DEFAULTS. */
 type LookKey = Extract<
@@ -74,7 +74,7 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
     iridescenceIOR: 1.8,
     iridescenceThicknessRange: [100, 640],
   },
-  ruby: {
+  gem: {
     color: 0xffffff,
     roughness: 0.06,
     transmission: 1,
@@ -83,13 +83,14 @@ export const LOOKS: Record<LookName, Partial<LookParams>> = {
     attenuationColor: 0xd4143c,
     attenuationDistance: 0.6,
     clearcoatRoughness: 0.03,
+    dispersion: 4,
   },
 };
 
 export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor', 'sheenColor', 'emissive']);
 
 /**
- * Which property carries each look's hue. Not always `color`: `ruby` is clear glass at
+ * Which property carries each look's hue. Not always `color`: `gem` is clear stone at
  * `color: 0xffffff`, and its red is what light picks up passing through it. Tinting `color`
  * there changes nothing visible.
  */
@@ -97,7 +98,7 @@ const HUE_KEY: Record<LookName, 'color' | 'attenuationColor'> = {
   gold: 'color',
   chrome: 'color',
   oil: 'color',
-  ruby: 'attenuationColor',
+  gem: 'attenuationColor',
 };
 
 export function createMaterial(): THREE.MeshPhysicalMaterial {

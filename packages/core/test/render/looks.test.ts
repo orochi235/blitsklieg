@@ -33,7 +33,7 @@ const KEY_SET: Record<keyof LookParams, true> = {
   emissiveIntensity: true,
 };
 const KEYS = Object.keys(KEY_SET) as (keyof LookParams)[];
-const NAMES: LookName[] = ['gold', 'chrome', 'oil', 'ruby'];
+const NAMES: LookName[] = ['gold', 'chrome', 'oil', 'gem'];
 
 function snapshot(material: THREE.MeshPhysicalMaterial): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -66,6 +66,10 @@ describe('LOOKS', () => {
   it('turns clearcoat off for oil, since a coat above the thin film flattens it', () => {
     expect(withLook('oil').clearcoat).toBe(0);
     expect(withLook('oil').iridescence).toBe(1);
+  });
+
+  it('gives gem dispersion, which is what separates a stone from red glass', () => {
+    expect(withLook('gem').dispersion).toBeGreaterThan(0);
   });
 });
 
@@ -107,8 +111,8 @@ describe('applyLook', () => {
     expect(snapshot(reused)).toEqual(snapshot(withLook(name)));
   });
 
-  it('leaves no transmission, thickness or attenuation behind when ruby is replaced', () => {
-    const material = withLook('ruby');
+  it('leaves no transmission, thickness or attenuation behind when gem is replaced', () => {
+    const material = withLook('gem');
     expect(material.transmission).toBe(1);
     expect(material.thickness).toBe(1.4);
     expect(material.attenuationDistance).toBe(0.6);
@@ -118,6 +122,7 @@ describe('applyLook', () => {
     expect(material.thickness).toBe(0);
     expect(material.attenuationDistance).toBe(Number.POSITIVE_INFINITY);
     expect(material.attenuationColor.getHex()).toBe(0xffffff);
+    expect(material.dispersion).toBe(0);
   });
 
   it('leaves no iridescence behind when oil is replaced', () => {
@@ -130,7 +135,7 @@ describe('applyLook', () => {
   });
 
   it('sets color-valued params through .set(), keeping the Color object', () => {
-    const material = withLook('ruby');
+    const material = withLook('gem');
     expect(material.color).toBeInstanceOf(THREE.Color);
     expect(material.attenuationColor).toBeInstanceOf(THREE.Color);
     expect(material.color.getHex()).toBe(0xffffff);
@@ -155,7 +160,7 @@ describe('applyLook', () => {
   it('marks the material for recompile, since transmission and iridescence change the program', () => {
     const material = createMaterial();
     const before = material.version;
-    applyLook(material, 'ruby');
+    applyLook(material, 'gem');
     expect(material.version).toBeGreaterThan(before);
   });
 });
@@ -170,9 +175,9 @@ describe('tint', () => {
     expect(hex(material.color)).toBe(0xff2d6f);
   });
 
-  it('recolors ruby through attenuation, which is where its hue actually lives', () => {
+  it('recolors gem through attenuation, which is where its hue actually lives', () => {
     const material = createMaterial();
-    applyLook(material, 'ruby', 0x2dff8f);
+    applyLook(material, 'gem', 0x2dff8f);
 
     expect(hex(material.attenuationColor)).toBe(0x2dff8f);
     // Clear glass: tinting the base color instead would have changed nothing visible.

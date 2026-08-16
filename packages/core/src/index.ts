@@ -85,7 +85,7 @@ export interface FireOptions {
   look?: LookName;
   /**
    * Recolors the look, as `0xff2d6f`. Routed to whichever property carries that look's hue —
-   * `ruby` is clear glass whose red comes from what light picks up passing through it, so
+   * `gem` is clear stone whose red comes from what light picks up passing through it, so
    * tinting its base color would do nothing.
    */
   tint?: number;
