@@ -6,6 +6,7 @@ import { EXIT } from './motion/exit.js';
 import type { ActiveName, EnterName, ExitName, MotionPiece } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
 import { BloomPath } from './render/bloom.js';
+import { envRotationAt, LIGHTING, type LightingName } from './render/lighting.js';
 import { LOOKS, type Look, type LookName, type LookSpec, specOf } from './render/looks.js';
 import { prefersReducedMotion, Stage, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
@@ -34,7 +35,17 @@ export { stagger } from './motion/types.js';
 export type { Pose, PoseOffset, Vec3 } from './pose.js';
 export { POLICY_NAMES } from './queue.js';
 export type { LookParams, TintTarget } from './render/looks.js';
-export type { ActiveName, Clock, EnterName, ExitName, Look, LookName, LookSpec, QueuePolicy };
+export type {
+  ActiveName,
+  Clock,
+  EnterName,
+  ExitName,
+  LightingName,
+  Look,
+  LookName,
+  LookSpec,
+  QueuePolicy,
+};
 
 // Read off the records the effect itself indexes. Those are typed exhaustive over the unions,
 // so a name cannot be added, renamed or dropped without these lists following it.
@@ -42,6 +53,7 @@ export const ENTER_NAMES: readonly EnterName[] = Object.keys(ENTER) as EnterName
 export const ACTIVE_NAMES: readonly ActiveName[] = Object.keys(ACTIVE) as ActiveName[];
 export const EXIT_NAMES: readonly ExitName[] = Object.keys(EXIT) as ExitName[];
 export const LOOK_NAMES: readonly LookName[] = Object.keys(LOOKS) as LookName[];
+export const LIGHTING_NAMES: readonly LightingName[] = Object.keys(LIGHTING) as LightingName[];
 
 const TAU = Math.PI * 2;
 
@@ -90,6 +102,8 @@ export interface FireOptions {
   exit?: ExitSlot;
   /** A built-in name, or a material of your own as plain numbers. */
   look?: Look;
+  /** How the environment lights the type. `sweep` rakes the highlight, `static` holds it still. */
+  lighting?: LightingName;
   /**
    * Recolors the look, as `0xff2d6f`. Routed to whichever property carries that look's hue —
    * `gem` is clear stone whose red comes from what light picks up passing through it, so
@@ -163,7 +177,8 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     stage.scene.add(word.group);
 
     const enter = resolveSlot(opts.enter ?? 'slam', ENTER);
-    const active = resolveSlot(opts.active ?? 'sweep', ACTIVE);
+    const active = resolveSlot(opts.active ?? 'none', ACTIVE);
+    const lighting = opts.lighting ?? 'sweep';
     const envDriven = slotDrivesEnv(active);
     const hold = opts.hold ?? 1200;
     const untilClick = hold === 'click';
@@ -233,11 +248,11 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
           const elapsed = Math.min(Math.max(still ? settled : since, 0), timeline.duration);
           word.apply(timeline, elapsed);
 
-          // Effect-relative and zeroed off-sweep: absolute clock time would start every sweep at
-          // an arbitrary angle and leave the last one's angle behind on the next effect.
+          // A caller piece declaring envRotation wins: it is the more specific choice, and it
+          // carries its own duration as the period.
           stage.scene.environmentRotation.y = envDriven
             ? (elapsed / Math.max(1, slotDuration(active))) * TAU
-            : 0;
+            : envRotationAt(lighting, elapsed);
 
           if (bloom) {
             bloom.render(stage.scene, stage.camera);

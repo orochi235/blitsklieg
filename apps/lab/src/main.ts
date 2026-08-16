@@ -5,6 +5,7 @@ import {
   ENTER_NAMES,
   EXIT_NAMES,
   type FireOptions,
+  LIGHTING_NAMES,
   LOOK_NAMES,
   POLICY_NAMES,
 } from 'blitsklieg';
@@ -35,6 +36,7 @@ const enter = choice('enter', ENTER_NAMES);
 const active = choice('active', ACTIVE_NAMES);
 const exit = choice('exit', EXIT_NAMES);
 const look = choice('look', LOOK_NAMES);
+const lighting = choice('lighting', LIGHTING_NAMES);
 const policy = choice('policy', POLICY_NAMES);
 
 const textInput = el<HTMLTextAreaElement>('text');
@@ -66,6 +68,7 @@ function fire(text: string): void {
     active: active.get(),
     exit: exit.get(),
     look: look.get(),
+    lighting: lighting.get(),
     tint: tintOnInput.checked ? Number.parseInt(tintInput.value.slice(1), 16) : undefined,
     hold: holdClickInput.checked ? 'click' : number('hold'),
     blendMs: number('blend'),
@@ -103,7 +106,7 @@ const SEQUENCES: { name: string; steps: Step[] }[] = [
       text: name.toUpperCase(),
       look: name,
       enter: 'rise',
-      active: 'sweep',
+      active: 'none',
       exit: 'recede',
       hold: 900,
     })),
@@ -117,7 +120,7 @@ const SEQUENCES: { name: string; steps: Step[] }[] = [
       {
         text: 'JACKPOT!',
         enter: 'slam',
-        active: 'sweep',
+        active: 'none',
         exit: 'shatter',
         look: 'gold',
         hold: 2400,

@@ -74,8 +74,9 @@ describe('motion golden', () => {
   });
 
   it('samples every piece the library ships', () => {
-    // Thirteen real pieces plus the shared `none` under each of the three slots.
-    expect(Object.keys(capture())).toHaveLength(16);
+    // Twelve real pieces plus the shared `none` under each of the three slots. `sweep` left the
+    // vocabulary when lighting became its own option; it never contributed a transform.
+    expect(Object.keys(capture())).toHaveLength(15);
   });
 
   it('pins durations too, which the offset samples cannot see', () => {
@@ -92,7 +93,6 @@ describe('motion golden', () => {
       'enter.assemble': 1200,
       'enter.rise': 900,
       'enter.none': 0,
-      'active.sweep': 3400,
       'active.float': 5200,
       'active.pulse': 1600,
       'active.shimmer': 2600,

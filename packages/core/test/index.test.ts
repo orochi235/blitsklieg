@@ -8,6 +8,7 @@ import {
   createBlitsklieg,
   ENTER_NAMES,
   EXIT_NAMES,
+  LIGHTING_NAMES,
   LOOK_NAMES,
   POLICY_NAMES,
   wantsBloom,
@@ -334,7 +335,7 @@ describe('createBlitsklieg', () => {
   it('holds the pose the enter settles into under reduced motion', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true }));
     const bk = create();
-    const done = bk.fire('HI', { enter: 'slam', active: 'sweep', exit: 'fade', hold: 100 });
+    const done = bk.fire('HI', { enter: 'slam', active: 'none', exit: 'fade', hold: 100 });
 
     await flush();
     clock.advance(16);
@@ -351,9 +352,9 @@ describe('createBlitsklieg', () => {
     expect(calls).toEqual(['mount', 'idle']);
   });
 
-  it('turns the environment once per sweep pass', async () => {
+  it('turns the environment once per sweep pass, on its own period', async () => {
     const bk = create();
-    const done = bk.fire('HI', { ...INSTANT, active: 'sweep', hold: 3400 });
+    const done = bk.fire('HI', { ...INSTANT, hold: 3400 });
 
     await flush();
     clock.advance(850);
@@ -363,21 +364,33 @@ describe('createBlitsklieg', () => {
     await done;
   });
 
-  it('restarts the sweep per effect and zeroes the environment for pieces that do not drive it', async () => {
+  it('keeps the sweep period off the active slot, which used to stretch it', async () => {
     const bk = create();
-    const first = bk.fire('HI', { ...INSTANT, active: 'sweep', hold: 1700 });
+    // float runs 5200ms. Under the old wiring its duration became the sweep's period.
+    const done = bk.fire('HI', { ...INSTANT, active: 'float', hold: 850 });
+
+    await flush();
+    clock.advance(850);
+    expect(stage().scene.environmentRotation.y).toBeCloseTo(TAU / 4, 6);
+
+    await done;
+  });
+
+  it('restarts the sweep per effect and holds the environment still for static', async () => {
+    const bk = create();
+    const first = bk.fire('HI', { ...INSTANT, hold: 1700 });
     await flush();
     clock.advance(1700);
     await first;
 
-    const second = bk.fire('HI', { ...INSTANT, active: 'sweep', hold: 16 });
+    const second = bk.fire('HI', { ...INSTANT, hold: 16 });
     await flush();
     clock.advance(16);
     // Absolute clock time would land near TAU / 2 here, wherever the last effect left off.
     expect(stage().scene.environmentRotation.y).toBeCloseTo((16 / 3400) * TAU, 6);
     await second;
 
-    const third = bk.fire('HI', { ...INSTANT, active: 'float' });
+    const third = bk.fire('HI', { ...INSTANT, lighting: 'static' });
     await flush();
     clock.advance(16);
     await third;
@@ -626,7 +639,8 @@ describe('published name lists', () => {
   // left to pin is the order a picker shows and the fact that dropping one is a breaking change.
   it('lists every name a consumer can fire with, motion-first', () => {
     expect(ENTER_NAMES).toEqual(['slam', 'spin', 'flip', 'assemble', 'rise', 'none']);
-    expect(ACTIVE_NAMES).toEqual(['sweep', 'float', 'pulse', 'shimmer', 'none']);
+    expect(ACTIVE_NAMES).toEqual(['float', 'pulse', 'shimmer', 'none']);
+    expect(LIGHTING_NAMES).toEqual(['sweep', 'static']);
     expect(EXIT_NAMES).toEqual(['shatter', 'drop', 'recede', 'fade', 'none']);
     expect(LOOK_NAMES).toEqual([
       'gold',
@@ -731,20 +745,34 @@ describe('caller-supplied motion', () => {
     expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
   });
 
-  it('leaves the environment alone for an active piece that does not drive it', async () => {
+  it('falls back to the lighting mode for a piece that does not drive the environment', async () => {
     const plain = { duration: 1000, offset: () => ({}) };
 
     const bk = create();
-    void bk.fire('HI', { enter: 'none', active: plain, exit: 'none', hold: 1000 });
+    void bk.fire('HI', {
+      enter: 'none',
+      active: plain,
+      exit: 'none',
+      hold: 1000,
+      lighting: 'static',
+    });
     await flush();
     clock.advance(500);
 
     expect(stage().scene.environmentRotation.y).toBe(0);
   });
 
-  it('still rakes for the built-in sweep, which callers name rather than construct', async () => {
+  it('lets a driving piece override the lighting mode, being the more specific choice', async () => {
+    const raker = { duration: 1000, offset: () => ({}), envRotation: true };
+
     const bk = create();
-    void bk.fire('HI', { enter: 'none', active: 'sweep', exit: 'none', hold: 1000 });
+    void bk.fire('HI', {
+      enter: 'none',
+      active: raker,
+      exit: 'none',
+      hold: 1000,
+      lighting: 'static',
+    });
     await flush();
     clock.advance(500);
 
@@ -759,8 +787,7 @@ describe('mixed name and piece slots', () => {
     const bk = create();
     void bk.fire('HI', {
       enter: 'none',
-      // 'sweep' contributes no transform but drives the environment; the piece supplies the move.
-      active: ['sweep', lift],
+      active: ['pulse', lift],
       exit: 'none',
       hold: 1000,
       blendMs: 0,
@@ -770,14 +797,13 @@ describe('mixed name and piece slots', () => {
 
     // A bare string left unresolved makes duration NaN, which collapses the pose to rest.
     expect(firstMesh().position.y).toBeCloseTo(1, 6);
-    expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
   });
 
   it('keeps a layered slot of names alone working', async () => {
     const bk = create();
     void bk.fire('HI', {
       enter: 'none',
-      active: ['sweep', 'float'],
+      active: ['pulse', 'float'],
       exit: 'none',
       hold: 1000,
       blendMs: 0,
@@ -786,6 +812,5 @@ describe('mixed name and piece slots', () => {
     clock.advance(500);
 
     expect(Number.isNaN(firstMesh().position.y)).toBe(false);
-    expect(stage().scene.environmentRotation.y).toBeGreaterThan(0);
   });
 });

@@ -103,9 +103,9 @@ describe('motion name unions are complete', () => {
     expect(names.length).toBe(6);
   });
 
-  it('ActiveName has the expected 5 members', () => {
-    const names: ActiveName[] = ['sweep', 'float', 'pulse', 'shimmer', 'none'];
-    expect(names.length).toBe(5);
+  it('ActiveName has the expected 4 members', () => {
+    const names: ActiveName[] = ['float', 'pulse', 'shimmer', 'none'];
+    expect(names.length).toBe(4);
   });
 
   it('ExitName has the expected 5 members', () => {

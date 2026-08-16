@@ -4,10 +4,6 @@ import { NONE } from './types.js';
 
 const TAU = Math.PI * 2;
 
-// `sweep` contributes no transform. It exists so the stage knows to rotate the environment,
-// which is what actually rakes the highlight across the letters.
-const sweep = cycle(3400, { envRotation: true });
-
 const float = cycle(5200, {
   amplitude: { position: [0, 0.12, 0], rotation: [0.03, 0.1, 0] },
   // Rotation-x runs at double rate against the fundamental, and that beat is the whole character
@@ -23,12 +19,8 @@ const shimmer = cycle(2600, {
 });
 
 export const ACTIVE: Record<ActiveName, MotionPiece> = {
-  sweep,
   float,
   pulse,
   shimmer,
   none: NONE,
 };
-
-/** Active pieces that drive the environment rather than the transform. */
-export const ENV_DRIVEN: ReadonlySet<ActiveName> = new Set<ActiveName>(['sweep']);
