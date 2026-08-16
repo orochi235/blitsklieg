@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitScale, layoutBlock, layoutLine } from '../../src/text/layout.js';
+import { fitScale, layoutBlock, layoutLine, wrapBlock } from '../../src/text/layout.js';
 
 // Every glyph is 10 wide; the pair A|V is kerned 3 tighter.
 const metrics = {
@@ -90,6 +90,58 @@ describe('layoutBlock', () => {
     const block = layoutBlock('AB\nCD', metrics);
     expect(block.lines[1]?.glyphs.map((g) => g.index)).toEqual([0, 1]);
     expect(block.lines[1]?.glyphs.map((g) => g.x)).toEqual([0, 10]);
+  });
+});
+
+describe('wrapBlock', () => {
+  const UPEM = 1000;
+  const ROOMY = { width: 100000, height: 100000 };
+  /** Room for about two glyphs across, and plenty of height. */
+  const tight = { width: 25, height: 100000 };
+
+  const chars = (block: { lines: { glyphs: { char: string }[] }[] }) =>
+    block.lines.map((l) => l.glyphs.map((g) => g.char).join(''));
+
+  it('keeps one line when the budget is roomy', () => {
+    expect(wrapBlock('A B', metrics, ROOMY, UPEM).lines).toHaveLength(1);
+  });
+
+  it('breaks at word boundaries when that renders larger', () => {
+    const block = wrapBlock('AA BB CC', metrics, tight, UPEM);
+    expect(block.lines.length).toBeGreaterThan(1);
+    for (const line of block.lines) expect(line.width).toBeLessThanOrEqual(25);
+  });
+
+  it('never splits a single word', () => {
+    expect(wrapBlock('AAAAAA', metrics, tight, UPEM).lines).toHaveLength(1);
+  });
+
+  it('honors explicit newlines and wraps underneath them', () => {
+    const block = wrapBlock('A\nBB CC', metrics, tight, UPEM);
+    expect(block.lines.length).toBeGreaterThanOrEqual(2);
+    expect(chars(block)[0]).toBe('A');
+  });
+
+  it('picks the same arrangement whatever the units per em', () => {
+    const scaled = {
+      advanceOf: (ch: string) => (ch === ' ' ? 5 * 2.048 : 10 * 2.048),
+      kernOf: (a: string, b: string) => (a === 'A' && b === 'V' ? -3 * 2.048 : 0),
+    };
+    const at1000 = wrapBlock('AA BB CC', metrics, tight, 1000);
+    const at2048 = wrapBlock('AA BB CC', scaled, { width: 25 * 2.048, height: 100000 }, 2048);
+    expect(chars(at2048)).toEqual(chars(at1000));
+  });
+
+  it('collapses runs of whitespace', () => {
+    expect(chars(wrapBlock('A   B', metrics, ROOMY, UPEM))[0]).toBe('A B');
+  });
+
+  it('an empty string is a single empty line', () => {
+    expect(wrapBlock('', metrics, tight, UPEM).lines).toHaveLength(1);
+  });
+
+  it('keeps a blank line between two segments', () => {
+    expect(wrapBlock('A\n\nB', metrics, ROOMY, UPEM).lines).toHaveLength(3);
   });
 });
 
