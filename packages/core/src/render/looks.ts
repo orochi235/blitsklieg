@@ -7,7 +7,16 @@ import {
   writeFlakeUniforms,
 } from './flake.js';
 
-export type LookName = 'gold' | 'chrome' | 'oil' | 'gem' | 'velvet' | 'neon';
+export type LookName =
+  | 'gold'
+  | 'chrome'
+  | 'oil'
+  | 'gem'
+  | 'velvet'
+  | 'neon'
+  | 'flake'
+  | 'glitter'
+  | 'leather';
 
 /** Extract silently drops a name that is not a real material property, so a typo fails DEFAULTS. */
 type LookKey = Extract<
@@ -110,6 +119,32 @@ export const LOOKS: Record<LookName, LookSpec> = {
     emissive: 0xff2d95,
     emissiveIntensity: 3.2,
     bloom: true,
+  },
+  flake: {
+    color: 0x8a1c2b,
+    metalness: 0.9,
+    roughness: 0.28,
+    clearcoat: 1,
+    clearcoatRoughness: 0.04,
+    flake: { density: 0.35, size: 0.012, spread: 0.35, color: 0xffd9c0 },
+  },
+  glitter: {
+    color: 0xf6f2ea,
+    metalness: 0.25,
+    roughness: 0.55,
+    clearcoat: 0.4,
+    clearcoatRoughness: 0.2,
+    flake: { density: 0.6, size: 0.045, spread: 0.85, color: 0xff5ecb },
+  },
+  leather: {
+    color: 0x5a2f1d,
+    metalness: 0,
+    roughness: 0.72,
+    clearcoat: 0.25,
+    clearcoatRoughness: 0.5,
+    sheen: 0.35,
+    sheenColor: 0xd8a071,
+    flake: { density: 1, size: 0.03, spread: 0.22, bump: true },
   },
 };
 

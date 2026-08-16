@@ -362,3 +362,43 @@ describe('Word as a block', () => {
     expect(meshes(word)).toHaveLength(2);
   });
 });
+
+describe('flake seeding', () => {
+  const seedOf = (mesh: THREE.Mesh) =>
+    (mesh.geometry.getAttribute('aSeed').array as Float32Array)[0];
+
+  it('gives each letter its own seed, or repeated letters sparkle in lockstep', () => {
+    const word = new Word('AA', stubFont(), 'flake', ROOMY);
+    const seeds = meshes(word).map(seedOf);
+
+    expect(seeds).toHaveLength(2);
+    expect(seeds[0]).not.toBe(seeds[1]);
+  });
+
+  it('carries one seed value across every vertex of a letter', () => {
+    const word = new Word('A', stubFont(), 'flake', ROOMY);
+    const attribute = (meshes(word)[0] as THREE.Mesh).geometry.getAttribute('aSeed');
+    const values = new Set(attribute.array as Float32Array);
+
+    expect(attribute.count).toBe(
+      (meshes(word)[0] as THREE.Mesh).geometry.getAttribute('position').count,
+    );
+    expect(values.size).toBe(1);
+  });
+
+  it('leaves the cached geometry untouched, since the cache owns it', () => {
+    const word = new Word('AA', stubFont(), 'flake', ROOMY);
+    const [first, second] = meshes(word);
+
+    expect((first as THREE.Mesh).geometry).not.toBe((second as THREE.Mesh).geometry);
+  });
+
+  it('disposes the per-letter clones it created', () => {
+    const word = new Word('AB', stubFont(), 'flake', ROOMY);
+    const spies = meshes(word).map((m) => vi.spyOn(m.geometry, 'dispose'));
+
+    word.dispose();
+
+    for (const spy of spies) expect(spy).toHaveBeenCalled();
+  });
+});

@@ -18,7 +18,6 @@ export interface FlakeUniforms {
   uFlakeSpread: THREE.IUniform<number>;
   uFlakeBump: THREE.IUniform<number>;
   uFlakeColor: THREE.IUniform<THREE.Color>;
-  uSeed: THREE.IUniform<number>;
 }
 
 export function createFlakeUniforms(): FlakeUniforms {
@@ -28,8 +27,24 @@ export function createFlakeUniforms(): FlakeUniforms {
     uFlakeSpread: { value: 0.4 },
     uFlakeBump: { value: 0 },
     uFlakeColor: { value: new THREE.Color(0xffffff) },
-    uSeed: { value: 0 },
   };
+}
+
+/**
+ * Per-letter decorrelation rides a vertex attribute, not a uniform. One material is shared
+ * across every letter, and `uniformsNeedUpdate` is a ShaderMaterial flag that a
+ * MeshPhysicalMaterial does not have — there is no per-draw uniform channel to use.
+ */
+export const SEED_ATTRIBUTE = 'aSeed';
+
+export function seedGeometry(source: THREE.BufferGeometry, seed: number): THREE.BufferGeometry {
+  const geo = source.clone();
+  const count = geo.attributes.position?.count ?? 0;
+  geo.setAttribute(
+    SEED_ATTRIBUTE,
+    new THREE.BufferAttribute(new Float32Array(count).fill(seed), 1),
+  );
+  return geo;
 }
 
 export function writeFlakeUniforms(u: FlakeUniforms, spec: FlakeSpec | undefined): void {
@@ -47,8 +62,8 @@ uniform float uFlakeSize;
 uniform float uFlakeSpread;
 uniform float uFlakeBump;
 uniform vec3 uFlakeColor;
-uniform float uSeed;
 varying vec3 vFlakePos;
+varying float vSeed;
 
 vec3 bkHash3(vec3 p) {
   p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
@@ -57,7 +72,7 @@ vec3 bkHash3(vec3 p) {
   return fract(sin(p) * 43758.5453123) * 2.0 - 1.0;
 }
 
-vec3 bkCellCoord() { return vFlakePos / uFlakeSize + uSeed; }
+vec3 bkCellCoord() { return vFlakePos / uFlakeSize + vSeed; }
 
 float bkIsFlake(vec3 rnd) { return step(1.0 - uFlakeDensity, rnd.x * 0.5 + 0.5); }
 `;
@@ -95,10 +110,11 @@ export interface PatchableShader {
 export function patchForFlakes(shader: PatchableShader, uniforms: FlakeUniforms): void {
   Object.assign(shader.uniforms, uniforms);
 
-  shader.vertexShader = `varying vec3 vFlakePos;\n${shader.vertexShader}`.replace(
-    '#include <begin_vertex>',
-    '#include <begin_vertex>\nvFlakePos = transformed;',
-  );
+  shader.vertexShader =
+    `attribute float ${SEED_ATTRIBUTE};\nvarying vec3 vFlakePos;\nvarying float vSeed;\n${shader.vertexShader}`.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>\nvFlakePos = transformed;\nvSeed = ${SEED_ATTRIBUTE};`,
+    );
 
   shader.fragmentShader = `${COMMON}${shader.fragmentShader}`
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${PERTURB}`)

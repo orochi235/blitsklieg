@@ -4,6 +4,7 @@ import {
   createFlakeUniforms,
   type FlakeUniforms,
   patchForFlakes,
+  seedGeometry,
   writeFlakeUniforms,
 } from '../../src/render/flake.js';
 
@@ -27,7 +28,29 @@ describe('createFlakeUniforms', () => {
   });
 
   it('gives each material its own uniform objects', () => {
-    expect(createFlakeUniforms().uSeed).not.toBe(createFlakeUniforms().uSeed);
+    expect(createFlakeUniforms().uFlakeDensity).not.toBe(createFlakeUniforms().uFlakeDensity);
+  });
+});
+
+describe('seedGeometry', () => {
+  it('clones rather than writing the seed onto the cached original', () => {
+    const source = new THREE.BufferGeometry();
+    source.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+
+    const seeded = seedGeometry(source, 4.5);
+
+    expect(seeded).not.toBe(source);
+    expect(source.getAttribute('aSeed')).toBeUndefined();
+  });
+
+  it('gives every vertex the same seed', () => {
+    const source = new THREE.BufferGeometry();
+    source.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+
+    const attribute = seedGeometry(source, 4.5).getAttribute('aSeed');
+
+    expect(attribute.count).toBe(3);
+    expect([...(attribute.array as Float32Array)]).toEqual([4.5, 4.5, 4.5]);
   });
 });
 
@@ -75,7 +98,7 @@ describe('patchForFlakes', () => {
     patchForFlakes(shader, u);
 
     expect(shader.uniforms.uFlakeDensity).toBe(u.uFlakeDensity);
-    expect(shader.uniforms.uSeed).toBe(u.uSeed);
+    expect(shader.uniforms.uFlakeColor).toBe(u.uFlakeColor);
   });
 
   it('carries object-space position through to the fragment stage', () => {
@@ -98,8 +121,12 @@ describe('patchForFlakes', () => {
     expect(shader.fragmentShader).toContain('#include <color_fragment>');
   });
 
-  it('mixes the seed into the cell hash, or every letter sparkles alike', () => {
-    expect(patched().fragmentShader).toContain('uSeed');
+  it('mixes the per-letter seed into the cell hash, or every letter sparkles alike', () => {
+    const shader = patched();
+
+    expect(shader.vertexShader).toContain('attribute float aSeed');
+    expect(shader.vertexShader).toContain('vSeed = aSeed');
+    expect(shader.fragmentShader).toContain('vSeed');
   });
 });
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import type { FlakeSpec } from '../../src/render/flake.js';
 import {
   applyLook,
   COLOR_KEYS,
@@ -38,7 +39,17 @@ const KEY_SET: Record<keyof LookParams, true> = {
   emissiveIntensity: true,
 };
 const KEYS = Object.keys(KEY_SET) as (keyof LookParams)[];
-const NAMES: LookName[] = ['gold', 'chrome', 'oil', 'gem', 'velvet', 'neon'];
+const NAMES: LookName[] = [
+  'gold',
+  'chrome',
+  'oil',
+  'gem',
+  'velvet',
+  'neon',
+  'flake',
+  'glitter',
+  'leather',
+];
 
 function snapshot(material: THREE.MeshPhysicalMaterial): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -187,6 +198,31 @@ describe('applyLook', () => {
     const before = material.version;
     applyLook(material, 'gem');
     expect(material.version).toBeGreaterThan(before);
+  });
+});
+
+describe('flake looks', () => {
+  it('gives glitter larger, wider-tilted cells than car-paint flake', () => {
+    const flake = specOf('flake').flake as FlakeSpec;
+    const glitter = specOf('glitter').flake as FlakeSpec;
+
+    expect(glitter.size).toBeGreaterThan(flake.size);
+    expect(glitter.spread).toBeGreaterThan(flake.spread);
+  });
+
+  it('makes leather the only one with rounded cells rather than facets', () => {
+    expect((specOf('leather').flake as FlakeSpec).bump).toBe(true);
+    expect((specOf('flake').flake as FlakeSpec).bump).toBeUndefined();
+    expect((specOf('glitter').flake as FlakeSpec).bump).toBeUndefined();
+  });
+
+  it('disables the flake uniforms for a look that declares none', () => {
+    const material = createMaterial();
+    applyLook(material, 'glitter');
+    expect(material.userData.flake.uFlakeDensity.value).toBeGreaterThan(0);
+
+    applyLook(material, 'gold');
+    expect(material.userData.flake.uFlakeDensity.value).toBe(0);
   });
 });
 
