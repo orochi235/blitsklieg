@@ -128,6 +128,36 @@ request bloom via `bloom: true` in its spec; an explicit `bloom` on `FireOptions
 both directions. Without this the headline look quietly disappoints anyone who did not already
 know to pass a second option.
 
+## Lighting modes
+
+The environment rotation that rakes the highlight across the letters is what makes metal read
+as metal, and it is currently a passenger on the motion vocabulary. `sweep` is an `active` piece
+that contributes no transform at all — it exists only to set `envRotation: true`. That has two
+consequences:
+
+- Lighting costs you the `active` slot, or requires knowing to layer into it.
+- The rate is `slotDuration(active)`, a `Math.max` over the layers. `sweep` is tuned to 3400ms;
+  layered under `float` (5200ms) its period silently becomes 5200ms. The tuning is lost to
+  whichever sibling happens to be longest.
+
+Lighting becomes its own named option, orthogonal to all three motion slots and spanning the
+whole timeline rather than the active phase:
+
+```ts
+lighting?: LightingName   // 'sweep' | 'static', default 'sweep'
+```
+
+`sweep` rotates the environment on its own tuned period. `static` holds it still. `LIGHTING_NAMES`
+is exported alongside the other name lists, which is all the lab needs to show a picker.
+
+A closed union so more modes can arrive without an API break. A spec form carrying `periodMs`
+and environment intensity is the obvious extension and is not scoped here.
+
+**Migration.** `sweep` leaves `ActiveName` — it was never a transform, and the option replaces
+it. `active` therefore defaults to `'none'` rather than `'sweep'`, which renders the same picture
+under an honest model. `cycle({ envRotation: true })` stays public so a caller-built piece can
+still drive the environment.
+
 ## Testing
 
 - **Param-only looks** extend the existing `looks.test.ts` snapshot approach. `KEY_SET` grows

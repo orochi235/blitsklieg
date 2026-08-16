@@ -1328,6 +1328,141 @@ git commit -m "pin the nine looks with visual baselines"
 
 ---
 
+---
+
+### Task 14: Promote lighting to its own named option
+
+`sweep` is an `active` piece that contributes no transform — it only sets `envRotation: true`. Its period is `slotDuration(active)`, a `Math.max` over the layers, so layering it under `float` stretches its tuned 3400ms to 5200ms.
+
+**Files:**
+- Create: `packages/core/src/render/lighting.ts`
+- Modify: `packages/core/src/motion/active.ts` (drop `sweep`, drop `ENV_DRIVEN`)
+- Modify: `packages/core/src/motion/types.ts` (`ActiveName` loses `'sweep'`)
+- Modify: `packages/core/src/index.ts` (`lighting` option, `LIGHTING_NAMES`, env rotation)
+- Test: `packages/core/test/render/lighting.test.ts`, `packages/core/test/index.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/core/test/render/lighting.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { LIGHTING, type LightingName, envRotationAt } from '../../src/render/lighting.js';
+
+const NAMES: LightingName[] = ['sweep', 'static'];
+const TAU = Math.PI * 2;
+
+describe('LIGHTING', () => {
+  it('has an entry for every name in the union', () => {
+    expect(Object.keys(LIGHTING).sort()).toEqual([...NAMES].sort());
+  });
+});
+
+describe('envRotationAt', () => {
+  it('turns sweep a full rotation over its own period, not the active slot duration', () => {
+    expect(envRotationAt('sweep', 0)).toBeCloseTo(0);
+    expect(envRotationAt('sweep', LIGHTING.sweep.periodMs)).toBeCloseTo(TAU);
+    expect(envRotationAt('sweep', LIGHTING.sweep.periodMs / 2)).toBeCloseTo(TAU / 2);
+  });
+
+  it('holds static still at every elapsed time', () => {
+    expect(envRotationAt('static', 0)).toBe(0);
+    expect(envRotationAt('static', 9999)).toBe(0);
+  });
+
+  it('keeps turning past one period rather than clamping', () => {
+    expect(envRotationAt('sweep', LIGHTING.sweep.periodMs * 1.5)).toBeCloseTo(TAU * 1.5);
+  });
+});
+```
+
+In `packages/core/test/index.test.ts`, update the name list assertion and add the new one:
+
+```ts
+expect(ACTIVE_NAMES).toEqual(['float', 'pulse', 'shimmer', 'none']);
+expect(LIGHTING_NAMES).toEqual(['sweep', 'static']);
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npx vitest run packages/core/test`
+Expected: FAIL — `packages/core/src/render/lighting.ts` does not exist.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Create `packages/core/src/render/lighting.ts`:
+
+```ts
+export type LightingName = 'sweep' | 'static';
+
+export interface LightingMode {
+  /** Milliseconds for one full turn of the environment. Zero holds it still. */
+  periodMs: number;
+}
+
+export const LIGHTING: Record<LightingName, LightingMode> = {
+  sweep: { periodMs: 3400 },
+  static: { periodMs: 0 },
+};
+
+const TAU = Math.PI * 2;
+
+/** Effect-relative: absolute clock time would start every effect at an arbitrary angle. */
+export function envRotationAt(name: LightingName, elapsed: number): number {
+  const { periodMs } = LIGHTING[name];
+  return periodMs > 0 ? (elapsed / periodMs) * TAU : 0;
+}
+```
+
+In `packages/core/src/motion/active.ts`, delete the `sweep` constant, its `ACTIVE` entry, and the `ENV_DRIVEN` export.
+
+In `packages/core/src/motion/types.ts`, remove `'sweep'` from `ActiveName`.
+
+In `packages/core/src/index.ts`: add `lighting?: LightingName` to `FireOptions`, export `LIGHTING_NAMES` derived from `LIGHTING` the way the other lists are derived, change the active default from `'sweep'` to `'none'`, and replace the env-rotation line:
+
+```ts
+    stage.scene.environmentRotation.y = envRotationAt(opts.lighting ?? 'sweep', elapsed);
+```
+
+Delete the now-unused `envDriven` binding and the `slotDrivesEnv` import. Keep `slotDrivesEnv` exported from the compositor — `cycle({ envRotation: true })` stays public.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npm run check`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src packages/core/test
+git commit -m "promote lighting to its own option with sweep and static modes"
+```
+
+---
+
+### Task 15: Document lighting
+
+**Files:**
+- Modify: `README.md` (options table, a lighting section)
+- Modify: `CHANGELOG.md` (0.3.0 entry)
+
+- [ ] **Step 1: Add `lighting` to the README options table**
+
+A row reading `` `lighting` | `'sweep'` | how the environment lights the type ``, plus a short section naming the two modes and noting that `sweep` is no longer an `active` piece.
+
+- [ ] **Step 2: Extend the 0.3.0 CHANGELOG entry**
+
+Under Breaking, add that `sweep` has left `active` and `active` now defaults to `'none'`, with the one-line reason: it never contributed a transform, and its period was silently taken from whatever the longest layered sibling was.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md CHANGELOG.md
+git commit -m "document the lighting modes"
+```
+
+---
+
 ## Self-review
 
 **Spec coverage:** rename + dispersion (T2), velvet (T3), neon (T4), flake/glitter/leather (T9, T11), `LookSpec` (T6, T7), tint targeting (T5), `DEFAULTS` reset (T1), always-injected gated chunk (T9), per-letter seed (T10), aliasing guard (T9), bloom request (T8), tests (throughout, T13), `LOOK_NAMES` ordering (T11). Complete.
