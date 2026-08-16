@@ -4,7 +4,7 @@ import type { LoadedFont } from '../text/font.js';
 import { buildGlyphGeometry, DEFAULT_GLYPH_OPTIONS, GlyphCache } from '../text/glyphs.js';
 import type { Budget, Line } from '../text/layout.js';
 import { fitScale, LINE_HEIGHT_EM, layoutBlock, wrapBlock } from '../text/layout.js';
-import { applyLook, createMaterial, type LookName } from './looks.js';
+import { applyLook, createMaterial, type Look } from './looks.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
@@ -29,7 +29,7 @@ export class Word {
   constructor(
     text: string,
     font: LoadedFont,
-    look: LookName,
+    look: Look,
     budget: Budget,
     wrap = false,
     tint?: number,

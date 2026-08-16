@@ -632,6 +632,22 @@ describe('published name lists', () => {
   });
 });
 
+describe('caller-supplied looks', () => {
+  it('fires with a spec in place of a name', async () => {
+    const bk = create();
+    const done = bk.fire('HI', {
+      look: { metalness: 1, roughness: 0.3, color: 0x00e5ff },
+      enter: 'none',
+      active: 'none',
+      exit: 'none',
+      hold: 0,
+    });
+    await flush();
+    clock.advance(10);
+    await expect(done).resolves.toBeUndefined();
+  });
+});
+
 describe('caller-supplied motion', () => {
   it('accepts a piece in place of a name', async () => {
     const seen: number[] = [];

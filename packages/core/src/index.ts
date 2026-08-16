@@ -6,7 +6,7 @@ import { EXIT } from './motion/exit.js';
 import type { ActiveName, EnterName, ExitName, MotionPiece } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
 import { BloomPath } from './render/bloom.js';
-import { LOOKS, type LookName } from './render/looks.js';
+import { LOOKS, type Look, type LookName, type LookSpec } from './render/looks.js';
 import { prefersReducedMotion, Stage, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
@@ -33,7 +33,8 @@ export type { LetterInfo, MotionPiece, StaggerFrom, StaggerSpec } from './motion
 export { stagger } from './motion/types.js';
 export type { Pose, PoseOffset, Vec3 } from './pose.js';
 export { POLICY_NAMES } from './queue.js';
-export type { ActiveName, Clock, EnterName, ExitName, LookName, QueuePolicy };
+export type { LookParams, TintTarget } from './render/looks.js';
+export type { ActiveName, Clock, EnterName, ExitName, Look, LookName, LookSpec, QueuePolicy };
 
 // Read off the records the effect itself indexes. Those are typed exhaustive over the unions,
 // so a name cannot be added, renamed or dropped without these lists following it.
@@ -82,7 +83,8 @@ export interface FireOptions {
   enter?: EnterSlot;
   active?: ActiveSlot;
   exit?: ExitSlot;
-  look?: LookName;
+  /** A built-in name, or a material of your own as plain numbers. */
+  look?: Look;
   /**
    * Recolors the look, as `0xff2d6f`. Routed to whichever property carries that look's hue —
    * `gem` is clear stone whose red comes from what light picks up passing through it, so
