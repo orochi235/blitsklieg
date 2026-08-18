@@ -534,12 +534,17 @@ describe('buildTubeBlueprint', () => {
     expect(front.loops[0]?.boundingBox?.max.z).toBeCloseTo(0.3 + SPEC.radius, 2);
   });
 
-  it('produces finite vertices, never NaN from a duplicated closing point', () => {
-    const blueprint = buildTubeBlueprint([ring()], SPEC, 0.3);
-    const position = blueprint.loops[0]?.getAttribute('position');
-    const array = position?.array as Float32Array;
+  it('closes the loop without a lopsided seam', () => {
+    const blueprint = buildTubeBlueprint([slab()], SPEC, 0.3);
+    const loop = blueprint.loops[0] as THREE.BufferGeometry;
+    loop.computeBoundingBox();
+    const box = loop.boundingBox as THREE.Box3;
 
-    expect(array.every((v) => Number.isFinite(v))).toBe(true);
+    // A square pipes to a loop symmetric about both axes. Leaving the repeated closing point in
+    // bulges the spline at the seam, which shows up here and nowhere else.
+    expect(box.max.x).toBeCloseTo(-box.min.x, 6);
+    expect(box.max.y).toBeCloseTo(-box.min.y, 6);
+    expect(box.max.x).toBeCloseTo(box.max.y, 6);
   });
 
   it('releases every loop on dispose', () => {
@@ -591,11 +596,8 @@ export interface TubeBlueprint {
 
 const CONTOUR_SEGMENTS = 48;
 
-/**
- * `getPoints` on a closed contour repeats the opening point at the end. Feeding that to a closed
- * CatmullRomCurve3 puts two coincident knots at the seam, which centripetal parameterisation
- * divides by and renders as NaN vertices rather than an error.
- */
+// `getPoints` repeats the opening point on a closed contour. Left in, that coincident knot is a
+// degenerate segment the closed spline bulges around, and the loop comes out visibly lopsided.
 function contourPoints(contour: THREE.Shape | THREE.Path): THREE.Vector2[] {
   const points = contour.getPoints(CONTOUR_SEGMENTS);
   const first = points[0];
@@ -647,6 +649,10 @@ export function buildTubeBlueprint(
 
 Run: `npx vitest run packages/core/test/render/decoration.test.ts`
 Expected: PASS, 6 tests.
+
+Note: `CatmullRomCurve3` guards its centripetal division at `dt < 1e-4`, so the repeated closing
+knot never yields NaN — it yields a lopsided loop instead (arc length 4.20361 -> 4.38253 on a unit
+square). Pin it by symmetry, which fails when the dedupe is removed; a finiteness assertion cannot.
 
 - [ ] **Step 5: Commit**
 
