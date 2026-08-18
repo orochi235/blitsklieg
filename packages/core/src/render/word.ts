@@ -1,19 +1,31 @@
 import * as THREE from 'three';
 import { blankPose, type Timeline } from '../motion/compositor.js';
 import type { LoadedFont } from '../text/font.js';
-import { buildGlyphGeometry, DEFAULT_GLYPH_OPTIONS, GlyphCache } from '../text/glyphs.js';
+import {
+  buildGlyphGeometry,
+  DEFAULT_GLYPH_OPTIONS,
+  GlyphCache,
+  glyphToShapes,
+} from '../text/glyphs.js';
 import type { Budget, Line } from '../text/layout.js';
 import { fitScale, LINE_HEIGHT_EM, layoutBlock, wrapBlock } from '../text/layout.js';
+import {
+  type Blueprint,
+  buildChunkBlueprint,
+  buildTubeBlueprint,
+  chunkGeometry,
+  chunkMatrices,
+} from './decoration.js';
 import type { FlakeUniforms } from './flake.js';
-import { applyLook, createMaterial, type Look, specOf } from './looks.js';
+import { applyLook, createMaterial, type Look, specOf, tintMaterialOf } from './looks.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
-/** One mesh per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
+/** One group per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
 export class Word {
   readonly group = new THREE.Group();
   /** null where the glyph drew no outline (space, U+00A0, ZWJ); the slot still holds its index. */
-  private readonly letters: (THREE.Mesh | null)[] = [];
+  private readonly letters: (THREE.Group | null)[] = [];
   /** Layout x per letter. Pose x is an OFFSET onto this — overwriting it collapses the word. */
   private readonly baseX: number[] = [];
   /** Layout y per letter, for the same reason: pose y adds onto it, or the lines stack up. */
@@ -24,9 +36,13 @@ export class Word {
   private readonly columnCount: number;
   /** Indexed by letter slot, null where the glyph drew no outline. */
   private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
+  private readonly decorMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   private readonly cache: GlyphCache;
+  private readonly decorCache: GlyphCache<Blueprint> | null;
+  private readonly chunkGeo: THREE.BufferGeometry | null;
   private readonly pose = blankPose();
   private readonly bodyOpacity: number;
+  private readonly decorOpacity: number;
   private disposed = false;
 
   constructor(
@@ -43,6 +59,17 @@ export class Word {
     this.cache = new GlyphCache((char, depth) =>
       buildGlyphGeometry(font.font, char, EM, { ...DEFAULT_GLYPH_OPTIONS, depth }),
     );
+
+    const decoration = spec.decoration;
+    this.decorOpacity = decoration?.look.opacity ?? 1;
+    this.chunkGeo = decoration?.kind === 'chunks' ? chunkGeometry(decoration.shape) : null;
+    this.decorCache = decoration
+      ? new GlyphCache<Blueprint>((char, depth) =>
+          decoration.kind === 'tube'
+            ? buildTubeBlueprint(glyphToShapes(font.font, char, EM), decoration, depth)
+            : buildChunkBlueprint(this.cache.get(char, depth)),
+        )
+      : null;
 
     const scaleToEm = EM / font.unitsPerEm;
     const block = wrap
@@ -75,19 +102,52 @@ export class Word {
         if (!geo.attributes.position?.count) {
           this.letters.push(null);
           this.bodyMaterials.push(null);
+          this.decorMaterials.push(null);
           continue;
         }
 
         const material = createMaterial();
-        applyLook(material, look, tint);
+        applyLook(material, look, tintMaterialOf(spec) === 'body' ? tint : undefined);
         // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
         material.transparent = true;
         (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
         this.bodyMaterials.push(material);
 
-        const mesh = new THREE.Mesh(geo, material);
-        this.letters.push(mesh);
-        this.group.add(mesh);
+        const cell = new THREE.Group();
+        cell.add(new THREE.Mesh(geo, material));
+
+        if (decoration && this.decorCache) {
+          const decorMaterial = createMaterial();
+          applyLook(
+            decorMaterial,
+            decoration.look,
+            tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+          );
+          decorMaterial.transparent = true;
+          this.decorMaterials.push(decorMaterial);
+
+          const blueprint = this.decorCache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
+          if (blueprint.kind === 'tube') {
+            for (const loop of blueprint.loops) cell.add(new THREE.Mesh(loop, decorMaterial));
+          } else if (decoration.kind === 'chunks' && this.chunkGeo) {
+            const matrices = chunkMatrices(blueprint, decoration, this.letters.length);
+            const instanced = new THREE.InstancedMesh(
+              this.chunkGeo,
+              decorMaterial,
+              matrices.length,
+            );
+            for (let m = 0; m < matrices.length; m++) {
+              instanced.setMatrixAt(m, matrices[m] as THREE.Matrix4);
+            }
+            instanced.instanceMatrix.needsUpdate = true;
+            cell.add(instanced);
+          }
+        } else {
+          this.decorMaterials.push(null);
+        }
+
+        this.letters.push(cell);
+        this.group.add(cell);
 
         const bounds = geo.boundingBox;
         if (bounds) {
@@ -104,8 +164,8 @@ export class Word {
       for (let i = first; i < this.baseX.length; i++) {
         const x = (this.baseX[i] as number) + shift;
         this.baseX[i] = x;
-        const mesh = this.letters[i];
-        if (mesh) mesh.position.set(x, y, 0);
+        const cell = this.letters[i];
+        if (cell) cell.position.set(x, y, 0);
       }
       if (inkStart !== null) {
         minX = Math.min(minX, inkStart + shift);
@@ -131,8 +191,8 @@ export class Word {
     if (this.disposed) return;
 
     for (let i = 0; i < this.letters.length; i++) {
-      const mesh = this.letters[i];
-      if (!mesh) continue;
+      const cell = this.letters[i];
+      if (!cell) continue;
 
       // One scratch pose for the whole word; this loop runs per letter per frame. LetterInfo is
       // still fresh each time — a caller-supplied piece receives it, and a reused one would be
@@ -149,13 +209,15 @@ export class Word {
         },
         this.pose,
       );
-      mesh.position.x = (this.baseX[i] as number) + pose.position[0];
-      mesh.position.y = (this.baseY[i] as number) + pose.position[1];
-      mesh.position.z = pose.position[2];
-      mesh.rotation.set(...pose.rotation);
-      mesh.scale.setScalar(pose.scale);
+      cell.position.x = (this.baseX[i] as number) + pose.position[0];
+      cell.position.y = (this.baseY[i] as number) + pose.position[1];
+      cell.position.z = pose.position[2];
+      cell.rotation.set(...pose.rotation);
+      cell.scale.setScalar(pose.scale);
       const material = this.bodyMaterials[i];
       if (material) material.opacity = pose.opacity * this.bodyOpacity;
+      const decor = this.decorMaterials[i];
+      if (decor) decor.opacity = pose.opacity * this.decorOpacity;
     }
   }
 
@@ -164,6 +226,10 @@ export class Word {
     this.cache.dispose();
     for (const material of this.bodyMaterials) material?.dispose();
     this.bodyMaterials.length = 0;
+    for (const material of this.decorMaterials) material?.dispose();
+    this.decorMaterials.length = 0;
+    this.decorCache?.dispose();
+    this.chunkGeo?.dispose();
     this.group.clear();
   }
 }

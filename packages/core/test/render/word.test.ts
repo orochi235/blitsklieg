@@ -1,11 +1,12 @@
 import type { Font, PathCommand } from 'opentype.js';
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { Timeline } from '../../src/motion/compositor.js';
 import type { LetterInfo, MotionPiece } from '../../src/motion/types.js';
 import { NONE } from '../../src/motion/types.js';
 import type { PoseOffset } from '../../src/pose.js';
 import type { FlakeUniforms } from '../../src/render/flake.js';
+import type { LookSpec } from '../../src/render/looks.js';
 import { Word } from '../../src/render/word.js';
 import type { LoadedFont } from '../../src/text/font.js';
 import type { Budget } from '../../src/text/layout.js';
@@ -62,8 +63,12 @@ function timelineOf(offset: MotionPiece['offset']): Timeline {
   });
 }
 
+function groups(word: Word): THREE.Group[] {
+  return word.group.children as THREE.Group[];
+}
+
 function meshes(word: Word): THREE.Mesh[] {
-  return word.group.children as THREE.Mesh[];
+  return groups(word).map((g) => g.children[0] as THREE.Mesh);
 }
 
 function materialOf(word: Word): THREE.MeshPhysicalMaterial {
@@ -72,9 +77,9 @@ function materialOf(word: Word): THREE.MeshPhysicalMaterial {
 
 /** World-space midpoint of the advance span the drawn glyphs occupy. */
 function inkCenter(word: Word): number {
-  const drawn = meshes(word);
-  const first = drawn[0] as THREE.Mesh;
-  const last = drawn[drawn.length - 1] as THREE.Mesh;
+  const drawn = groups(word);
+  const first = drawn[0] as THREE.Group;
+  const last = drawn[drawn.length - 1] as THREE.Group;
   const span = (first.position.x + last.position.x + STEP) / 2;
   return word.group.position.x + word.group.scale.x * span;
 }
@@ -118,19 +123,19 @@ describe('Word', () => {
 
   it('lays letters out one advance apart', () => {
     const word = new Word('AA', stubFont(), 'gold', ROOMY);
-    const [a, b] = meshes(word);
+    const [a, b] = groups(word);
 
     expect((b?.position.x ?? 0) - (a?.position.x ?? 0)).toBeCloseTo(STEP, 10);
   });
 
   it('adds pose x onto the layout x instead of replacing it', () => {
     const word = new Word('AA', stubFont(), 'gold', ROOMY);
-    const [restA, restB] = meshes(word).map((m) => m.position.x);
+    const [restA, restB] = groups(word).map((g) => g.position.x);
     word.apply(
       timelineOf(() => ({ position: [1, 0, 0] })),
       50,
     );
-    const [a, b] = meshes(word);
+    const [a, b] = groups(word);
 
     expect(a?.position.x).toBeCloseTo((restA as number) + 1, 10);
     expect(b?.position.x).toBeCloseTo((restB as number) + 1, 10);
@@ -139,12 +144,12 @@ describe('Word', () => {
 
   it('adds pose y onto the layout y, and takes z, rotation and scale absolutely', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
-    const rest = (meshes(word)[0] as THREE.Mesh).position.y;
+    const rest = (groups(word)[0] as THREE.Group).position.y;
     word.apply(
       timelineOf(() => ({ position: [0, 2, 3], rotation: [0.1, 0.2, 0.3], scale: 4 })),
       50,
     );
-    const [a] = meshes(word);
+    const [a] = groups(word);
 
     expect(a?.position.y).toBeCloseTo(rest + 2, 10);
     expect(a?.position.z).toBeCloseTo(3, 10);
@@ -316,9 +321,9 @@ describe('Word', () => {
 
   it('goes inert after dispose rather than posing into a disposed material', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
-    const [a] = meshes(word);
-    const material = (a as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
-    const rest = (a as THREE.Mesh).position.x;
+    const [cell] = groups(word);
+    const material = (meshes(word)[0] as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
+    const rest = (cell as THREE.Group).position.x;
 
     word.dispose();
     word.apply(
@@ -326,8 +331,75 @@ describe('Word', () => {
       50,
     );
 
-    expect(a?.position.x).toBe(rest);
+    expect(cell?.position.x).toBe(rest);
     expect(material.opacity).toBe(1);
+  });
+
+  const TUBE: LookSpec = {
+    opacity: 0.1,
+    decoration: {
+      kind: 'tube',
+      radius: 0.04,
+      at: [1],
+      segments: 8,
+      look: { emissive: 0xff2d95, opacity: 1 },
+    },
+  };
+
+  it('wraps every letter in a group', () => {
+    const word = new Word('AB', stubFont(), 'gold', ROOMY);
+
+    for (const group of groups(word)) {
+      expect(group).toBeInstanceOf(THREE.Group);
+      expect(group.children).toHaveLength(1);
+    }
+  });
+
+  it('adds decoration alongside the body in the same group', () => {
+    const word = new Word('A', stubFont(), TUBE, ROOMY);
+
+    expect(groups(word)[0]?.children.length).toBeGreaterThan(1);
+  });
+
+  it('drives body and decoration from one pose', () => {
+    const word = new Word('A', stubFont(), TUBE, ROOMY);
+    const cell = groups(word)[0] as THREE.Group;
+    const rest = cell.position.x;
+
+    word.apply(
+      timelineOf(() => ({ position: [3, 0, 0] })),
+      50,
+    );
+
+    expect(cell.position.x).toBeCloseTo(rest + 3, 5);
+    // The pose lands once, on the cell: body and decoration ride it rather than being posed apart.
+    for (const child of cell.children) expect(child.position.x).toBe(0);
+  });
+
+  it('fades body and decoration to their own base opacities', () => {
+    const word = new Word('A', stubFont(), TUBE, ROOMY);
+
+    word.apply(
+      timelineOf(() => ({ opacity: 0.5 })),
+      50,
+    );
+
+    const group = groups(word)[0] as THREE.Group;
+    const body = (group.children[0] as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
+    const decor = (group.children[1] as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
+    expect(body.opacity).toBeCloseTo(0.05, 10);
+    expect(decor.opacity).toBeCloseTo(0.5, 10);
+  });
+
+  it('disposes decoration materials and the decoration cache', () => {
+    const word = new Word('A', stubFont(), TUBE, ROOMY);
+    const group = groups(word)[0] as THREE.Group;
+    const decor = (group.children[1] as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
+    const spy = vi.spyOn(decor, 'dispose');
+
+    word.dispose();
+
+    expect(spy).toHaveBeenCalled();
   });
 });
 
@@ -342,29 +414,29 @@ describe('Word as a block', () => {
 
   it('drops each line below the one above it', () => {
     const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
-    const [first, second] = meshes(word);
+    const [first, second] = groups(word);
 
-    expect((second as THREE.Mesh).position.y).toBeLessThan((first as THREE.Mesh).position.y);
+    expect((second as THREE.Group).position.y).toBeLessThan((first as THREE.Group).position.y);
   });
 
   it('centers each line independently', () => {
     const word = new Word('AA\nB', stubFont(), 'gold', ROOMY);
-    const [a1, a2, b] = meshes(word);
-    const rowCenter = ((a1 as THREE.Mesh).position.x + (a2 as THREE.Mesh).position.x) / 2;
+    const [a1, a2, b] = groups(word);
+    const rowCenter = ((a1 as THREE.Group).position.x + (a2 as THREE.Group).position.x) / 2;
 
-    expect((b as THREE.Mesh).position.x).toBeCloseTo(rowCenter, 5);
+    expect((b as THREE.Group).position.x).toBeCloseTo(rowCenter, 5);
   });
 
   it('adds pose y onto the line baseline instead of replacing it', () => {
     const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
-    const before = meshes(word).map((m) => m.position.y);
+    const before = groups(word).map((g) => g.position.y);
 
     word.apply(
       timelineOf(() => ({ position: [0, 1, 0] })),
       0,
     );
 
-    const after = meshes(word).map((m) => m.position.y);
+    const after = groups(word).map((g) => g.position.y);
     expect(after[0] as number).toBeCloseTo((before[0] as number) + 1, 5);
     expect(after[1] as number).toBeCloseTo((before[1] as number) + 1, 5);
     // The lines must stay apart; a replaced baseline collapses them onto one row.
@@ -399,7 +471,7 @@ describe('Word as a block', () => {
 
   it('centers the block vertically, so a two-line block straddles the origin', () => {
     const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
-    const ys = meshes(word).map((m) => word.group.position.y + word.group.scale.x * m.position.y);
+    const ys = groups(word).map((g) => word.group.position.y + word.group.scale.x * g.position.y);
 
     expect((ys[0] as number) > 0).toBe(true);
     expect((ys[1] as number) < 0).toBe(true);
