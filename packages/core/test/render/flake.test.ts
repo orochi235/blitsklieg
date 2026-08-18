@@ -1,10 +1,9 @@
-import * as THREE from 'three';
+import type * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   createFlakeUniforms,
   type FlakeUniforms,
   patchForFlakes,
-  seedGeometry,
   writeFlakeUniforms,
 } from '../../src/render/flake.js';
 
@@ -30,27 +29,9 @@ describe('createFlakeUniforms', () => {
   it('gives each material its own uniform objects', () => {
     expect(createFlakeUniforms().uFlakeDensity).not.toBe(createFlakeUniforms().uFlakeDensity);
   });
-});
 
-describe('seedGeometry', () => {
-  it('clones rather than writing the seed onto the cached original', () => {
-    const source = new THREE.BufferGeometry();
-    source.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
-
-    const seeded = seedGeometry(source, 4.5);
-
-    expect(seeded).not.toBe(source);
-    expect(source.getAttribute('aSeed')).toBeUndefined();
-  });
-
-  it('gives every vertex the same seed', () => {
-    const source = new THREE.BufferGeometry();
-    source.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
-
-    const attribute = seedGeometry(source, 4.5).getAttribute('aSeed');
-
-    expect(attribute.count).toBe(3);
-    expect([...(attribute.array as Float32Array)]).toEqual([4.5, 4.5, 4.5]);
+  it('starts every seed at zero', () => {
+    expect(createFlakeUniforms().uFlakeSeed.value).toBe(0);
   });
 });
 
@@ -140,9 +121,9 @@ describe('patchForFlakes', () => {
   it('mixes the per-letter seed into the cell hash, or every letter sparkles alike', () => {
     const shader = patched();
 
-    expect(shader.vertexShader).toContain('attribute float aSeed');
-    expect(shader.vertexShader).toContain('vSeed = aSeed');
-    expect(shader.fragmentShader).toContain('vSeed');
+    expect(shader.vertexShader).not.toContain('attribute float aSeed');
+    expect(shader.fragmentShader).toContain('uniform float uFlakeSeed');
+    expect(shader.uniforms.uFlakeSeed).toBeDefined();
   });
 });
 

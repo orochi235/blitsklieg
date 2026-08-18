@@ -5,6 +5,7 @@ import { Timeline } from '../../src/motion/compositor.js';
 import type { LetterInfo, MotionPiece } from '../../src/motion/types.js';
 import { NONE } from '../../src/motion/types.js';
 import type { PoseOffset } from '../../src/pose.js';
+import type { FlakeUniforms } from '../../src/render/flake.js';
 import { Word } from '../../src/render/word.js';
 import type { LoadedFont } from '../../src/text/font.js';
 import type { Budget } from '../../src/text/layout.js';
@@ -378,41 +379,20 @@ describe('Word as a block', () => {
 });
 
 describe('flake seeding', () => {
-  const seedOf = (mesh: THREE.Mesh) =>
-    (mesh.geometry.getAttribute('aSeed').array as Float32Array)[0];
+  it('gives each letter a distinct flake seed', () => {
+    const word = new Word('AA', stubFont(), 'glitter', ROOMY);
+    const [a, b] = meshes(word);
+    const seedOf = (mesh: THREE.Mesh) =>
+      ((mesh.material as THREE.MeshPhysicalMaterial).userData.flake as FlakeUniforms).uFlakeSeed
+        .value;
 
-  it('gives each letter its own seed, or repeated letters sparkle in lockstep', () => {
-    const word = new Word('AA', stubFont(), 'flake', ROOMY);
-    const seeds = meshes(word).map(seedOf);
-
-    expect(seeds).toHaveLength(2);
-    expect(seeds[0]).not.toBe(seeds[1]);
+    expect(seedOf(a as THREE.Mesh)).not.toBe(seedOf(b as THREE.Mesh));
   });
 
-  it('carries one seed value across every vertex of a letter', () => {
-    const word = new Word('A', stubFont(), 'flake', ROOMY);
-    const attribute = (meshes(word)[0] as THREE.Mesh).geometry.getAttribute('aSeed');
-    const values = new Set(attribute.array as Float32Array);
+  it('shares one geometry across repeated letters even for a flake look', () => {
+    const word = new Word('AA', stubFont(), 'glitter', ROOMY);
+    const [a, b] = meshes(word);
 
-    expect(attribute.count).toBe(
-      (meshes(word)[0] as THREE.Mesh).geometry.getAttribute('position').count,
-    );
-    expect(values.size).toBe(1);
-  });
-
-  it('leaves the cached geometry untouched, since the cache owns it', () => {
-    const word = new Word('AA', stubFont(), 'flake', ROOMY);
-    const [first, second] = meshes(word);
-
-    expect((first as THREE.Mesh).geometry).not.toBe((second as THREE.Mesh).geometry);
-  });
-
-  it('disposes the per-letter clones it created', () => {
-    const word = new Word('AB', stubFont(), 'flake', ROOMY);
-    const spies = meshes(word).map((m) => vi.spyOn(m.geometry, 'dispose'));
-
-    word.dispose();
-
-    for (const spy of spies) expect(spy).toHaveBeenCalled();
+    expect((a as THREE.Mesh).geometry).toBe((b as THREE.Mesh).geometry);
   });
 });

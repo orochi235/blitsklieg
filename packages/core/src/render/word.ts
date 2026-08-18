@@ -4,7 +4,7 @@ import type { LoadedFont } from '../text/font.js';
 import { buildGlyphGeometry, DEFAULT_GLYPH_OPTIONS, GlyphCache } from '../text/glyphs.js';
 import type { Budget, Line } from '../text/layout.js';
 import { fitScale, LINE_HEIGHT_EM, layoutBlock, wrapBlock } from '../text/layout.js';
-import { seedGeometry } from './flake.js';
+import type { FlakeUniforms } from './flake.js';
 import { applyLook, createMaterial, type Look, specOf } from './looks.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
@@ -25,8 +25,6 @@ export class Word {
   /** Indexed by letter slot, null where the glyph drew no outline. */
   private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   private readonly cache: GlyphCache;
-  /** Per-letter clones carrying the flake seed. The cache owns the originals, not these. */
-  private readonly seeded: THREE.BufferGeometry[] = [];
   private readonly pose = blankPose();
   private disposed = false;
 
@@ -77,23 +75,16 @@ export class Word {
           continue;
         }
 
-        // The cache shares one geometry per (char, depth), which would give every letter an
-        // identical flake field — the two Ls in HELLO sparkling in lockstep. Only a flake look
-        // pays for the clone that carries a per-letter seed, and the extrusion behind it still
-        // happens only once either way.
-        let drawn: THREE.BufferGeometry = geo;
-        if (seeds) {
-          drawn = seedGeometry(geo, this.letters.length * 17.13);
-          this.seeded.push(drawn);
-        }
-
         const material = createMaterial();
         applyLook(material, look, tint);
         // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
         material.transparent = true;
+        if (seeds) {
+          (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
+        }
         this.bodyMaterials.push(material);
 
-        const mesh = new THREE.Mesh(drawn, material);
+        const mesh = new THREE.Mesh(geo, material);
         this.letters.push(mesh);
         this.group.add(mesh);
 
@@ -169,8 +160,6 @@ export class Word {
 
   dispose(): void {
     this.disposed = true;
-    for (const geo of this.seeded) geo.dispose();
-    this.seeded.length = 0;
     this.cache.dispose();
     for (const material of this.bodyMaterials) material?.dispose();
     this.bodyMaterials.length = 0;
