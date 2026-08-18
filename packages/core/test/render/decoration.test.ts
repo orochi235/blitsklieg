@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { buildTubeBlueprint, type TubeSpec } from '../../src/render/decoration.js';
+import {
+  buildChunkBlueprint,
+  buildTubeBlueprint,
+  type ChunkSpec,
+  chunkMatrices,
+  type TubeSpec,
+} from '../../src/render/decoration.js';
 
 const SPEC: TubeSpec = {
   kind: 'tube',
@@ -90,5 +96,107 @@ describe('buildTubeBlueprint', () => {
     blueprint.dispose();
 
     expect(disposed).toHaveLength(2);
+  });
+});
+
+const CHUNKS: ChunkSpec = {
+  kind: 'chunks',
+  count: 12,
+  size: 0.05,
+  shape: 'cube',
+  align: 0,
+  cluster: 0,
+  proud: 0.5,
+  look: {},
+};
+
+function box(): THREE.BufferGeometry {
+  return new THREE.BoxGeometry(1, 1, 0.3);
+}
+
+/** Rotation only, so two matrices can be compared for shared orientation. */
+function quaternionOf(m: THREE.Matrix4): THREE.Quaternion {
+  const q = new THREE.Quaternion();
+  m.decompose(new THREE.Vector3(), q, new THREE.Vector3());
+  return q;
+}
+
+describe('buildChunkBlueprint', () => {
+  it('samples positions and normals in step', () => {
+    const blueprint = buildChunkBlueprint(box());
+
+    expect(blueprint.position.length).toBe(blueprint.normal.length);
+    expect(blueprint.position.length % 3).toBe(0);
+  });
+
+  it('samples the same pool for the same geometry every time', () => {
+    const a = buildChunkBlueprint(box());
+    const b = buildChunkBlueprint(box());
+
+    expect(Array.from(a.position)).toEqual(Array.from(b.position));
+  });
+
+  it('places every sample on the surface', () => {
+    const blueprint = buildChunkBlueprint(box());
+
+    for (let i = 0; i < blueprint.position.length; i += 3) {
+      const x = Math.abs(blueprint.position[i] as number);
+      const y = Math.abs(blueprint.position[i + 1] as number);
+      const z = Math.abs(blueprint.position[i + 2] as number);
+      const onFace = x > 0.5 - 1e-6 || y > 0.5 - 1e-6 || z > 0.15 - 1e-6;
+      expect(onFace).toBe(true);
+    }
+  });
+});
+
+describe('chunkMatrices', () => {
+  it('produces one matrix per requested chunk', () => {
+    const matrices = chunkMatrices(buildChunkBlueprint(box()), CHUNKS, 3);
+
+    expect(matrices).toHaveLength(CHUNKS.count);
+  });
+
+  it('is deterministic for a given seed', () => {
+    const blueprint = buildChunkBlueprint(box());
+    const a = chunkMatrices(blueprint, CHUNKS, 3);
+    const b = chunkMatrices(blueprint, CHUNKS, 3);
+
+    expect(a[0]?.elements).toEqual(b[0]?.elements);
+  });
+
+  it('gives different letters different scatter', () => {
+    const blueprint = buildChunkBlueprint(box());
+    const a = chunkMatrices(blueprint, CHUNKS, 3);
+    const b = chunkMatrices(blueprint, CHUNKS, 4);
+
+    expect(a[0]?.elements).not.toEqual(b[0]?.elements);
+  });
+
+  it('shares one orientation across a letter at align 1', () => {
+    const blueprint = buildChunkBlueprint(box());
+    const matrices = chunkMatrices(blueprint, { ...CHUNKS, align: 1 }, 3);
+    const first = quaternionOf(matrices[0] as THREE.Matrix4);
+
+    for (const m of matrices) {
+      expect(quaternionOf(m).angleTo(first)).toBeCloseTo(0, 5);
+    }
+  });
+
+  it('tumbles freely at align 0', () => {
+    const blueprint = buildChunkBlueprint(box());
+    const matrices = chunkMatrices(blueprint, { ...CHUNKS, align: 0 }, 3);
+    const first = quaternionOf(matrices[0] as THREE.Matrix4);
+    const spread = matrices.map((m) => quaternionOf(m).angleTo(first));
+
+    expect(Math.max(...spread)).toBeGreaterThan(0.1);
+  });
+
+  it('sits chunks proud of the surface', () => {
+    const blueprint = buildChunkBlueprint(box());
+    const flush = chunkMatrices(blueprint, { ...CHUNKS, proud: 0 }, 3);
+    const raised = chunkMatrices(blueprint, { ...CHUNKS, proud: 1 }, 3);
+
+    const at = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m).length();
+    expect(at(raised[0] as THREE.Matrix4)).toBeGreaterThan(at(flush[0] as THREE.Matrix4));
   });
 });
