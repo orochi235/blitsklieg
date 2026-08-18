@@ -67,12 +67,17 @@ describe('buildTubeBlueprint', () => {
     expect(front.loops[0]?.boundingBox?.max.z).toBeCloseTo(0.3 + SPEC.radius, 2);
   });
 
-  it('produces finite vertices, never NaN from a duplicated closing point', () => {
-    const blueprint = buildTubeBlueprint([ring()], SPEC, 0.3);
-    const position = blueprint.loops[0]?.getAttribute('position');
-    const array = position?.array as Float32Array;
+  it('closes the loop without a lopsided seam', () => {
+    const blueprint = buildTubeBlueprint([slab()], SPEC, 0.3);
+    const loop = blueprint.loops[0] as THREE.BufferGeometry;
+    loop.computeBoundingBox();
+    const box = loop.boundingBox as THREE.Box3;
 
-    expect(array.every((v) => Number.isFinite(v))).toBe(true);
+    // A square pipes to a loop symmetric about both axes. Leaving the repeated closing point in
+    // bulges the spline at the seam, which shows up here and nowhere else.
+    expect(box.max.x).toBeCloseTo(-box.min.x, 6);
+    expect(box.max.y).toBeCloseTo(-box.min.y, 6);
+    expect(box.max.x).toBeCloseTo(box.max.y, 6);
   });
 
   it('releases every loop on dispose', () => {

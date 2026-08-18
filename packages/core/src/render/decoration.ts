@@ -23,11 +23,8 @@ export interface TubeBlueprint {
 
 const CONTOUR_SEGMENTS = 48;
 
-/**
- * `getPoints` on a closed contour repeats the opening point at the end. Feeding that to a closed
- * CatmullRomCurve3 puts two coincident knots at the seam, which centripetal parameterisation
- * divides by and renders as NaN vertices rather than an error.
- */
+// `getPoints` repeats the opening point on a closed contour. Left in, that coincident knot is a
+// degenerate segment the closed spline bulges around, and the loop comes out visibly lopsided.
 function contourPoints(contour: THREE.Shape | THREE.Path): THREE.Vector2[] {
   const points = contour.getPoints(CONTOUR_SEGMENTS);
   const first = points[0];
