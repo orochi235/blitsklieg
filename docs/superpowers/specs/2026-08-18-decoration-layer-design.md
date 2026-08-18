@@ -221,5 +221,15 @@ reads weak in the lab, the fix is more mip levels in our own chain, not `UnrealB
 stock pass forces frame alpha to 1.0 and turns the overlay opaque, which is why the chain is
 hand-rolled in the first place.
 
+**A distance field for every tubing path.** Neon tubing wants more than an outline trace: which
+edges get piped, how continuous each run is, and how many colors it uses are the levers that make
+it read as a fabricated sign rather than a stroked letter. All of the path shapes involved are
+level sets or ridges of one signed distance field over the flattened glyph silhouette — an inset
+path is the level set at -n, a path standing off the type is the level set at +n, and the medial
+axis of the *complement* (equidistant from two or more letters, i.e. the Voronoi diagram of the
+outlines) is the ridge set of the exterior field. Rasterise the silhouette, run an exact Euclidean
+distance transform, then march squares for isocontours. A level set cannot self-intersect, so this
+sidesteps the failure mode that makes per-vertex polygon offsetting need a library like Clipper.
+
 **Medial-axis centerline**, unchanged from 0.3.0: a single bent tube forming the stroke is a
 different effect from piped edges, and needs stroke data a font outline does not carry.
