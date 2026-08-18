@@ -17,7 +17,11 @@ export type LookName =
   | 'neon'
   | 'flake'
   | 'glitter'
-  | 'leather';
+  | 'leather'
+  | 'tubing'
+  | 'piping'
+  | 'sequin'
+  | 'pyrite';
 
 /** Extract silently drops a name that is not a real material property, so a typo fails DEFAULTS. */
 // Never add 'opacity' here, tempting as it looks: Word rewrites material.opacity every frame from
@@ -153,6 +157,81 @@ export const LOOKS: Record<LookName, LookSpec> = {
     sheen: 0.35,
     sheenColor: 0xd8a071,
     flake: { density: 1, size: 1 / 7, spread: 0.5, bump: true },
+  },
+  tubing: {
+    // A backing, not a body: what reads as the sign is the tube in front of it.
+    color: 0x0a0010,
+    metalness: 0,
+    roughness: 0.5,
+    clearcoat: 0,
+    opacity: 0.08,
+    bloom: true,
+    tintTo: 'decoration',
+    decoration: {
+      kind: 'tube',
+      radius: 0.045,
+      at: [1],
+      segments: 10,
+      look: {
+        color: 0x1a0010,
+        emissive: 0xff2d95,
+        emissiveIntensity: 3.4,
+        clearcoat: 0,
+        roughness: 0.35,
+      },
+    },
+  },
+  piping: {
+    color: 0x5a2f1d,
+    metalness: 0,
+    roughness: 0.72,
+    clearcoat: 0.25,
+    clearcoatRoughness: 0.5,
+    sheen: 0.35,
+    sheenColor: 0xd8a071,
+    flake: { density: 1, size: 1 / 7, spread: 0.5, bump: true },
+    decoration: {
+      kind: 'tube',
+      radius: 0.03,
+      at: [1],
+      segments: 8,
+      look: { color: 0xe8c9a0, roughness: 0.55, clearcoat: 0.4, sheen: 0.5 },
+    },
+  },
+  sequin: {
+    color: 0x2a0f1c,
+    metalness: 0.6,
+    roughness: 0.45,
+    clearcoat: 0.4,
+    tintTo: 'decoration',
+    decoration: {
+      kind: 'chunks',
+      count: 90,
+      size: 0.055,
+      shape: 'flake',
+      align: 0.1,
+      cluster: 0.2,
+      proud: 0.35,
+      look: { color: 0xffd9c0, metalness: 1, roughness: 0.08, clearcoat: 1 },
+    },
+  },
+  pyrite: {
+    color: 0x30302c,
+    metalness: 0.2,
+    roughness: 0.85,
+    clearcoat: 0,
+    tintTo: 'decoration',
+    decoration: {
+      kind: 'chunks',
+      count: 55,
+      size: 0.075,
+      shape: 'cube',
+      align: 0.85,
+      cluster: 0.6,
+      proud: 0.45,
+      // Brassier and greener than gold's 0xffc44d — fool's gold is what this is imitating.
+      look: { color: 0xd8b246, metalness: 1, roughness: 0.22, clearcoatRoughness: 0.1 },
+    },
   },
 };
 
