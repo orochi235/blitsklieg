@@ -12,6 +12,7 @@ import {
   type LookSpec,
   specOf,
   type TintTarget,
+  tintRouteOf,
   tintTargetOf,
 } from '../../src/render/looks.js';
 
@@ -313,6 +314,25 @@ describe('tintTargetOf', () => {
   it('lets a declared target win over every inference', () => {
     const declared: TintTarget = 'sheenColor';
     expect(tintTargetOf({ ...DEFAULT_PARAMS, transmission: 1 }, declared)).toBe('sheenColor');
+  });
+});
+
+describe('tintRouteOf', () => {
+  it('routes a tint to the body by default', () => {
+    expect(tintRouteOf({ color: 0x112233 })).toBe('body');
+  });
+
+  it('routes a tint to the decoration when the look says so', () => {
+    const spec: LookSpec = {
+      tintTo: 'decoration',
+      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+    };
+
+    expect(tintRouteOf(spec)).toBe('decoration');
+  });
+
+  it('ignores tintTo on a look with no decoration', () => {
+    expect(tintRouteOf({ tintTo: 'decoration' })).toBe('body');
   });
 });
 

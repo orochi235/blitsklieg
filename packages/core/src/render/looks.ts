@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { DecorationSpec } from './decoration.js';
 import {
   createFlakeUniforms,
   type FlakeSpec,
@@ -174,6 +175,14 @@ export function tintTargetOf(params: LookParams, declared?: TintTarget): TintTar
 }
 
 /**
+ * `tintTo` only means anything when there is a second material to route to; a look without
+ * decoration silently keeps its tint on the body rather than dropping it.
+ */
+export function tintRouteOf(spec: LookSpec): 'body' | 'decoration' {
+  return spec.decoration && spec.tintTo === 'decoration' ? 'decoration' : 'body';
+}
+
+/**
  * A material of your own, in plain numbers. No THREE type appears here: three is a peer
  * dependency and an implementation detail, and accepting a MeshPhysicalMaterial instead would
  * put its types in every consumer's signatures and its churn in this package's compatibility
@@ -186,6 +195,9 @@ export interface LookSpec extends Partial<LookParams> {
   flake?: FlakeSpec;
   /** Base opacity of the body, 0..1. Pose opacity multiplies it. */
   opacity?: number;
+  /** Which material `tint` recolors. Default 'body'. */
+  tintTo?: 'body' | 'decoration';
+  decoration?: DecorationSpec;
 }
 
 export type Look = LookName | LookSpec;
