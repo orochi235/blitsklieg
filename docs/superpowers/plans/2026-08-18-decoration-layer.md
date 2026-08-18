@@ -1027,7 +1027,7 @@ Add to `packages/core/test/render/looks.test.ts`:
 
 ```ts
   it('routes a tint to the body by default', () => {
-    expect(tintRouteOf({ color: 0x112233 })).toBe('body');
+    expect(tintMaterialOf({ color: 0x112233 })).toBe('body');
   });
 
   it('routes a tint to the decoration when the look says so', () => {
@@ -1036,18 +1036,18 @@ Add to `packages/core/test/render/looks.test.ts`:
       decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
     };
 
-    expect(tintRouteOf(spec)).toBe('decoration');
+    expect(tintMaterialOf(spec)).toBe('decoration');
   });
 
   it('ignores tintTo on a look with no decoration', () => {
-    expect(tintRouteOf({ tintTo: 'decoration' })).toBe('body');
+    expect(tintMaterialOf({ tintTo: 'decoration' })).toBe('body');
   });
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `npx vitest run packages/core/test/render/looks.test.ts -t 'routes a tint'`
-Expected: FAIL — `tintRouteOf` is not exported.
+Expected: FAIL — `tintMaterialOf` is not exported.
 
 - [ ] **Step 3: Add the fields and the routing helper**
 
@@ -1072,7 +1072,7 @@ and add the helper next to `tintTargetOf`:
  * `tintTo` only means anything when there is a second material to route to; a look without
  * decoration silently keeps its tint on the body rather than dropping it.
  */
-export function tintRouteOf(spec: LookSpec): 'body' | 'decoration' {
+export function tintMaterialOf(spec: LookSpec): 'body' | 'decoration' {
   return spec.decoration && spec.tintTo === 'decoration' ? 'decoration' : 'body';
 }
 ```
@@ -1232,7 +1232,7 @@ In the glyph loop, replace the mesh construction with a group that carries the b
 
 ```ts
         const material = createMaterial();
-        applyLook(material, look, tintRouteOf(spec) === 'body' ? tint : undefined);
+        applyLook(material, look, tintMaterialOf(spec) === 'body' ? tint : undefined);
         material.transparent = true;
         if (seeds) {
           (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
@@ -1247,7 +1247,7 @@ In the glyph loop, replace the mesh construction with a group that carries the b
           applyLook(
             decorMaterial,
             decoration.look,
-            tintRouteOf(spec) === 'decoration' ? tint : undefined,
+            tintMaterialOf(spec) === 'decoration' ? tint : undefined,
           );
           decorMaterial.transparent = true;
           this.decorMaterials.push(decorMaterial);
@@ -1365,7 +1365,7 @@ Add to `packages/core/test/render/looks.test.ts`:
   });
 
   it('keeps piping tinting the hide, not the cord', () => {
-    expect(tintRouteOf(specOf('piping'))).toBe('body');
+    expect(tintMaterialOf(specOf('piping'))).toBe('body');
   });
 
   it('gives pyrite crystal habit and sequin free tumble', () => {
