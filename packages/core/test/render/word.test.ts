@@ -290,6 +290,19 @@ describe('Word', () => {
     expect(materialOf(word).opacity).toBeCloseTo(0.2, 10);
   });
 
+  // A declared 0 is the case that separates ?? from ||, and every other opacity test passes
+  // under both.
+  it('keeps a look that declares full transparency transparent', () => {
+    const word = new Word('A', stubFont(), { opacity: 0 }, ROOMY);
+
+    word.apply(
+      timelineOf(() => ({ opacity: 1 })),
+      50,
+    );
+
+    expect(materialOf(word).opacity).toBe(0);
+  });
+
   it('treats a look with no declared opacity as fully opaque', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
 

@@ -19,6 +19,8 @@ export type LookName =
   | 'leather';
 
 /** Extract silently drops a name that is not a real material property, so a typo fails DEFAULTS. */
+// Never add 'opacity' here, tempting as it looks: Word rewrites material.opacity every frame from
+// the pose, so a value applied through this list is gone by the first tick.
 type LookKey = Extract<
   keyof THREE.MeshPhysicalMaterial,
   | 'color'
