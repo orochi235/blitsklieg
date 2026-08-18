@@ -36,7 +36,6 @@ export class Word {
     wrap = false,
     tint?: number,
   ) {
-    const seeds = specOf(look).flake !== undefined;
     this.cache = new GlyphCache((char, depth) =>
       buildGlyphGeometry(font.font, char, EM, { ...DEFAULT_GLYPH_OPTIONS, depth }),
     );
@@ -79,9 +78,7 @@ export class Word {
         applyLook(material, look, tint);
         // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
         material.transparent = true;
-        if (seeds) {
-          (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
-        }
+        (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
         this.bodyMaterials.push(material);
 
         const mesh = new THREE.Mesh(geo, material);
