@@ -230,6 +230,12 @@ export class Word {
     this.decorMaterials.length = 0;
     this.decorCache?.dispose();
     this.chunkGeo?.dispose();
+    // An InstancedMesh owns an instanceMatrix buffer that clearing the group does not free.
+    for (const cell of this.letters) {
+      for (const child of cell?.children ?? []) {
+        if (child instanceof THREE.InstancedMesh) child.dispose();
+      }
+    }
     this.group.clear();
   }
 }

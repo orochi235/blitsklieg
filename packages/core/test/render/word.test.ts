@@ -401,6 +401,29 @@ describe('Word', () => {
 
     expect(spy).toHaveBeenCalled();
   });
+
+  it('frees the instance buffer a chunk decoration allocates', () => {
+    const chunks: LookSpec = {
+      decoration: {
+        kind: 'chunks',
+        count: 8,
+        size: 0.05,
+        shape: 'cube',
+        align: 0,
+        cluster: 0,
+        proud: 0.4,
+        look: {},
+      },
+    };
+    const word = new Word('A', stubFont(), chunks, ROOMY);
+    const instanced = (groups(word)[0] as THREE.Group).children[1] as THREE.InstancedMesh;
+    const spy = vi.spyOn(instanced, 'dispose');
+
+    word.dispose();
+
+    expect(instanced).toBeInstanceOf(THREE.InstancedMesh);
+    expect(spy).toHaveBeenCalled();
+  });
 });
 
 describe('Word as a block', () => {
