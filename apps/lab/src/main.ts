@@ -8,6 +8,7 @@ import {
   LIGHTING_NAMES,
   LOOK_NAMES,
   type Look,
+  type LookSpec,
   POLICY_NAMES,
   specOf,
 } from 'blitsklieg';
@@ -68,6 +69,14 @@ const CONTROL_IDS = [
   'blend',
   'grain',
   'density',
+  'radius',
+  'tubeAt',
+  'count',
+  'chunkSize',
+  'align',
+  'cluster',
+  'proud',
+  'bodyOpacity',
   'tint',
   'tintOn',
   'bloom',
@@ -128,11 +137,33 @@ function loadHash(): boolean {
 function chosenLook(): Look {
   const name = look.get();
   const spec = specOf(name);
-  if (!spec.flake) return name;
-  return {
-    ...spec,
-    flake: { ...spec.flake, size: 1 / number('grain'), density: number('density') / 100 },
-  };
+  const tuned: LookSpec = { ...spec };
+
+  if (spec.flake) {
+    tuned.flake = { ...spec.flake, size: 1 / number('grain'), density: number('density') / 100 };
+  }
+
+  if (spec.opacity !== undefined) tuned.opacity = number('bodyOpacity') / 100;
+
+  const decoration = spec.decoration;
+  if (decoration?.kind === 'tube') {
+    tuned.decoration = {
+      ...decoration,
+      radius: number('radius') / 1000,
+      at: [number('tubeAt') / 100],
+    };
+  } else if (decoration?.kind === 'chunks') {
+    tuned.decoration = {
+      ...decoration,
+      count: number('count'),
+      size: number('chunkSize') / 1000,
+      align: number('align') / 100,
+      cluster: number('cluster') / 100,
+      proud: number('proud') / 100,
+    };
+  }
+
+  return spec.flake || spec.decoration || spec.opacity !== undefined ? tuned : name;
 }
 
 /**
@@ -140,13 +171,29 @@ function chosenLook(): Look {
  * sits near 90 — so one range cannot serve both. A shared range clamps whichever look falls
  * outside it and silently retunes that look the moment it is picked.
  */
-function seedFlakeSliders(): void {
-  const spec = specOf(look.get()).flake;
-  if (!spec) return;
-  grainInput.min = spec.bump ? '1' : '20';
-  grainInput.max = spec.bump ? '24' : '400';
-  grainInput.value = String(Math.round(1 / spec.size));
-  densityInput.value = String(Math.round(spec.density * 100));
+function seedSliders(): void {
+  const spec = specOf(look.get());
+
+  if (spec.flake) {
+    grainInput.min = spec.flake.bump ? '1' : '20';
+    grainInput.max = spec.flake.bump ? '24' : '400';
+    grainInput.value = String(Math.round(1 / spec.flake.size));
+    densityInput.value = String(Math.round(spec.flake.density * 100));
+  }
+
+  el<HTMLInputElement>('bodyOpacity').value = String(Math.round((spec.opacity ?? 1) * 100));
+
+  const decoration = spec.decoration;
+  if (decoration?.kind === 'tube') {
+    el<HTMLInputElement>('radius').value = String(Math.round(decoration.radius * 1000));
+    el<HTMLInputElement>('tubeAt').value = String(Math.round((decoration.at[0] ?? 1) * 100));
+  } else if (decoration?.kind === 'chunks') {
+    el<HTMLInputElement>('count').value = String(decoration.count);
+    el<HTMLInputElement>('chunkSize').value = String(Math.round(decoration.size * 1000));
+    el<HTMLInputElement>('align').value = String(Math.round(decoration.align * 100));
+    el<HTMLInputElement>('cluster').value = String(Math.round(decoration.cluster * 100));
+    el<HTMLInputElement>('proud').value = String(Math.round(decoration.proud * 100));
+  }
 }
 
 function create(): Blitsklieg {
@@ -291,20 +338,27 @@ textInput.addEventListener('keydown', (e) => {
   }
 });
 
-// Greyed rather than ignored: only the flake looks read a grain, and a live slider that does
-// nothing reads as a broken slider.
-function syncGrain(): void {
-  grainInput.disabled = densityInput.disabled = specOf(look.get()).flake === undefined;
+// Greyed rather than ignored: a look reads a grain, a tube or a chunk field only if its spec
+// carries one, and a live slider that does nothing reads as a broken slider.
+function syncDisabled(): void {
+  const spec = specOf(look.get());
+  grainInput.disabled = densityInput.disabled = spec.flake === undefined;
+  const tube = spec.decoration?.kind === 'tube';
+  const chunks = spec.decoration?.kind === 'chunks';
+  el<HTMLInputElement>('radius').disabled = el<HTMLInputElement>('tubeAt').disabled = !tube;
+  for (const id of ['count', 'chunkSize', 'align', 'cluster', 'proud']) {
+    el<HTMLInputElement>(id).disabled = !chunks;
+  }
 }
 
-look.select.addEventListener('change', seedFlakeSliders);
+look.select.addEventListener('change', seedSliders);
 
 // A hash carries the sliders the viewer left them at; without one they start at the look's own.
-if (!loadHash()) seedFlakeSliders();
-syncGrain();
+if (!loadHash()) seedSliders();
+syncDisabled();
 for (const input of controls()) {
   input.addEventListener('change', () => {
-    syncGrain();
+    syncDisabled();
     saveHash();
   });
   input.addEventListener('input', saveHash);
