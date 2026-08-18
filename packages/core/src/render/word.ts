@@ -22,7 +22,8 @@ export class Word {
   private readonly columnOf: number[] = [];
   readonly lineCount: number;
   private readonly columnCount: number;
-  private readonly material: THREE.MeshPhysicalMaterial;
+  /** Indexed by letter slot, null where the glyph drew no outline. */
+  private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   private readonly cache: GlyphCache;
   /** Per-letter clones carrying the flake seed. The cache owns the originals, not these. */
   private readonly seeded: THREE.BufferGeometry[] = [];
@@ -37,11 +38,7 @@ export class Word {
     wrap = false,
     tint?: number,
   ) {
-    this.material = createMaterial();
-    applyLook(this.material, look, tint);
     const seeds = specOf(look).flake !== undefined;
-    // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
-    this.material.transparent = true;
     this.cache = new GlyphCache((char, depth) =>
       buildGlyphGeometry(font.font, char, EM, { ...DEFAULT_GLYPH_OPTIONS, depth }),
     );
@@ -76,6 +73,7 @@ export class Word {
         const geo = this.cache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
         if (!geo.attributes.position?.count) {
           this.letters.push(null);
+          this.bodyMaterials.push(null);
           continue;
         }
 
@@ -89,7 +87,13 @@ export class Word {
           this.seeded.push(drawn);
         }
 
-        const mesh = new THREE.Mesh(drawn, this.material);
+        const material = createMaterial();
+        applyLook(material, look, tint);
+        // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
+        material.transparent = true;
+        this.bodyMaterials.push(material);
+
+        const mesh = new THREE.Mesh(drawn, material);
         this.letters.push(mesh);
         this.group.add(mesh);
 
@@ -134,7 +138,6 @@ export class Word {
   apply(timeline: Timeline, elapsed: number): void {
     if (this.disposed) return;
 
-    let opacity = 0;
     for (let i = 0; i < this.letters.length; i++) {
       const mesh = this.letters[i];
       if (!mesh) continue;
@@ -159,11 +162,9 @@ export class Word {
       mesh.position.z = pose.position[2];
       mesh.rotation.set(...pose.rotation);
       mesh.scale.setScalar(pose.scale);
-      opacity = Math.max(opacity, pose.opacity);
+      const material = this.bodyMaterials[i];
+      if (material) material.opacity = pose.opacity;
     }
-    // One shared material. A staggered enter (spin, flip, rise) fades letters in at different
-    // times, so taking the last letter's opacity would hide the word until it caught up.
-    this.material.opacity = opacity;
   }
 
   dispose(): void {
@@ -171,7 +172,8 @@ export class Word {
     for (const geo of this.seeded) geo.dispose();
     this.seeded.length = 0;
     this.cache.dispose();
-    this.material.dispose();
+    for (const material of this.bodyMaterials) material?.dispose();
+    this.bodyMaterials.length = 0;
     this.group.clear();
   }
 }

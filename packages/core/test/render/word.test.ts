@@ -231,7 +231,14 @@ describe('Word', () => {
     expect(materialOf(word).transparent).toBe(true);
   });
 
-  it('wears the most visible letter opacity, not the last letter to be posed', () => {
+  it('gives each letter its own material', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const [a, b] = meshes(word);
+
+    expect((a as THREE.Mesh).material).not.toBe((b as THREE.Mesh).material);
+  });
+
+  it('fades each letter on its own schedule', () => {
     const word = new Word('AA', stubFont(), 'gold', ROOMY);
     const fadeByIndex = (_t: number, letter: LetterInfo): PoseOffset => ({
       opacity: letter.index === 0 ? 1 : 0,
@@ -239,14 +246,19 @@ describe('Word', () => {
 
     word.apply(timelineOf(fadeByIndex), 50);
 
-    expect(materialOf(word).opacity).toBe(1);
+    const [a, b] = meshes(word);
+    expect(((a as THREE.Mesh).material as THREE.MeshPhysicalMaterial).opacity).toBe(1);
+    expect(((b as THREE.Mesh).material as THREE.MeshPhysicalMaterial).opacity).toBe(0);
   });
 
-  it('applies the look to the shared material', () => {
-    const word = new Word('A', stubFont(), 'chrome', ROOMY);
+  it('applies the look to every letter material', () => {
+    const word = new Word('AB', stubFont(), 'chrome', ROOMY);
 
-    expect(materialOf(word).metalness).toBe(1);
-    expect(materialOf(word).roughness).toBeCloseTo(0.05, 10);
+    for (const mesh of meshes(word)) {
+      const mat = mesh.material as THREE.MeshPhysicalMaterial;
+      expect(mat.metalness).toBe(1);
+      expect(mat.roughness).toBeCloseTo(0.05, 10);
+    }
   });
 
   it('disposes the glyph geometry and the material, and empties the group', () => {
@@ -267,7 +279,7 @@ describe('Word', () => {
   it('goes inert after dispose rather than posing into a disposed material', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
     const [a] = meshes(word);
-    const material = materialOf(word);
+    const material = (a as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
     const rest = (a as THREE.Mesh).position.x;
 
     word.dispose();
