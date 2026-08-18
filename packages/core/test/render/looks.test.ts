@@ -12,7 +12,7 @@ import {
   type LookSpec,
   specOf,
   type TintTarget,
-  tintRouteOf,
+  tintMaterialOf,
   tintTargetOf,
 } from '../../src/render/looks.js';
 
@@ -317,9 +317,9 @@ describe('tintTargetOf', () => {
   });
 });
 
-describe('tintRouteOf', () => {
+describe('tintMaterialOf', () => {
   it('routes a tint to the body by default', () => {
-    expect(tintRouteOf({ color: 0x112233 })).toBe('body');
+    expect(tintMaterialOf({ color: 0x112233 })).toBe('body');
   });
 
   it('routes a tint to the decoration when the look says so', () => {
@@ -328,11 +328,20 @@ describe('tintRouteOf', () => {
       decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
     };
 
-    expect(tintRouteOf(spec)).toBe('decoration');
+    expect(tintMaterialOf(spec)).toBe('decoration');
   });
 
   it('ignores tintTo on a look with no decoration', () => {
-    expect(tintRouteOf({ tintTo: 'decoration' })).toBe('body');
+    expect(tintMaterialOf({ tintTo: 'decoration' })).toBe('body');
+  });
+
+  it('keeps a decorated look on the body when it says so outright', () => {
+    const spec: LookSpec = {
+      tintTo: 'body',
+      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+    };
+
+    expect(tintMaterialOf(spec)).toBe('body');
   });
 });
 

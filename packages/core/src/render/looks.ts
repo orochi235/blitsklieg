@@ -178,7 +178,7 @@ export function tintTargetOf(params: LookParams, declared?: TintTarget): TintTar
  * `tintTo` only means anything when there is a second material to route to; a look without
  * decoration silently keeps its tint on the body rather than dropping it.
  */
-export function tintRouteOf(spec: LookSpec): 'body' | 'decoration' {
+export function tintMaterialOf(spec: LookSpec): 'body' | 'decoration' {
   return spec.decoration && spec.tintTo === 'decoration' ? 'decoration' : 'body';
 }
 
