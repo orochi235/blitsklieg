@@ -220,7 +220,9 @@ function fire(text: string): void {
     tint: tintOnInput.checked ? Number.parseInt(tintInput.value.slice(1), 16) : undefined,
     hold: holdClickInput.checked ? 'click' : number('hold'),
     blendMs: number('blend'),
-    bloom: bloomInput.checked,
+    // Unchecked has to mean "unset", not "off": FireOptions.bloom wins over a look's own
+    // request, so passing false would keep neon and tubing from ever blooming here.
+    bloom: bloomInput.checked || undefined,
     wrap: wrapInput.checked,
     modal: modalInput.checked,
     placement: { kind: 'fullscreen' },
@@ -349,6 +351,7 @@ function syncDisabled(): void {
   for (const id of ['count', 'chunkSize', 'align', 'cluster', 'proud']) {
     el<HTMLInputElement>(id).disabled = !chunks;
   }
+  el<HTMLInputElement>('bodyOpacity').disabled = spec.opacity === undefined;
 }
 
 look.select.addEventListener('change', seedSliders);
