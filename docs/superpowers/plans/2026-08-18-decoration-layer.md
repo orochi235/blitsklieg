@@ -823,6 +823,8 @@ export type Blueprint = TubeBlueprint | ChunkBlueprint;
 const POOL = 512;
 /** Fixed, so a char's pool is identical across words and across runs. */
 const POOL_SEED = 0x5eed;
+/** How wide a clustered draw reaches around its anchor, in pool samples. */
+const CLUSTER_NEIGHBOURS = 12;
 
 function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -927,13 +929,16 @@ export function chunkMatrices(
   const lattice = randomQuaternion(random);
 
   const chosen: number[] = [];
+  const taken = new Set<number>();
   const sample = new THREE.Vector3();
   const other = new THREE.Vector3();
 
   for (let n = 0; n < spec.count; n++) {
     let index = Math.min(pool - 1, Math.floor(random() * pool));
     // Clustering draws near an already-placed chunk instead of anywhere, which is what leaves
-    // bare matrix between clumps rather than an even sprinkle.
+    // bare matrix between clumps rather than an even sprinkle. Taking the single nearest sample
+    // instead of one of the k nearest collapses the clump: that map is symmetric, so the draw
+    // ping-pongs between one pair of samples forever.
     if (chosen.length > 0 && random() < spec.cluster) {
       const anchor = chosen[Math.floor(random() * chosen.length)] as number;
       sample.set(
@@ -941,24 +946,31 @@ export function chunkMatrices(
         blueprint.position[anchor * 3 + 1] as number,
         blueprint.position[anchor * 3 + 2] as number,
       );
-      let best = index;
-      let bestDistance = Number.POSITIVE_INFINITY;
+      const near: number[] = [];
+      const far: number[] = [];
       for (let p = 0; p < pool; p++) {
-        if (p === anchor) continue;
+        if (taken.has(p)) continue;
         other.set(
           blueprint.position[p * 3] as number,
           blueprint.position[p * 3 + 1] as number,
           blueprint.position[p * 3 + 2] as number,
         );
         const d = other.distanceToSquared(sample);
-        if (d < bestDistance) {
-          bestDistance = d;
-          best = p;
+        let slot = near.length;
+        while (slot > 0 && (far[slot - 1] as number) > d) slot--;
+        if (slot < CLUSTER_NEIGHBOURS) {
+          near.splice(slot, 0, p);
+          far.splice(slot, 0, d);
+          if (near.length > CLUSTER_NEIGHBOURS) {
+            near.pop();
+            far.pop();
+          }
         }
       }
-      index = best;
+      index = near[Math.floor(random() * near.length)] ?? index;
     }
     chosen.push(index);
+    taken.add(index);
   }
 
   const matrices: THREE.Matrix4[] = [];
@@ -992,7 +1004,7 @@ export function chunkGeometry(shape: ChunkSpec['shape']): THREE.BufferGeometry {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `npx vitest run packages/core/test/render/decoration.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS. Also add two tests covering `cluster`, which the assertions above miss entirely — that a `cluster: 1` clump keeps its chunks distinct (the single-nearest algorithm collapses 40 chunks onto 2 points), and that it draws tighter than an even scatter.
 
 - [ ] **Step 5: Commit**
 
