@@ -73,6 +73,34 @@ describe('buildTubeBlueprint', () => {
     expect(front.loops[0]?.boundingBox?.max.z).toBeCloseTo(0.3 + SPEC.radius, 2);
   });
 
+  it('pulls the path inside the glyph when given an inset', () => {
+    const on = buildTubeBlueprint([slab()], SPEC, 0.3);
+    const inside = buildTubeBlueprint([slab()], { ...SPEC, inset: 0.15 }, 0.3);
+    const width = (b: ReturnType<typeof buildTubeBlueprint>) => {
+      const loop = b.loops[0] as THREE.BufferGeometry;
+      loop.computeBoundingBox();
+      return (loop.boundingBox as THREE.Box3).max.x;
+    };
+
+    expect(width(inside)).toBeLessThan(width(on) - 0.1);
+  });
+
+  it('drops a contour too thin to hold its inset rather than drawing a bowtie', () => {
+    // The slab spans 1 em, so insetting by 0.6 from both sides turns it inside out.
+    const collapsed = buildTubeBlueprint([slab()], { ...SPEC, inset: 0.6 }, 0.3);
+
+    expect(collapsed.loops).toHaveLength(0);
+  });
+
+  it('insets a counter away from its hole, into the surrounding solid', () => {
+    const inside = buildTubeBlueprint([ring()], { ...SPEC, inset: 0.05 }, 0.3);
+    const counter = inside.loops[1] as THREE.BufferGeometry;
+    counter.computeBoundingBox();
+
+    // The hole spans +/-0.2; pushing into the solid grows the counter path, it does not shrink it.
+    expect((counter.boundingBox as THREE.Box3).max.x).toBeGreaterThan(0.2);
+  });
+
   it('closes the loop without a lopsided seam', () => {
     const blueprint = buildTubeBlueprint([slab()], SPEC, 0.3);
     const loop = blueprint.loops[0] as THREE.BufferGeometry;

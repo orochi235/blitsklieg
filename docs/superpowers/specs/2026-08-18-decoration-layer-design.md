@@ -221,6 +221,14 @@ reads weak in the lab, the fix is more mip levels in our own chain, not `UnrealB
 stock pass forces frame alpha to 1.0 and turns the overlay opaque, which is why the chain is
 hand-rolled in the first place.
 
+**Per-contour offsetting is all-or-nothing, and that is why it fails.** `TubeSpec.inset` walks
+each vertex along its angle bisector into the solid, and drops a contour when any edge reverses.
+Measured on the lab font at 1 em, an inset of 0.015 already breaks most letters — not because
+stems are too thin, but because a letter's outline is one closed path and a single pinch (the
+crotch of an `A`, the hook of a `J`) reverses one edge and discards the whole glyph. A correct
+offset splits the contour into several pieces at those pinches instead. `tubing` therefore ships
+at inset 0, riding the outline; the parameter stays as a lever with the sliders.
+
 **A distance field for every tubing path.** Neon tubing wants more than an outline trace: which
 edges get piped, how continuous each run is, and how many colors it uses are the levers that make
 it read as a fabricated sign rather than a stroked letter. All of the path shapes involved are

@@ -12,6 +12,8 @@ export interface TubeSpec {
   at: number[];
   /** Ring segments around the tube. */
   segments: number;
+  /** How far inside the glyph the path runs, in em. 0 rides the outline itself. */
+  inset?: number;
   look: MaterialSpec;
 }
 
@@ -33,6 +35,73 @@ function contourPoints(contour: THREE.Shape | THREE.Path): THREE.Vector2[] {
   return points;
 }
 
+function signedArea(points: THREE.Vector2[]): number {
+  let sum = 0;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const p = points[i] as THREE.Vector2;
+    const q = points[j] as THREE.Vector2;
+    sum += q.x * p.y - p.x * q.y;
+  }
+  return sum / 2;
+}
+
+/** Beyond this a sharp corner's miter shoots off to infinity, so the spike is clamped instead. */
+const MITER_LIMIT = 4;
+
+/**
+ * Walks each vertex along its angle bisector into the solid, so the tube sits inside the letter
+ * rather than straddling its edge. A stroke thinner than twice the inset turns itself inside out;
+ * that shows up as a flipped signed area, and the contour is dropped rather than drawn as a bowtie.
+ */
+function insetContour(points: THREE.Vector2[], distance: number, hole: boolean): THREE.Vector2[] {
+  const area = signedArea(points);
+  if (area === 0) return [];
+  // Left of travel is the interior of a counter-clockwise ring; a hole's solid is the other way.
+  const sign = (area > 0 ? 1 : -1) * (hole ? -1 : 1);
+  const out: THREE.Vector2[] = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const prev = points[(i - 1 + points.length) % points.length] as THREE.Vector2;
+    const cur = points[i] as THREE.Vector2;
+    const next = points[(i + 1) % points.length] as THREE.Vector2;
+
+    const back = new THREE.Vector2().subVectors(cur, prev).normalize();
+    const forward = new THREE.Vector2().subVectors(next, cur).normalize();
+    const normalBack = new THREE.Vector2(-back.y, back.x);
+    const normalForward = new THREE.Vector2(-forward.y, forward.x);
+
+    const bisector = new THREE.Vector2().addVectors(normalBack, normalForward);
+    if (bisector.lengthSq() < 1e-12) continue;
+    bisector.normalize();
+
+    const miter = Math.min(1 / Math.max(bisector.dot(normalBack), 1e-3), MITER_LIMIT);
+    out.push(
+      new THREE.Vector2(
+        cur.x + bisector.x * miter * distance * sign,
+        cur.y + bisector.y * miter * distance * sign,
+      ),
+    );
+  }
+
+  if (out.length !== points.length || out.length < 3) return [];
+
+  // Signed area cannot see this: over-insetting a symmetric contour point-reflects it, and a
+  // 180 degree rotation keeps the winding it started with. A collapsed edge reverses instead.
+  for (let i = 0; i < out.length; i++) {
+    const next = (i + 1) % out.length;
+    const before = new THREE.Vector2().subVectors(
+      points[next] as THREE.Vector2,
+      points[i] as THREE.Vector2,
+    );
+    const after = new THREE.Vector2().subVectors(
+      out[next] as THREE.Vector2,
+      out[i] as THREE.Vector2,
+    );
+    if (before.dot(after) < 0) return [];
+  }
+  return out;
+}
+
 export function buildTubeBlueprint(
   shapes: THREE.Shape[],
   spec: TubeSpec,
@@ -41,8 +110,10 @@ export function buildTubeBlueprint(
   const loops: THREE.BufferGeometry[] = [];
 
   for (const shape of shapes) {
-    for (const contour of [shape, ...shape.holes]) {
-      const points = contourPoints(contour);
+    for (const [index, contour] of [shape, ...shape.holes].entries()) {
+      const traced = contourPoints(contour);
+      if (traced.length < 3) continue;
+      const points = spec.inset ? insetContour(traced, spec.inset, index > 0) : traced;
       if (points.length < 3) continue;
 
       for (const at of spec.at) {

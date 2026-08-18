@@ -71,6 +71,7 @@ const CONTROL_IDS = [
   'density',
   'radius',
   'tubeAt',
+  'inset',
   'count',
   'chunkSize',
   'align',
@@ -151,6 +152,7 @@ function chosenLook(): Look {
       ...decoration,
       radius: number('radius') / 1000,
       at: [number('tubeAt') / 100],
+      inset: number('inset') / 1000,
     };
   } else if (decoration?.kind === 'chunks') {
     tuned.decoration = {
@@ -187,6 +189,7 @@ function seedSliders(): void {
   if (decoration?.kind === 'tube') {
     el<HTMLInputElement>('radius').value = String(Math.round(decoration.radius * 1000));
     el<HTMLInputElement>('tubeAt').value = String(Math.round((decoration.at[0] ?? 1) * 100));
+    el<HTMLInputElement>('inset').value = String(Math.round((decoration.inset ?? 0) * 1000));
   } else if (decoration?.kind === 'chunks') {
     el<HTMLInputElement>('count').value = String(decoration.count);
     el<HTMLInputElement>('chunkSize').value = String(Math.round(decoration.size * 1000));
@@ -348,6 +351,7 @@ function syncDisabled(): void {
   const tube = spec.decoration?.kind === 'tube';
   const chunks = spec.decoration?.kind === 'chunks';
   el<HTMLInputElement>('radius').disabled = el<HTMLInputElement>('tubeAt').disabled = !tube;
+  el<HTMLInputElement>('inset').disabled = !tube;
   for (const id of ['count', 'chunkSize', 'align', 'cluster', 'proud']) {
     el<HTMLInputElement>(id).disabled = !chunks;
   }
