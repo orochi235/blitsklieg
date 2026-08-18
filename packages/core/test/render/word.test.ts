@@ -261,18 +261,20 @@ describe('Word', () => {
     }
   });
 
-  it('disposes the glyph geometry and the material, and empties the group', () => {
+  it('disposes every glyph geometry and every letter material, and empties the group', () => {
     const word = new Word('AB', stubFont(), 'gold', ROOMY);
     const [a, b] = meshes(word);
     const geoA = vi.spyOn(a?.geometry as THREE.BufferGeometry, 'dispose');
     const geoB = vi.spyOn(b?.geometry as THREE.BufferGeometry, 'dispose');
-    const material = vi.spyOn(materialOf(word), 'dispose');
+    const matA = vi.spyOn((a as THREE.Mesh).material as THREE.MeshPhysicalMaterial, 'dispose');
+    const matB = vi.spyOn((b as THREE.Mesh).material as THREE.MeshPhysicalMaterial, 'dispose');
 
     word.dispose();
 
     expect(geoA).toHaveBeenCalled();
     expect(geoB).toHaveBeenCalled();
-    expect(material).toHaveBeenCalled();
+    expect(matA).toHaveBeenCalled();
+    expect(matB).toHaveBeenCalled();
     expect(word.group.children).toHaveLength(0);
   });
 
