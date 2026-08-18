@@ -191,6 +191,29 @@ describe('chunkMatrices', () => {
     expect(Math.max(...spread)).toBeGreaterThan(0.1);
   });
 
+  it('keeps a full clump from collapsing onto a couple of points', () => {
+    const spec = { ...CHUNKS, count: 40, cluster: 1 };
+    const matrices = chunkMatrices(buildChunkBlueprint(box()), spec, 3);
+    const at = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m);
+    const distinct = new Set(matrices.map((m) => at(m).toArray().join(',')));
+
+    expect(distinct.size).toBeGreaterThan(spec.count / 2);
+  });
+
+  it('draws a clump tighter than an even scatter', () => {
+    const blueprint = buildChunkBlueprint(box());
+    const spread = (cluster: number) => {
+      const matrices = chunkMatrices(blueprint, { ...CHUNKS, count: 40, cluster }, 3);
+      const points = matrices.map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+      const mean = points
+        .reduce((acc, p) => acc.add(p), new THREE.Vector3())
+        .divideScalar(points.length);
+      return points.reduce((acc, p) => acc + p.distanceTo(mean), 0) / points.length;
+    };
+
+    expect(spread(1)).toBeLessThan(spread(0));
+  });
+
   it('sits chunks proud of the surface', () => {
     const blueprint = buildChunkBlueprint(box());
     const flush = chunkMatrices(blueprint, { ...CHUNKS, proud: 0 }, 3);
