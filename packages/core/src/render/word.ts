@@ -26,6 +26,7 @@ export class Word {
   private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   private readonly cache: GlyphCache;
   private readonly pose = blankPose();
+  private readonly bodyOpacity: number;
   private disposed = false;
 
   constructor(
@@ -36,6 +37,9 @@ export class Word {
     wrap = false,
     tint?: number,
   ) {
+    const spec = specOf(look);
+    this.bodyOpacity = spec.opacity ?? 1;
+
     this.cache = new GlyphCache((char, depth) =>
       buildGlyphGeometry(font.font, char, EM, { ...DEFAULT_GLYPH_OPTIONS, depth }),
     );
@@ -151,7 +155,7 @@ export class Word {
       mesh.rotation.set(...pose.rotation);
       mesh.scale.setScalar(pose.scale);
       const material = this.bodyMaterials[i];
-      if (material) material.opacity = pose.opacity;
+      if (material) material.opacity = pose.opacity * this.bodyOpacity;
     }
   }
 

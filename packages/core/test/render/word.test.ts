@@ -279,6 +279,28 @@ describe('Word', () => {
     expect(word.group.children).toHaveLength(0);
   });
 
+  it('multiplies pose opacity by the look base opacity', () => {
+    const word = new Word('A', stubFont(), { opacity: 0.5 }, ROOMY);
+
+    word.apply(
+      timelineOf(() => ({ opacity: 0.4 })),
+      50,
+    );
+
+    expect(materialOf(word).opacity).toBeCloseTo(0.2, 10);
+  });
+
+  it('treats a look with no declared opacity as fully opaque', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+
+    word.apply(
+      timelineOf(() => ({ opacity: 0.4 })),
+      50,
+    );
+
+    expect(materialOf(word).opacity).toBeCloseTo(0.4, 10);
+  });
+
   it('goes inert after dispose rather than posing into a disposed material', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
     const [a] = meshes(word);

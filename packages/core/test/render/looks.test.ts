@@ -199,6 +199,14 @@ describe('applyLook', () => {
     applyLook(material, 'gem');
     expect(material.version).toBeGreaterThan(before);
   });
+
+  it('leaves opacity off the material, because Word owns it per frame', () => {
+    const material = createMaterial();
+
+    applyLook(material, { opacity: 0.2 });
+
+    expect(material.opacity).toBe(1);
+  });
 });
 
 describe('flake looks', () => {

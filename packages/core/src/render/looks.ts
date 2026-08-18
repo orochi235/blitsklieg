@@ -182,6 +182,8 @@ export interface LookSpec extends Partial<LookParams> {
   /** Turns the bloom pass on for this look unless the caller says otherwise. */
   bloom?: boolean;
   flake?: FlakeSpec;
+  /** Base opacity of the body, 0..1. Pose opacity multiplies it. */
+  opacity?: number;
 }
 
 export type Look = LookName | LookSpec;
