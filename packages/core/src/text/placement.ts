@@ -9,11 +9,15 @@ export interface Placement {
   x: number[];
   /** Layout y per glyph, in em, before the block's vertical centring. */
   y: number[];
+  /** The character each entry places. */
+  char: string[];
   line: number[];
   column: number[];
   lineCount: number;
   /** The widest line's glyph count, so a short line's columns do not stretch to fill it. */
   columnCount: number;
+  /** Width of the drawn ink across the whole block, in em; 0 when nothing draws. */
+  inkWidth: number;
 }
 
 /** The string that lays `chars` out in the given arrangement. */
@@ -34,11 +38,16 @@ export function placeBlock(
   const out: Placement = {
     x: [],
     y: [],
+    char: [],
     line: [],
     column: [],
     lineCount: block.lines.length,
     columnCount: Math.max(0, ...block.lines.map((l) => l.glyphs.length)),
+    inkWidth: 0,
   };
+
+  let blockInkStart = Number.POSITIVE_INFINITY;
+  let blockInkEnd = Number.NEGATIVE_INFINITY;
 
   for (let ln = 0; ln < block.lines.length; ln++) {
     const line = block.lines[ln] as Line;
@@ -51,6 +60,7 @@ export function placeBlock(
       const x = g.x * scaleToEm;
       out.x.push(x);
       out.y.push(y);
+      out.char.push(g.char);
       out.line.push(ln);
       out.column.push(g.index);
       if (drawsInk(g.char)) {
@@ -61,8 +71,13 @@ export function placeBlock(
 
     const shift = inkStart === null ? 0 : -(inkStart + inkEnd) / 2;
     for (let i = first; i < out.x.length; i++) out.x[i] = (out.x[i] as number) + shift;
+    if (inkStart !== null) {
+      blockInkStart = Math.min(blockInkStart, inkStart + shift);
+      blockInkEnd = Math.max(blockInkEnd, inkEnd + shift);
+    }
   }
 
+  out.inkWidth = Number.isFinite(blockInkStart) ? blockInkEnd - blockInkStart : 0;
   return out;
 }
 
@@ -79,17 +94,12 @@ export interface Fit {
  */
 export function fitOf(
   placed: Placement,
-  chars: readonly string[],
   geoMinY: readonly (number | null)[],
   geoMaxY: readonly (number | null)[],
-  metrics: GlyphMetrics,
-  scaleToEm: number,
   budget: Budget,
 ): Fit {
   let minY = Number.POSITIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
 
   for (let i = 0; i < placed.x.length; i++) {
     const lo = geoMinY[i];
@@ -98,15 +108,11 @@ export function fitOf(
     const y = placed.y[i] as number;
     minY = Math.min(minY, y + lo);
     maxY = Math.max(maxY, y + hi);
-    const x = placed.x[i] as number;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x + metrics.advanceOf(chars[i] as string) * scaleToEm);
   }
 
   const drawn = Number.isFinite(minY);
-  const width = Number.isFinite(minX) ? maxX - minX : 0;
   return {
-    scale: fitScale(width, drawn ? maxY - minY : 0, budget),
+    scale: fitScale(placed.inkWidth, drawn ? maxY - minY : 0, budget),
     midY: drawn ? (minY + maxY) / 2 : 0,
   };
 }

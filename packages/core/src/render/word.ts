@@ -8,7 +8,7 @@ import {
   GlyphCache,
   glyphToShapes,
 } from '../text/glyphs.js';
-import type { Budget, GlyphMetrics, Line, PlacedGlyph } from '../text/layout.js';
+import type { Budget, GlyphMetrics } from '../text/layout.js';
 import { layoutBlock, wrapBlock } from '../text/layout.js';
 import { type Fit, fitOf, placeBlock } from '../text/placement.js';
 import type { Transform } from '../transform.js';
@@ -132,15 +132,12 @@ export class Word {
     this.lineCount = placed.lineCount;
     this.columnCount = placed.columnCount;
 
-    // Bounds first, cells second. The glyph cache memoizes on (char, depth), so measuring every
-    // glyph before building anything costs one extra map lookup per letter — and it settles the
-    // fit, which a per-letter tint callback needs in order to be handed a meaningful `y`.
+    // Bounds for every glyph first: the fit has to be settled before any cell is built.
     for (let i = 0; i < placed.x.length; i++) {
-      const line = block.lines[placed.line[i] as number] as Line;
-      const g = line.glyphs[placed.column[i] as number] as PlacedGlyph;
-      const geo = this.cache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
+      const char = placed.char[i] as string;
+      const geo = this.cache.get(char, DEFAULT_GLYPH_OPTIONS.depth);
       const drawn = geo.attributes.position?.count ? geo.boundingBox : null;
-      this.charOf.push(g.char);
+      this.charOf.push(char);
       this.baseX.push(placed.x[i] as number);
       this.baseY.push(placed.y[i] as number);
       this.lineOf.push(placed.line[i] as number);
@@ -150,15 +147,7 @@ export class Word {
       this.geoMinY.push(drawn ? drawn.min.y : null);
       this.geoMaxY.push(drawn ? drawn.max.y : null);
     }
-    this.fit = fitOf(
-      placed,
-      this.charOf,
-      this.geoMinY,
-      this.geoMaxY,
-      font.metrics,
-      scaleToEm,
-      budget,
-    );
+    this.fit = fitOf(placed, this.geoMinY, this.geoMaxY, budget);
     this.applyFit(this.fit);
 
     for (let i = 0; i < this.charOf.length; i++) {

@@ -38,12 +38,37 @@ describe('placeBlock', () => {
     expect(p.y[1]).toBeCloseTo(-1.1);
   });
 
-  it('reports line, column and counts', () => {
+  it('reports the character, line, column and counts', () => {
     const p = place('AB\nC');
+    expect(p.char).toEqual(['A', 'B', 'C']);
     expect(p.line).toEqual([0, 0, 1]);
     expect(p.column).toEqual([0, 1, 0]);
     expect(p.lineCount).toBe(2);
     expect(p.columnCount).toBe(2);
+  });
+
+  it('measures the drawn ink across the block', () => {
+    expect(place('AB').inkWidth).toBeCloseTo(2 * STEP);
+    expect(place('AB\nC').inkWidth).toBeCloseTo(2 * STEP);
+  });
+});
+
+describe('a block that draws no ink', () => {
+  it('places every glyph, unshifted', () => {
+    const p = place('  ');
+    expect(p.x).toHaveLength(2);
+    expect(p.x[0]).toBeCloseTo(0);
+    expect(p.x[1]).toBeCloseTo(STEP);
+  });
+
+  it('measures no ink', () => {
+    expect(place('  ').inkWidth).toBe(0);
+  });
+
+  it('fits at the cap, centred on zero', () => {
+    const fit = fitOf(place('  '), [null, null], [null, null], { width: 1, height: 1 });
+    expect(fit.scale).toBe(2.2);
+    expect(fit.midY).toBe(0);
   });
 });
 
@@ -60,25 +85,14 @@ describe('arrange', () => {
 describe('fitOf', () => {
   it('scales a wide block down to the budget width', () => {
     const p = place('AAAA');
-    const fit = fitOf(
-      p,
-      ['A', 'A', 'A', 'A'],
-      [0, 0, 0, 0],
-      [0.7, 0.7, 0.7, 0.7],
-      metrics,
-      SCALE_TO_EM,
-      {
-        width: 1,
-        height: 10,
-      },
-    );
+    const fit = fitOf(p, [0, 0, 0, 0], [0.7, 0.7, 0.7, 0.7], { width: 1, height: 10 });
     // Four 0.6em advances span 2.4em of ink; a 1-wide budget scales that by 1/2.4.
     expect(fit.scale).toBeCloseTo(1 / 2.4, 4);
   });
 
   it('puts the vertical centre of the ink at midY', () => {
     const p = place('A');
-    const fit = fitOf(p, ['A'], [-0.2], [0.7], metrics, SCALE_TO_EM, { width: 100, height: 100 });
+    const fit = fitOf(p, [-0.2], [0.7], { width: 100, height: 100 });
     expect(fit.midY).toBeCloseTo(0.25);
   });
 });
