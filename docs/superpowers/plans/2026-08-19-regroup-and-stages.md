@@ -1094,6 +1094,22 @@ describe('Sequence', () => {
     expect(seq.poseAt(200, letter).position[0]).toBeCloseTo(0);
   });
 
+  it('keeps the move to its own duration when the exit is longer', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      stages: [stage({ exit: { duration: 800, offset: () => ({}) }, tween: { duration: 200 } })],
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    // The travel is done at 200ms even though the slot runs to 800ms.
+    expect(seq.poseAt(200, letter).position[0]).toBeCloseTo(0);
+    expect(seq.poseAt(400, letter).position[0]).toBeCloseTo(0);
+  });
+
   it('retires the dropped letters once the move is done', () => {
     const t = target();
     const seq = new Sequence({
@@ -1299,9 +1315,13 @@ export class Sequence {
     // indexing `result.kept` by it would sometimes land on a live slot and route it to the wrong half.
     const isKept = (letter: LetterInfo) => letter.leaving !== true;
 
+    // A slot lasts as long as its longer half, and `partition` hands both halves the same
+    // normalized t — so the shorter one must be stretched to the slot, or its declared duration
+    // silently becomes the longer one's.
+    const span = Math.max(move, slotDuration(plan.exit));
     const last = this.phase === this.opts.stages.length - 1;
     this.timeline = new Timeline({
-      enter: partition(isKept, travel, asPiece(plan.exit)),
+      enter: partition(isKept, within(travel, span), within(asPiece(plan.exit), span)),
       active: plan.active,
       exit: last ? this.opts.exit : NONE,
       hold: plan.hold === 'click' ? 'until-release' : plan.hold,
@@ -1326,6 +1346,20 @@ export class Sequence {
   poseAt(elapsed: number, letter: LetterInfo, out: Pose = blankPose()): Pose {
     return this.timeline.poseAt(this.local(elapsed), letter, out);
   }
+}
+
+/**
+ * Runs `piece` over its own duration inside a longer slot, then holds its final value. Without
+ * this a 200ms travel paired with an 800ms exit plays over 800ms, and the sequencer's retire and
+ * fit clocks — which run off the declared duration — drift away from what is on screen.
+ */
+function within(piece: MotionPiece, total: number): MotionPiece {
+  if (total <= 0 || piece.duration >= total) return piece;
+  const fraction = piece.duration / total;
+  return {
+    duration: total,
+    offset: (t, letter) => piece.offset(Math.min(1, t / fraction), letter),
+  };
 }
 
 /** A layered slot collapses to one piece so `partition` can take it as a single branch. */
