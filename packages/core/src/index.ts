@@ -161,7 +161,10 @@ export interface FireOptions {
 export interface TweenSpec {
   duration?: number;
   ease?: Easing;
-  /** Fraction of the move a channel waits before starting. */
+  /**
+   * Fraction of a span a channel waits before starting. `position` is a fraction of the move;
+   * `scale` is a fraction of the whole stage, so the fit can wait for an exit that outlasts it.
+   */
   delayBy?: { position?: number; scale?: number };
 }
 
