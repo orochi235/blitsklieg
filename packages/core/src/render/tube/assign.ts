@@ -39,15 +39,15 @@ export function assign(runs: Run[], select: SelectSpec, colors: number[], seed: 
     let order: number[];
     if (select.by === 'length') {
       order = runs
-        .map((r, i) => [r.length, i] as const)
+        .map((r) => [r.length, r.index] as const)
         .sort((a, b) => b[0] - a[0])
         .map(([, i]) => i);
     } else if (select.by === 'index') {
-      order = runs.map((_, i) => i);
+      order = runs.map((r) => r.index);
     } else {
       const random = rng(Math.round(seed * 2654435761) ^ 0x5eed);
       order = runs
-        .map((_, i) => [random(), i] as const)
+        .map((r) => [random(), r.index] as const)
         .sort((a, b) => a[0] - b[0])
         .map(([, i]) => i);
     }
