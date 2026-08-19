@@ -10,6 +10,7 @@ import type { LookSpec } from '../../src/render/looks.js';
 import { Word } from '../../src/render/word.js';
 import type { LoadedFont } from '../../src/text/font.js';
 import type { Budget } from '../../src/text/layout.js';
+import { fromEuler } from '../../src/transform.js';
 
 const UPEM = 1000;
 const ADVANCE = 600;
@@ -63,8 +64,9 @@ function timelineOf(offset: MotionPiece['offset']): Timeline {
   });
 }
 
+/** Letter cells sit under an inner group between the fit and the caller transform. */
 function groups(word: Word): THREE.Group[] {
-  return word.group.children as THREE.Group[];
+  return (word.group.children[0] as THREE.Group).children as THREE.Group[];
 }
 
 function meshes(word: Word): THREE.Mesh[] {
@@ -319,6 +321,50 @@ describe('Word', () => {
     expect(materialOf(word).opacity).toBeCloseTo(0.4, 10);
   });
 
+  it('exposes transform as a settable rigid turn between the fit and the letters', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+    const fitScale = word.group.scale.x;
+    const fitPosition = word.group.position.clone();
+
+    word.transform = fromEuler(0.1, 0.5, -0.2);
+
+    const m = new THREE.Matrix4().fromArray(word.transform as number[]);
+    const rotation = new THREE.Euler().setFromRotationMatrix(m, 'XYZ');
+    expect(rotation.x).toBeCloseTo(0.1, 10);
+    expect(rotation.y).toBeCloseTo(0.5, 10);
+    expect(rotation.z).toBeCloseTo(-0.2, 10);
+    // The fit lives on the outer group and must survive a caller transform untouched.
+    expect(word.group.scale.x).toBeCloseTo(fitScale, 10);
+    expect(word.group.position.x).toBeCloseTo(fitPosition.x, 10);
+    expect(word.group.position.y).toBeCloseTo(fitPosition.y, 10);
+  });
+
+  it('applies transform to the word as one rigid object, not per letter', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const [a, b] = groups(word);
+    const restA = (a as THREE.Group).rotation.y;
+    const restB = (b as THREE.Group).rotation.y;
+
+    word.transform = fromEuler(0, 0.5, 0);
+
+    // The turn lands on the shared parent; individual letter cells stay at rest.
+    expect((groups(word)[0] as THREE.Group).rotation.y).toBeCloseTo(restA, 10);
+    expect((groups(word)[1] as THREE.Group).rotation.y).toBeCloseTo(restB, 10);
+  });
+
+  it('leaves transform alone when apply() runs, since apply only poses per-letter cells', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+    word.transform = fromEuler(0.1, 0.5, -0.2);
+    const before = word.transform;
+
+    word.apply(
+      timelineOf(() => ({ position: [1, 2, 3], rotation: [0.4, 0.4, 0.4] })),
+      50,
+    );
+
+    expect(word.transform).toEqual(before);
+  });
+
   it('goes inert after dispose rather than posing into a disposed material', () => {
     const word = new Word('A', stubFont(), 'gold', ROOMY);
     const [cell] = groups(word);
@@ -340,9 +386,16 @@ describe('Word', () => {
     decoration: {
       kind: 'tube',
       radius: 0.04,
-      at: [1],
       segments: 8,
+      spacing: 0.03,
+      surfaces: ['front'],
+      level: 0,
+      runs: 4,
+      minRun: 0.05,
+      select: { by: 'seed', amount: 1 },
+      colors: [0xff2d95],
       look: { emissive: 0xff2d95, opacity: 1 },
+      dark: { color: 0x1a0010, opacity: 1 },
     },
   };
 
@@ -402,6 +455,17 @@ describe('Word', () => {
     expect(spy).toHaveBeenCalled();
   });
 
+  it('disposes every tube run geometry along with its per-letter blueprint', () => {
+    const word = new Word('AB', stubFont(), TUBE, ROOMY);
+    const spies = groups(word).map((group) =>
+      group.children.slice(1).map((child) => vi.spyOn((child as THREE.Mesh).geometry, 'dispose')),
+    );
+
+    word.dispose();
+
+    for (const perLetter of spies) for (const spy of perLetter) expect(spy).toHaveBeenCalled();
+  });
+
   it('renders flake chunks from both sides so tumbled ones stay visible', () => {
     const flakes: LookSpec = {
       decoration: {
@@ -442,6 +506,111 @@ describe('Word', () => {
 
     expect(instanced).toBeInstanceOf(THREE.InstancedMesh);
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe('tube run seeding', () => {
+  const PARTIAL_TUBE: LookSpec = {
+    decoration: {
+      kind: 'tube',
+      radius: 0.03,
+      segments: 6,
+      spacing: 0.03,
+      surfaces: ['front'],
+      level: 0,
+      runs: 8,
+      minRun: 0,
+      select: { by: 'seed', amount: 0.5 },
+      colors: [0xff2d95],
+      look: {},
+      dark: {},
+    },
+  };
+
+  /** First position sample of every decoration mesh, in insertion order. */
+  function decorFingerprint(cell: THREE.Group): string {
+    return cell.children
+      .slice(1)
+      .flatMap((child) => {
+        const pos = (child as THREE.Mesh).geometry.getAttribute('position');
+        return [pos.getX(0), pos.getY(0), pos.getZ(0)];
+      })
+      .join(',');
+  }
+
+  it('gives two letters of the same glyph different run selections', () => {
+    const word = new Word('OO', stubFont(), PARTIAL_TUBE, ROOMY);
+    const [a, b] = groups(word);
+
+    expect(decorFingerprint(a as THREE.Group)).not.toBe(decorFingerprint(b as THREE.Group));
+  });
+});
+
+describe('WordDebugHooks', () => {
+  const TUBE: LookSpec = {
+    decoration: {
+      kind: 'tube',
+      radius: 0.04,
+      segments: 8,
+      spacing: 0.03,
+      surfaces: ['front'],
+      level: 0,
+      runs: 4,
+      minRun: 0.05,
+      select: { by: 'seed', amount: 1 },
+      colors: [0xff2d95],
+      look: { emissive: 0xff2d95, opacity: 1 },
+      dark: { color: 0x1a0010, opacity: 1 },
+    },
+  };
+
+  it('lets a caller override a tube decoration material without touching the default path', () => {
+    const lit = new THREE.MeshBasicMaterial();
+    const dark = new THREE.MeshBasicMaterial();
+    const word = new Word('A', stubFont(), TUBE, ROOMY, false, undefined, {
+      tubeMaterial: (which) => (which === 'lit' ? lit : dark),
+    });
+    const [cell] = groups(word);
+    const decorMeshes = (cell as THREE.Group).children.slice(1) as THREE.Mesh[];
+
+    expect(decorMeshes.length).toBeGreaterThan(0);
+    for (const mesh of decorMeshes) {
+      expect(mesh.material === lit || mesh.material === dark).toBe(true);
+    }
+  });
+
+  it('leaves the default material in place when the hook declines', () => {
+    const word = new Word('A', stubFont(), TUBE, ROOMY, false, undefined, {
+      tubeMaterial: () => undefined,
+    });
+    const [cell] = groups(word);
+    const decor = (cell as THREE.Group).children[1] as THREE.Mesh;
+
+    expect(decor.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+  });
+
+  it('calls onLetter once per drawn letter with its own group, shapes and depth', () => {
+    const seen: { cell: THREE.Group; shapeCount: number; depth: number }[] = [];
+    const word = new Word('AB', stubFont(), 'gold', ROOMY, false, undefined, {
+      onLetter: (cell, shapes, depth) => seen.push({ cell, shapeCount: shapes.length, depth }),
+    });
+
+    expect(seen).toHaveLength(2);
+    expect(seen.map((s) => s.cell)).toEqual(groups(word));
+    for (const s of seen) {
+      expect(s.shapeCount).toBeGreaterThan(0);
+      expect(s.depth).toBeGreaterThan(0);
+    }
+  });
+
+  it('never calls onLetter for a blank glyph', () => {
+    const seen: THREE.Group[] = [];
+    const word = new Word('A B', stubFont(), 'gold', ROOMY, false, undefined, {
+      onLetter: (cell) => seen.push(cell),
+    });
+
+    expect(word.letterCount).toBe(3);
+    expect(seen).toHaveLength(2);
   });
 });
 

@@ -11,6 +11,7 @@ import { LOOKS, type Look, type LookName, type LookSpec, specOf } from './render
 import { prefersReducedMotion, Stage, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
+import type { Transform } from './transform.js';
 
 export { ManualClock } from './clock.js';
 export {
@@ -39,6 +40,16 @@ export type { FlakeSpec } from './render/flake.js';
 export type { LookParams, TintTarget } from './render/looks.js';
 /** The spec behind a built-in name, for building a variation on one. */
 export { specOf } from './render/looks.js';
+export type {
+  CornerStrategy,
+  CornerWeights,
+  Run,
+  SelectSpec,
+  SurfaceKind,
+  TubeSpec,
+} from './render/tube/index.js';
+export { ALL_BREAK, ALL_CONNECT } from './render/tube/index.js';
+export { compose, fromAxisAngle, fromEuler, type Transform } from './transform.js';
 export type {
   ActiveName,
   Clock,
@@ -115,6 +126,12 @@ export interface FireOptions {
    */
   tint?: number;
   /**
+   * Turns the whole word as one rigid object — never the camera, which would drift
+   * `viewportBudget`'s fit and shrink the word along with its angle. Build one with `fromEuler`,
+   * `fromAxisAngle` or `compose` rather than writing the sixteen numbers by hand.
+   */
+  transform?: Transform;
+  /**
    * Milliseconds in the active phase, or `'click'` to hold until the viewer dismisses it.
    * A held effect blocks the queue under the default `queue` policy, and its promise stays
    * pending until it leaves the screen.
@@ -178,6 +195,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
       bloom?.dispose();
       throw err;
     }
+    if (opts.transform) word.transform = opts.transform;
     stage.scene.add(word.group);
 
     const enter = resolveSlot(opts.enter ?? 'slam', ENTER);

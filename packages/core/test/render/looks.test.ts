@@ -297,6 +297,28 @@ describe('decorated looks', () => {
     expect(tintMaterialOf(specOf('piping'))).toBe('body');
   });
 
+  it('gives tubing dark glass its own look rather than a copy of the lit one', () => {
+    const decoration = specOf('tubing').decoration;
+    if (decoration?.kind !== 'tube') throw new Error('not a tube');
+
+    expect(decoration.dark.color).not.toBe(decoration.look.color);
+    expect(decoration.dark.emissiveIntensity ?? 0).toBeLessThan(
+      decoration.look.emissiveIntensity ?? 0,
+    );
+    // Lightly lit, so an unlit run reads as present glass rather than a gap.
+    expect(decoration.select.amount).toBeLessThan(1);
+  });
+
+  it('keeps piping continuous around corners, with its cord proud of the seam', () => {
+    const decoration = specOf('piping').decoration;
+    if (decoration?.kind !== 'tube') throw new Error('not a tube');
+
+    expect(decoration.runs).toBe(1);
+    expect(decoration.corners).toEqual({ break: 0, connect: 1, loop: 0 });
+    expect(decoration.level).toBeLessThan(0);
+    expect(decoration.level).toBeGreaterThan(-decoration.radius);
+  });
+
   it('gives pyrite crystal habit and sequin free tumble', () => {
     const pyrite = specOf('pyrite').decoration;
     const sequin = specOf('sequin').decoration;
@@ -384,7 +406,20 @@ describe('tintMaterialOf', () => {
   it('routes a tint to the decoration when the look says so', () => {
     const spec: LookSpec = {
       tintTo: 'decoration',
-      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+      decoration: {
+        kind: 'tube',
+        radius: 0.04,
+        segments: 8,
+        spacing: 0.02,
+        surfaces: ['front'],
+        level: 0,
+        runs: 4,
+        minRun: 0.05,
+        select: { by: 'seed', amount: 1 },
+        colors: [0xffffff],
+        look: {},
+        dark: {},
+      },
     };
 
     expect(tintMaterialOf(spec)).toBe('decoration');
@@ -397,7 +432,20 @@ describe('tintMaterialOf', () => {
   it('keeps a decorated look on the body when it says so outright', () => {
     const spec: LookSpec = {
       tintTo: 'body',
-      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+      decoration: {
+        kind: 'tube',
+        radius: 0.04,
+        segments: 8,
+        spacing: 0.02,
+        surfaces: ['front'],
+        level: 0,
+        runs: 4,
+        minRun: 0.05,
+        select: { by: 'seed', amount: 1 },
+        colors: [0xffffff],
+        look: {},
+        dark: {},
+      },
     };
 
     expect(tintMaterialOf(spec)).toBe('body');

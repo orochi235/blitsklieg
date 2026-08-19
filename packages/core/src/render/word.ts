@@ -9,6 +9,7 @@ import {
 } from '../text/glyphs.js';
 import type { Budget, Line } from '../text/layout.js';
 import { fitScale, LINE_HEIGHT_EM, layoutBlock, wrapBlock } from '../text/layout.js';
+import type { Transform } from '../transform.js';
 import {
   type Blueprint,
   buildChunkBlueprint,
@@ -16,15 +17,30 @@ import {
   chunkGeometry,
   chunkGeometrySide,
   chunkMatrices,
+  type TubeBlueprint,
 } from './decoration.js';
 import type { FlakeUniforms } from './flake.js';
 import { applyLook, createMaterial, type Look, specOf, tintMaterialOf } from './looks.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
+/**
+ * Lab-only diagnostic hooks (see debug.ts). Word owns per-letter layout and the tube pipeline,
+ * so a debug view has to plug in here rather than re-deriving either outside core. `createBlitsklieg`
+ * never supplies one, so every real caller is unaffected.
+ */
+export interface WordDebugHooks {
+  /** Overrides a tube decoration's lit or dark run material; undefined keeps the normal one. */
+  tubeMaterial?(which: 'lit' | 'dark'): THREE.Material | undefined;
+  /** Called once per drawn letter with its own transformed group, outline shapes, and extrude depth. */
+  onLetter?(cell: THREE.Group, shapes: THREE.Shape[], depth: number): void;
+}
+
 /** One group per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
 export class Word {
   readonly group = new THREE.Group();
+  /** Sits between `group` (the viewport fit) and the letters — see the `transform` accessor. */
+  private readonly inner = new THREE.Group();
   /** null where the glyph drew no outline (space, U+00A0, ZWJ); the slot still holds its index. */
   private readonly letters: (THREE.Group | null)[] = [];
   /** Layout x per letter. Pose x is an OFFSET onto this — overwriting it collapses the word. */
@@ -37,13 +53,20 @@ export class Word {
   private readonly columnCount: number;
   /** Indexed by letter slot, null where the glyph drew no outline. */
   private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
-  private readonly decorMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
+  /** A debug hook may swap in a non-physical material, so these are typed to the material base. */
+  private readonly decorMaterials: (THREE.Material | null)[] = [];
+  /** A tube decoration's unlit-run material, one per letter; null for every non-tube letter. */
+  private readonly darkMaterials: (THREE.Material | null)[] = [];
   private readonly cache: GlyphCache;
   private readonly decorCache: GlyphCache<Blueprint> | null;
+  /** Tube blueprints, one per letter — a per-letter seed can't go through the char-keyed cache. */
+  private readonly tubeBlueprints: TubeBlueprint[] = [];
   private readonly chunkGeo: THREE.BufferGeometry | null;
   private readonly pose = blankPose();
   private readonly bodyOpacity: number;
   private readonly decorOpacity: number;
+  /** Base opacity of a tube's unlit runs; irrelevant to every other decoration kind. */
+  private readonly darkOpacity: number;
   private disposed = false;
 
   constructor(
@@ -53,7 +76,10 @@ export class Word {
     budget: Budget,
     wrap = false,
     tint?: number,
+    debug?: WordDebugHooks,
   ) {
+    this.group.add(this.inner);
+
     const spec = specOf(look);
     this.bodyOpacity = spec.opacity ?? 1;
 
@@ -63,14 +89,16 @@ export class Word {
 
     const decoration = spec.decoration;
     this.decorOpacity = decoration?.look.opacity ?? 1;
+    this.darkOpacity = decoration?.kind === 'tube' ? (decoration.dark.opacity ?? 1) : 1;
     this.chunkGeo = decoration?.kind === 'chunks' ? chunkGeometry(decoration.shape) : null;
-    this.decorCache = decoration
-      ? new GlyphCache<Blueprint>((char, depth) =>
-          decoration.kind === 'tube'
-            ? buildTubeBlueprint(glyphToShapes(font.font, char, EM), decoration, depth)
-            : buildChunkBlueprint(this.cache.get(char, depth)),
-        )
-      : null;
+    // A tube's runs need a per-letter seed, so two letters of the same char don't repeat the
+    // same partial-lit pattern — that can't go through a cache keyed on (char, depth) alone.
+    this.decorCache =
+      decoration && decoration.kind !== 'tube'
+        ? new GlyphCache<Blueprint>((char, depth) =>
+            buildChunkBlueprint(this.cache.get(char, depth)),
+          )
+        : null;
 
     const scaleToEm = EM / font.unitsPerEm;
     const block = wrap
@@ -104,6 +132,7 @@ export class Word {
           this.letters.push(null);
           this.bodyMaterials.push(null);
           this.decorMaterials.push(null);
+          this.darkMaterials.push(null);
           continue;
         }
 
@@ -111,13 +140,52 @@ export class Word {
         applyLook(material, look, tintMaterialOf(spec) === 'body' ? tint : undefined);
         // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
         material.transparent = true;
+        // A near-transparent backing still writes depth by default, which culls the tube drawn
+        // behind it — the sign vanishes as the tube thins rather than being occluded by anything visible.
+        material.depthWrite = (spec.opacity ?? 1) >= 1;
         (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
         this.bodyMaterials.push(material);
 
         const cell = new THREE.Group();
         cell.add(new THREE.Mesh(geo, material));
 
-        if (decoration && this.decorCache) {
+        let debugShapes: THREE.Shape[] | undefined;
+
+        if (decoration && decoration.kind === 'tube') {
+          const litOverride = debug?.tubeMaterial?.('lit');
+          const decorMaterial = litOverride ?? createMaterial();
+          if (!litOverride) {
+            applyLook(
+              decorMaterial as THREE.MeshPhysicalMaterial,
+              decoration.look,
+              tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+            );
+          }
+          decorMaterial.transparent = true;
+          // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
+          // would cull that invisible.
+          decorMaterial.side = THREE.DoubleSide;
+          this.decorMaterials.push(decorMaterial);
+
+          const darkOverride = debug?.tubeMaterial?.('dark');
+          const darkMaterial = darkOverride ?? createMaterial();
+          if (!darkOverride) applyLook(darkMaterial as THREE.MeshPhysicalMaterial, decoration.dark);
+          darkMaterial.transparent = true;
+          darkMaterial.side = THREE.DoubleSide;
+          this.darkMaterials.push(darkMaterial);
+
+          const shapes = glyphToShapes(font.font, g.char, EM);
+          debugShapes = shapes;
+          const blueprint = buildTubeBlueprint(
+            shapes,
+            decoration,
+            DEFAULT_GLYPH_OPTIONS.depth,
+            this.letters.length,
+          );
+          this.tubeBlueprints.push(blueprint);
+          for (const geo of blueprint.lit) cell.add(new THREE.Mesh(geo, decorMaterial));
+          for (const geo of blueprint.dark) cell.add(new THREE.Mesh(geo, darkMaterial));
+        } else if (decoration && this.decorCache) {
           const decorMaterial = createMaterial();
           applyLook(
             decorMaterial,
@@ -128,11 +196,10 @@ export class Word {
           if (decoration.kind === 'chunks')
             decorMaterial.side = chunkGeometrySide(decoration.shape);
           this.decorMaterials.push(decorMaterial);
+          this.darkMaterials.push(null);
 
           const blueprint = this.decorCache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
-          if (blueprint.kind === 'tube') {
-            for (const loop of blueprint.loops) cell.add(new THREE.Mesh(loop, decorMaterial));
-          } else if (decoration.kind === 'chunks' && this.chunkGeo) {
+          if (decoration.kind === 'chunks' && blueprint.kind === 'chunks' && this.chunkGeo) {
             const matrices = chunkMatrices(blueprint, decoration, this.letters.length);
             const instanced = new THREE.InstancedMesh(
               this.chunkGeo,
@@ -147,10 +214,19 @@ export class Word {
           }
         } else {
           this.decorMaterials.push(null);
+          this.darkMaterials.push(null);
+        }
+
+        if (debug?.onLetter) {
+          debug.onLetter(
+            cell,
+            debugShapes ?? glyphToShapes(font.font, g.char, EM),
+            DEFAULT_GLYPH_OPTIONS.depth,
+          );
         }
 
         this.letters.push(cell);
-        this.group.add(cell);
+        this.inner.add(cell);
 
         const bounds = geo.boundingBox;
         if (bounds) {
@@ -190,6 +266,23 @@ export class Word {
     return this.letters.length;
   }
 
+  /**
+   * Turns the whole word as one rigid object — never per letter, and never the camera, so the
+   * viewport fit stays put. Applied on a group between the fit and the letters, so it composes
+   * with the fit instead of overwriting it.
+   */
+  get transform(): Transform {
+    return new THREE.Matrix4()
+      .compose(this.inner.position, this.inner.quaternion, this.inner.scale)
+      .toArray();
+  }
+
+  set transform(matrix: Transform) {
+    new THREE.Matrix4()
+      .fromArray(matrix as number[])
+      .decompose(this.inner.position, this.inner.quaternion, this.inner.scale);
+  }
+
   apply(timeline: Timeline, elapsed: number): void {
     if (this.disposed) return;
 
@@ -221,6 +314,8 @@ export class Word {
       if (material) material.opacity = pose.opacity * this.bodyOpacity;
       const decor = this.decorMaterials[i];
       if (decor) decor.opacity = pose.opacity * this.decorOpacity;
+      const dark = this.darkMaterials[i];
+      if (dark) dark.opacity = pose.opacity * this.darkOpacity;
     }
   }
 
@@ -231,6 +326,10 @@ export class Word {
     this.bodyMaterials.length = 0;
     for (const material of this.decorMaterials) material?.dispose();
     this.decorMaterials.length = 0;
+    for (const material of this.darkMaterials) material?.dispose();
+    this.darkMaterials.length = 0;
+    for (const blueprint of this.tubeBlueprints) blueprint.dispose();
+    this.tubeBlueprints.length = 0;
     this.decorCache?.dispose();
     this.chunkGeo?.dispose();
     // An InstancedMesh owns an instanceMatrix buffer that clearing the group does not free.

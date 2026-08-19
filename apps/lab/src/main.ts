@@ -5,13 +5,18 @@ import {
   ENTER_NAMES,
   EXIT_NAMES,
   type FireOptions,
+  fromEuler,
   LIGHTING_NAMES,
   LOOK_NAMES,
   type Look,
   type LookSpec,
   POLICY_NAMES,
+  type SurfaceKind,
   specOf,
 } from 'blitsklieg';
+import { type DiagnosticMode, DiagnosticStage } from './diagnostics.js';
+
+const DEG = Math.PI / 180;
 
 function el<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -51,7 +56,27 @@ const holdClickInput = el<HTMLInputElement>('holdClick');
 const modalInput = el<HTMLInputElement>('modal');
 const grainInput = el<HTMLInputElement>('grain');
 const densityInput = el<HTMLInputElement>('density');
+const surfacesInput = el<HTMLSelectElement>('surfaces');
+const diagModeInput = el<HTMLSelectElement>('diagMode');
+const outlinesInput = el<HTMLInputElement>('outlines');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
+
+/** The four surface combinations the lab exposes; `connector` runs have no slider of their own. */
+const SURFACE_PRESETS: Record<string, SurfaceKind[]> = {
+  front: ['front'],
+  'front+wall': ['front', 'wall'],
+  'front+back': ['front', 'back'],
+  all: ['front', 'back', 'wall'],
+};
+
+/** Reverses SURFACE_PRESETS for seeding the picker from a look's own `surfaces` array. */
+function surfacesKeyFor(surfaces: SurfaceKind[]): string {
+  const set = new Set(surfaces);
+  for (const [key, list] of Object.entries(SURFACE_PRESETS)) {
+    if (list.length === set.size && list.every((s) => set.has(s))) return key;
+  }
+  return 'front';
+}
 
 /**
  * Every control's value, base64 in the hash. Tuning a shader means reloading constantly, and
@@ -67,11 +92,25 @@ const CONTROL_IDS = [
   'policy',
   'hold',
   'blend',
+  'yaw',
+  'pitch',
+  'roll',
   'grain',
   'density',
   'radius',
-  'tubeAt',
-  'inset',
+  'level',
+  'runs',
+  'minRun',
+  'litAmount',
+  'amplitude',
+  'wallDepth',
+  'wallRise',
+  'cornerBreak',
+  'cornerConnect',
+  'cornerLoop',
+  'surfaces',
+  'diagMode',
+  'outlines',
   'count',
   'chunkSize',
   'align',
@@ -151,8 +190,19 @@ function chosenLook(): Look {
     tuned.decoration = {
       ...decoration,
       radius: number('radius') / 1000,
-      at: [number('tubeAt') / 100],
-      inset: number('inset') / 1000,
+      level: number('level') / 1000,
+      runs: number('runs'),
+      minRun: number('minRun') / 1000,
+      select: { ...decoration.select, amount: number('litAmount') / 100 },
+      amplitude: number('amplitude') / 1000,
+      wallDepth: number('wallDepth') / 100,
+      wallRise: number('wallRise') / 100,
+      corners: {
+        break: number('cornerBreak'),
+        connect: number('cornerConnect'),
+        loop: number('cornerLoop'),
+      },
+      surfaces: SURFACE_PRESETS[surfacesInput.value] ?? decoration.surfaces,
     };
   } else if (decoration?.kind === 'chunks') {
     tuned.decoration = {
@@ -188,8 +238,22 @@ function seedSliders(): void {
   const decoration = spec.decoration;
   if (decoration?.kind === 'tube') {
     el<HTMLInputElement>('radius').value = String(Math.round(decoration.radius * 1000));
-    el<HTMLInputElement>('tubeAt').value = String(Math.round((decoration.at[0] ?? 1) * 100));
-    el<HTMLInputElement>('inset').value = String(Math.round((decoration.inset ?? 0) * 1000));
+    el<HTMLInputElement>('level').value = String(Math.round(decoration.level * 1000));
+    el<HTMLInputElement>('runs').value = String(decoration.runs);
+    el<HTMLInputElement>('minRun').value = String(Math.round(decoration.minRun * 1000));
+    el<HTMLInputElement>('litAmount').value = String(Math.round(decoration.select.amount * 100));
+    el<HTMLInputElement>('amplitude').value = String(
+      Math.round((decoration.amplitude ?? 0) * 1000),
+    );
+    el<HTMLInputElement>('wallDepth').value = String(
+      Math.round((decoration.wallDepth ?? 0.5) * 100),
+    );
+    el<HTMLInputElement>('wallRise').value = String(Math.round((decoration.wallRise ?? 0) * 100));
+    const corners = decoration.corners ?? { break: 1, connect: 0, loop: 0 };
+    el<HTMLInputElement>('cornerBreak').value = String(Math.round(corners.break * 100));
+    el<HTMLInputElement>('cornerConnect').value = String(Math.round(corners.connect * 100));
+    el<HTMLInputElement>('cornerLoop').value = String(Math.round(corners.loop * 100));
+    surfacesInput.value = surfacesKeyFor(decoration.surfaces);
   } else if (decoration?.kind === 'chunks') {
     el<HTMLInputElement>('count').value = String(decoration.count);
     el<HTMLInputElement>('chunkSize').value = String(Math.round(decoration.size * 1000));
@@ -199,20 +263,53 @@ function seedSliders(): void {
   }
 }
 
+const FONT_URL = `${import.meta.env.BASE_URL}font.ttf`;
+
 function create(): Blitsklieg {
-  const instance = createBlitsklieg({
-    fontUrl: `${import.meta.env.BASE_URL}font.ttf`,
-    policy: policy.get(),
-  });
+  const instance = createBlitsklieg({ fontUrl: FONT_URL, policy: policy.get() });
   log(`instance up (policy ${policy.get()}${instance.supported ? '' : ', webgl2 UNSUPPORTED'})`);
   return instance;
 }
 
 let bk = create();
+// A static debug render, not the animated pipeline above — see diagnostics.ts for why it needs
+// its own Word rather than a hook threaded through fire()'s queue/timeline/bloom.
+const diagnostics = new DiagnosticStage(FONT_URL);
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** Colour mode or outlines active: FIRE renders a static debug frame instead of the real effect. */
+function diagnosticsActive(): boolean {
+  return diagModeInput.value !== 'off' || outlinesInput.checked;
+}
+
 function fire(text: string): void {
+  if (diagnosticsActive()) {
+    // Only one stage may be mounted at a time; an idle bk.destroy() is a cheap no-op.
+    bk.destroy();
+    bk = create();
+    log(
+      `diagnostic (${diagModeInput.value}, outlines ${outlinesInput.checked}) ${JSON.stringify(text)}`,
+    );
+    diagnostics
+      .render(
+        text,
+        chosenLook(),
+        fromEuler(number('pitch') * DEG, number('yaw') * DEG, number('roll') * DEG),
+        diagModeInput.value as DiagnosticMode,
+        outlinesInput.checked,
+      )
+      .then(
+        () => log(`done  ${JSON.stringify(text)}`),
+        (err: unknown) => {
+          log(`FAILED ${JSON.stringify(text)}: ${message(err)}`);
+          console.error(err);
+        },
+      );
+    return;
+  }
+
+  diagnostics.hide();
   log(`fire ${JSON.stringify(text)}`);
   bk.fire(text, {
     enter: enter.get(),
@@ -221,6 +318,8 @@ function fire(text: string): void {
     look: chosenLook(),
     lighting: lighting.get(),
     tint: tintOnInput.checked ? Number.parseInt(tintInput.value.slice(1), 16) : undefined,
+    // Sliders are degrees for a human; fromEuler wants radians, three's XYZ order.
+    transform: fromEuler(number('pitch') * DEG, number('yaw') * DEG, number('roll') * DEG),
     hold: holdClickInput.checked ? 'click' : number('hold'),
     blendMs: number('blend'),
     // Unchecked has to mean "unset", not "off": FireOptions.bloom wins over a look's own
@@ -327,6 +426,7 @@ el('burst').addEventListener('click', () => {
 });
 el('destroy').addEventListener('click', () => {
   bk.destroy();
+  diagnostics.hide();
   log('destroyed');
   bk = create();
 });
@@ -350,8 +450,22 @@ function syncDisabled(): void {
   grainInput.disabled = densityInput.disabled = spec.flake === undefined;
   const tube = spec.decoration?.kind === 'tube';
   const chunks = spec.decoration?.kind === 'chunks';
-  el<HTMLInputElement>('radius').disabled = el<HTMLInputElement>('tubeAt').disabled = !tube;
-  el<HTMLInputElement>('inset').disabled = !tube;
+  for (const id of [
+    'radius',
+    'level',
+    'runs',
+    'minRun',
+    'litAmount',
+    'amplitude',
+    'wallDepth',
+    'wallRise',
+    'cornerBreak',
+    'cornerConnect',
+    'cornerLoop',
+  ]) {
+    el<HTMLInputElement>(id).disabled = !tube;
+  }
+  surfacesInput.disabled = !tube;
   for (const id of ['count', 'chunkSize', 'align', 'cluster', 'proud']) {
     el<HTMLInputElement>(id).disabled = !chunks;
   }
@@ -389,5 +503,3 @@ addEventListener('error', (e) => log(`error: ${e.message}`));
 if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
   log('prefers-reduced-motion is on — the type holds a pose instead of travelling');
 }
-
-el('filler').textContent = 'Filler copy so the page scrolls. '.repeat(60);

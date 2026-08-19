@@ -16,6 +16,7 @@ import {
 import type { Vec3 } from '../src/pose.js';
 import { BloomPath } from '../src/render/bloom.js';
 import { Stage } from '../src/render/stage.js';
+import { fromEuler } from '../src/transform.js';
 
 const { parse } = vi.hoisted(() => ({ parse: vi.fn() }));
 vi.mock('opentype.js', () => ({ parse }));
@@ -117,10 +118,10 @@ function words(): THREE.Object3D[] {
   return stage().scene.children;
 }
 
-/** The first letter's cell — the group a pose is written onto. */
+/** The first letter's cell — the group a pose is written onto, under the fit and inner groups. */
 function firstCell(): THREE.Group {
-  const group = words()[0] as THREE.Group;
-  return group.children[0] as THREE.Group;
+  const inner = (words()[0] as THREE.Group).children[0] as THREE.Group;
+  return inner.children[0] as THREE.Group;
 }
 
 function firstMesh(): THREE.Mesh {
@@ -697,6 +698,33 @@ describe('caller-supplied looks', () => {
     await flush();
     clock.advance(10);
     await expect(done).resolves.toBeUndefined();
+  });
+});
+
+describe('caller-supplied transform', () => {
+  it('turns the word as one rigid object, never the camera', async () => {
+    const bk = create();
+    const done = bk.fire('HI', { ...INSTANT, transform: fromEuler(0, Math.PI / 6, 0) });
+    await flush();
+
+    const inner = (words()[0] as THREE.Group).children[0] as THREE.Group;
+    expect(inner.rotation.y).toBeCloseTo(Math.PI / 6, 6);
+    expect(stage().camera.rotation.y).toBe(0);
+
+    clock.advance(16);
+    await done;
+  });
+
+  it('defaults to no turn when transform is not given', async () => {
+    const bk = create();
+    const done = bk.fire('HI', INSTANT);
+    await flush();
+
+    const inner = (words()[0] as THREE.Group).children[0] as THREE.Group;
+    expect(inner.rotation.y).toBe(0);
+
+    clock.advance(16);
+    await done;
   });
 });
 

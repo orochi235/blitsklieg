@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { DecorationSpec } from './decoration.js';
+import { ALL_CONNECT, type DecorationSpec } from './decoration.js';
 import {
   createFlakeUniforms,
   type FlakeSpec,
@@ -169,15 +169,32 @@ export const LOOKS: Record<LookName, LookSpec> = {
     tintTo: 'decoration',
     decoration: {
       kind: 'tube',
-      radius: 0.045,
-      at: [1],
+      radius: 0.022,
       segments: 10,
+      spacing: 0.02,
+      surfaces: ['front'],
+      level: 0,
+      runs: 7,
+      minRun: 0.15,
+      amplitude: 0.02,
+      // A convincing sign mixes all three: mostly breaks, connects where the glass would take
+      // it, and the occasional loop as the bender's flourish.
+      corners: { break: 0.55, connect: 0.3, loop: 0.15 },
+      select: { by: 'seed', amount: 0.85 },
+      colors: [0xff2d95],
       look: {
         color: 0x1a0010,
         emissive: 0xff2d95,
         emissiveIntensity: 3.4,
         clearcoat: 0,
         roughness: 0.35,
+      },
+      dark: {
+        color: 0x2a1520,
+        emissive: 0x000000,
+        roughness: 0.25,
+        clearcoat: 1,
+        clearcoatRoughness: 0.1,
       },
     },
   },
@@ -193,9 +210,20 @@ export const LOOKS: Record<LookName, LookSpec> = {
     decoration: {
       kind: 'tube',
       radius: 0.03,
-      at: [1],
       segments: 8,
+      spacing: 0.02,
+      surfaces: ['front'],
+      // Cord bulges proud of the seam rather than riding it: tangent to the silhouette (-radius)
+      // would leave nothing protruding, so this sits halfway to that floor.
+      level: -0.015,
+      runs: 1,
+      minRun: 0.05,
+      // Fabric cord bends around every corner; only neon glass needs the mandatory break.
+      corners: ALL_CONNECT,
+      select: { by: 'seed', amount: 1 },
+      colors: [0xe8c9a0],
       look: { color: 0xe8c9a0, roughness: 0.55, clearcoat: 0.4, sheen: 0.5 },
+      dark: { color: 0xe8c9a0, roughness: 0.55, clearcoat: 0.4, sheen: 0.5 },
     },
   },
   sequin: {
