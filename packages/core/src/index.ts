@@ -124,11 +124,13 @@ export interface FireOptions {
   /** How the environment lights the type. `sweep` rakes the highlight, `static` holds it still. */
   lighting?: LightingName;
   /**
-   * Recolors the look, as `0xff2d6f`. Routed to whichever property carries that look's hue —
-   * `gem` is clear stone whose red comes from what light picks up passing through it, so
-   * tinting its base color would do nothing.
+   * Recolors the look, as `0xff2d6f`. A function is consulted per letter and may return
+   * `undefined` for "not mine", leaving that letter the look's own colour.
+   *
+   * Routed to whichever property carries that look's hue — `gem` is clear stone whose red comes
+   * from what light picks up passing through it, so tinting its base color would do nothing.
    */
-  tint?: number;
+  tint?: number | ((letter: LetterInfo) => number | undefined);
   /**
    * Turns the whole word as one rigid object — never the camera, which would drift
    * `viewportBudget`'s fit and shrink the word along with its angle. Build one with `fromEuler`,

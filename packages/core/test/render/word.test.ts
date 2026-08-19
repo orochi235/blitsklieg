@@ -991,3 +991,41 @@ describe('fit tween', () => {
     expect(seen[0]?.y).toBeCloseTo(-0.35);
   });
 });
+
+describe('tint as a function', () => {
+  /** Body colour per drawn cell, in layout order. */
+  function bodyColors(word: Word): number[] {
+    const inner = word.group.children[0] as THREE.Group;
+    return inner.children.map((cell) => {
+      const mesh = (cell as THREE.Group).children[0] as THREE.Mesh;
+      return (mesh.material as THREE.MeshPhysicalMaterial).color.getHex();
+    });
+  }
+
+  it('colours only the letters the rule selects', () => {
+    const plain = bodyColors(new Word('AB', stubFont(), 'gold', ROOMY));
+    const ruled = bodyColors(
+      new Word('AB', stubFont(), 'gold', ROOMY, false, (l) =>
+        l.column === 0 ? 0xff0000 : undefined,
+      ),
+    );
+    expect(ruled[0]).toBe(0xff0000);
+    expect(ruled[1]).toBe(plain[1]);
+  });
+
+  it("is handed each letter's laid-out position", () => {
+    const seen: LetterInfo[] = [];
+    new Word('AB', stubFont(), 'gold', ROOMY, false, (l) => {
+      seen.push({ ...l });
+      return undefined;
+    });
+    expect(seen[0]?.x).toBeCloseTo(-STEP);
+    expect(seen[0]?.index).toBe(0);
+    expect(seen[1]?.index).toBe(1);
+  });
+
+  it('still accepts a plain number for the whole word', () => {
+    const colors = bodyColors(new Word('AB', stubFont(), 'gold', ROOMY, false, 0x00ff00));
+    expect(colors).toEqual([0x00ff00, 0x00ff00]);
+  });
+});

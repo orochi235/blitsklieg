@@ -106,7 +106,7 @@ export class Word {
     look: Look,
     budget: Budget,
     wrap = false,
-    tint?: number,
+    tint?: number | ((letter: LetterInfo) => number | undefined),
     debug?: WordDebugHooks,
   ) {
     this.group.add(this.inner);
@@ -185,7 +185,7 @@ export class Word {
     look: Look,
     spec: LookSpec,
     decoration: DecorationSpec | undefined,
-    tint: number | undefined,
+    tint: number | ((letter: LetterInfo) => number | undefined) | undefined,
     debug: WordDebugHooks | undefined,
   ): void {
     const char = this.charOf[i] as string;
@@ -198,8 +198,10 @@ export class Word {
       return;
     }
 
+    const hue = typeof tint === 'function' ? tint(this.letterInfo(i)) : tint;
+
     const material = createMaterial();
-    applyLook(material, look, tintMaterialOf(spec) === 'body' ? tint : undefined);
+    applyLook(material, look, tintMaterialOf(spec) === 'body' ? hue : undefined);
     // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
     material.transparent = true;
     // A near-transparent backing still writes depth by default, which culls the tube drawn
@@ -220,7 +222,7 @@ export class Word {
         applyLook(
           decorMaterial as THREE.MeshPhysicalMaterial,
           decoration.look,
-          tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+          tintMaterialOf(spec) === 'decoration' ? hue : undefined,
         );
       }
       decorMaterial.transparent = true;
@@ -247,7 +249,7 @@ export class Word {
       applyLook(
         decorMaterial,
         decoration.look,
-        tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+        tintMaterialOf(spec) === 'decoration' ? hue : undefined,
       );
       decorMaterial.transparent = true;
       if (decoration.kind === 'chunks') decorMaterial.side = chunkGeometrySide(decoration.shape);
