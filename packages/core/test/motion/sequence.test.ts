@@ -318,6 +318,53 @@ describe('Sequence', () => {
     expect(seq.poseAt(100, letter).position[0]).toBeCloseTo(100);
   });
 
+  it('gives each stage its own clock, so a survivor travels rather than teleporting', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: { duration: 800, offset: () => ({}) },
+      active: NONE,
+      stages: [stage({ tween: { duration: 700 } })],
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    seq.tick(800);
+    // The stage's move starts here, not 800ms into itself.
+    expect(seq.poseAt(800, letter).position[0]).toBeCloseTo(3);
+    seq.tick(1150);
+    expect(seq.poseAt(1150, letter).position[0]).toBeCloseTo(0.375);
+    seq.tick(1500);
+    expect(seq.poseAt(1500, letter).position[0]).toBeCloseTo(0);
+  });
+
+  it('layers a stage exit, summing position and multiplying opacity', () => {
+    const t = target(TWO_OF_THREE);
+    const seq = new Sequence({
+      enter: NONE,
+      active: NONE,
+      stages: [
+        stage({
+          exit: [
+            { duration: 200, offset: () => ({ position: [10, 0, 0], opacity: 0.5 }) },
+            { duration: 100, offset: () => ({ position: [0, 3, 0], opacity: 0.4 }) },
+          ],
+        }),
+      ],
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+
+    const pose = seq.poseAt(0, { index: 1, count: 3, x: 0, y: 0, leaving: true });
+    expect(pose.position[0]).toBeCloseTo(10);
+    expect(pose.position[1]).toBeCloseTo(3);
+    expect(pose.opacity).toBeCloseTo(0.2);
+  });
+
   it('takes a dropped letter off screen before the blend ramps its exit back off', () => {
     const t = target();
     const seq = new Sequence({
@@ -360,6 +407,23 @@ describe('Sequence', () => {
     expect(t.retired).toEqual([]);
     seq.tick(800);
     expect(t.retired).toEqual([[1]]);
+  });
+
+  it('plays the closing exit of the effect after the last stage', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      active: NONE,
+      stages: [stage()],
+      exit: FLAG,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    seq.tick(300);
+    expect(seq.poseAt(300, letter).position[0]).toBeCloseTo(100);
+    expect(seq.isFinished(300)).toBe(false);
   });
 
   it('finishes after the last stage and the exit', () => {

@@ -811,6 +811,9 @@ describe('regroup', () => {
     );
     expect([seen[0]?.index, seen[2]?.index]).toEqual([0, 1]);
     expect([seen[0]?.count, seen[2]?.count]).toEqual([2, 2]);
+    // `column` is the canonical stage selector, so a second stage picks from the new layout.
+    expect([seen[0]?.column, seen[2]?.column]).toEqual([0, 1]);
+    expect([seen[0]?.line, seen[2]?.line]).toEqual([0, 0]);
     // The dropped letter keeps the numbering its exit was staggered against.
     expect(seen[1]?.index).toBe(1);
     expect(seen[1]?.count).toBe(4);
@@ -932,6 +935,8 @@ describe('regroup', () => {
 describe('fit tween', () => {
   const firstOfLine = (l: LetterInfo) => l.column === 0;
   const TIGHT: Budget = { width: 2, height: 2 };
+  /** Tall enough to matter and wide enough not to: the fit here is decided by ink height. */
+  const SHORT: Budget = { width: 100, height: 1 };
 
   it('holds the old fit at progress 0 and reaches the new one at 1', () => {
     const word = new Word('NAAAA\nEBBBB', stubFont(), 'gold', TIGHT);
@@ -952,6 +957,18 @@ describe('fit tween', () => {
     word.setFitProgress(1);
     const direct = new Word('NE', stubFont(), 'gold', TIGHT);
 
+    expect(word.group.scale.x).toBe(direct.group.scale.x);
+    expect(word.group.position.y).toBe(direct.group.position.y);
+  });
+
+  it('measures the new fit over the glyphs that survived, descenders included', () => {
+    const font = stubFont();
+    const word = new Word('gA', font, 'gold', SHORT);
+    word.regroup((l) => l.column === 1, 'line');
+    word.setFitProgress(1);
+    const direct = new Word('A', font, 'gold', SHORT);
+
+    // The dropped 'g' is the only glyph that reaches below the baseline; it must stop counting.
     expect(word.group.scale.x).toBe(direct.group.scale.x);
     expect(word.group.position.y).toBe(direct.group.position.y);
   });

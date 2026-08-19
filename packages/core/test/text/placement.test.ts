@@ -47,6 +47,10 @@ describe('placeBlock', () => {
     expect(p.columnCount).toBe(2);
   });
 
+  it('counts columns from the widest line, not the first', () => {
+    expect(place('A\nBCD').columnCount).toBe(3);
+  });
+
   it('measures the drawn ink across the block', () => {
     expect(place('AB').inkWidth).toBeCloseTo(2 * STEP);
     expect(place('AB\nC').inkWidth).toBeCloseTo(2 * STEP);
@@ -65,10 +69,14 @@ describe('a block that draws no ink', () => {
     expect(place('  ').inkWidth).toBe(0);
   });
 
-  it('fits at the cap, centred on zero', () => {
-    const fit = fitOf(place('  '), [null, null], [null, null], { width: 1, height: 1 });
-    expect(fit.scale).toBe(2.2);
-    expect(fit.midY).toBe(0);
+  it('is skipped by the fit rather than counted as ink at its own y', () => {
+    const blank = fitOf(place('  '), [null, null], [null, null], { width: 1, height: 1 });
+    expect(blank.scale).toBe(2.2);
+    expect(blank.midY).toBe(0);
+
+    // A blank line counted as ink would drag the centre down to the middle of the two lines.
+    const mixed = fitOf(place('A\n '), [0, null], [0.7, null], { width: 100, height: 100 });
+    expect(mixed.midY).toBeCloseTo(0.35);
   });
 });
 

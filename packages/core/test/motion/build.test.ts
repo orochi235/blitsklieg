@@ -202,6 +202,27 @@ describe('delayBy', () => {
     expect(piece.offset(1, letter).scale).toBeCloseTo(1);
   });
 
+  it('delays a channel departing from rest as well as one relaxing to it', () => {
+    const piece = transition(100, {
+      to: { position: [10, 0, 0] },
+      ease: linear,
+      delayBy: { position: 0.5 },
+    });
+    expect(piece.offset(0.5, letter).position?.[0]).toBeCloseTo(0);
+    expect(piece.offset(0.75, letter).position?.[0]).toBeCloseTo(5);
+  });
+
+  it('clamps a delay of the whole pass, which would leave no span to travel over', () => {
+    const piece = transition(100, {
+      from: { position: [10, 0, 0] },
+      ease: linear,
+      delayBy: { position: 1 },
+    });
+    // Dividing by a zero span yields NaN, which reaches the transform as a vanished letter.
+    expect(piece.offset(1, letter).position?.[0]).toBeCloseTo(0);
+    expect(piece.offset(0.5, letter).position?.[0]).toBeCloseTo(10);
+  });
+
   it('leaves undelayed channels alone', () => {
     const piece = transition(100, { from: { position: [10, 0, 0] }, ease: linear, delayBy: {} });
     expect(piece.offset(0.5, letter).position?.[0]).toBeCloseTo(5);
