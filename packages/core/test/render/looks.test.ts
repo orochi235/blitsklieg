@@ -384,7 +384,20 @@ describe('tintMaterialOf', () => {
   it('routes a tint to the decoration when the look says so', () => {
     const spec: LookSpec = {
       tintTo: 'decoration',
-      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+      decoration: {
+        kind: 'tube',
+        radius: 0.04,
+        segments: 8,
+        spacing: 0.02,
+        surfaces: ['front'],
+        level: 0,
+        runs: 4,
+        minRun: 0.05,
+        select: { by: 'seed', amount: 1 },
+        colors: [0xffffff],
+        look: {},
+        dark: {},
+      },
     };
 
     expect(tintMaterialOf(spec)).toBe('decoration');
@@ -397,7 +410,20 @@ describe('tintMaterialOf', () => {
   it('keeps a decorated look on the body when it says so outright', () => {
     const spec: LookSpec = {
       tintTo: 'body',
-      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+      decoration: {
+        kind: 'tube',
+        radius: 0.04,
+        segments: 8,
+        spacing: 0.02,
+        surfaces: ['front'],
+        level: 0,
+        runs: 4,
+        minRun: 0.05,
+        select: { by: 'seed', amount: 1 },
+        colors: [0xffffff],
+        look: {},
+        dark: {},
+      },
     };
 
     expect(tintMaterialOf(spec)).toBe('body');

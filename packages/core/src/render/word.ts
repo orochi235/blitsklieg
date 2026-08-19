@@ -38,12 +38,16 @@ export class Word {
   /** Indexed by letter slot, null where the glyph drew no outline. */
   private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   private readonly decorMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
+  /** A tube decoration's unlit-run material, one per letter; null for every non-tube letter. */
+  private readonly darkMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   private readonly cache: GlyphCache;
   private readonly decorCache: GlyphCache<Blueprint> | null;
   private readonly chunkGeo: THREE.BufferGeometry | null;
   private readonly pose = blankPose();
   private readonly bodyOpacity: number;
   private readonly decorOpacity: number;
+  /** Base opacity of a tube's unlit runs; irrelevant to every other decoration kind. */
+  private readonly darkOpacity: number;
   private disposed = false;
 
   constructor(
@@ -63,11 +67,12 @@ export class Word {
 
     const decoration = spec.decoration;
     this.decorOpacity = decoration?.look.opacity ?? 1;
+    this.darkOpacity = decoration?.kind === 'tube' ? (decoration.dark.opacity ?? 1) : 1;
     this.chunkGeo = decoration?.kind === 'chunks' ? chunkGeometry(decoration.shape) : null;
     this.decorCache = decoration
       ? new GlyphCache<Blueprint>((char, depth) =>
           decoration.kind === 'tube'
-            ? buildTubeBlueprint(glyphToShapes(font.font, char, EM), decoration, depth)
+            ? buildTubeBlueprint(glyphToShapes(font.font, char, EM), decoration, depth, 0)
             : buildChunkBlueprint(this.cache.get(char, depth)),
         )
       : null;
@@ -104,6 +109,7 @@ export class Word {
           this.letters.push(null);
           this.bodyMaterials.push(null);
           this.decorMaterials.push(null);
+          this.darkMaterials.push(null);
           continue;
         }
 
@@ -130,9 +136,16 @@ export class Word {
           this.decorMaterials.push(decorMaterial);
 
           const blueprint = this.decorCache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
-          if (blueprint.kind === 'tube') {
-            for (const loop of blueprint.loops) cell.add(new THREE.Mesh(loop, decorMaterial));
-          } else if (decoration.kind === 'chunks' && this.chunkGeo) {
+          let darkMaterial: THREE.MeshPhysicalMaterial | null = null;
+          if (blueprint.kind === 'tube' && decoration.kind === 'tube') {
+            for (const geo of blueprint.lit) cell.add(new THREE.Mesh(geo, decorMaterial));
+            if (blueprint.dark.length > 0) {
+              darkMaterial = createMaterial();
+              applyLook(darkMaterial, decoration.dark);
+              darkMaterial.transparent = true;
+              for (const geo of blueprint.dark) cell.add(new THREE.Mesh(geo, darkMaterial));
+            }
+          } else if (decoration.kind === 'chunks' && blueprint.kind === 'chunks' && this.chunkGeo) {
             const matrices = chunkMatrices(blueprint, decoration, this.letters.length);
             const instanced = new THREE.InstancedMesh(
               this.chunkGeo,
@@ -145,8 +158,10 @@ export class Word {
             instanced.instanceMatrix.needsUpdate = true;
             cell.add(instanced);
           }
+          this.darkMaterials.push(darkMaterial);
         } else {
           this.decorMaterials.push(null);
+          this.darkMaterials.push(null);
         }
 
         this.letters.push(cell);
@@ -221,6 +236,8 @@ export class Word {
       if (material) material.opacity = pose.opacity * this.bodyOpacity;
       const decor = this.decorMaterials[i];
       if (decor) decor.opacity = pose.opacity * this.decorOpacity;
+      const dark = this.darkMaterials[i];
+      if (dark) dark.opacity = pose.opacity * this.darkOpacity;
     }
   }
 
@@ -231,6 +248,8 @@ export class Word {
     this.bodyMaterials.length = 0;
     for (const material of this.decorMaterials) material?.dispose();
     this.decorMaterials.length = 0;
+    for (const material of this.darkMaterials) material?.dispose();
+    this.darkMaterials.length = 0;
     this.decorCache?.dispose();
     this.chunkGeo?.dispose();
     // An InstancedMesh owns an instanceMatrix buffer that clearing the group does not free.

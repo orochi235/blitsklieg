@@ -340,9 +340,16 @@ describe('Word', () => {
     decoration: {
       kind: 'tube',
       radius: 0.04,
-      at: [1],
       segments: 8,
+      spacing: 0.03,
+      surfaces: ['front'],
+      level: 0,
+      runs: 4,
+      minRun: 0.05,
+      select: { by: 'seed', amount: 1 },
+      colors: [0xff2d95],
       look: { emissive: 0xff2d95, opacity: 1 },
+      dark: { color: 0x1a0010, opacity: 1 },
     },
   };
 
