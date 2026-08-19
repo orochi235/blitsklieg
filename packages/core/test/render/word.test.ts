@@ -546,6 +546,74 @@ describe('tube run seeding', () => {
   });
 });
 
+describe('WordDebugHooks', () => {
+  const TUBE: LookSpec = {
+    decoration: {
+      kind: 'tube',
+      radius: 0.04,
+      segments: 8,
+      spacing: 0.03,
+      surfaces: ['front'],
+      level: 0,
+      runs: 4,
+      minRun: 0.05,
+      select: { by: 'seed', amount: 1 },
+      colors: [0xff2d95],
+      look: { emissive: 0xff2d95, opacity: 1 },
+      dark: { color: 0x1a0010, opacity: 1 },
+    },
+  };
+
+  it('lets a caller override a tube decoration material without touching the default path', () => {
+    const lit = new THREE.MeshBasicMaterial();
+    const dark = new THREE.MeshBasicMaterial();
+    const word = new Word('A', stubFont(), TUBE, ROOMY, false, undefined, {
+      tubeMaterial: (which) => (which === 'lit' ? lit : dark),
+    });
+    const [cell] = groups(word);
+    const decorMeshes = (cell as THREE.Group).children.slice(1) as THREE.Mesh[];
+
+    expect(decorMeshes.length).toBeGreaterThan(0);
+    for (const mesh of decorMeshes) {
+      expect(mesh.material === lit || mesh.material === dark).toBe(true);
+    }
+  });
+
+  it('leaves the default material in place when the hook declines', () => {
+    const word = new Word('A', stubFont(), TUBE, ROOMY, false, undefined, {
+      tubeMaterial: () => undefined,
+    });
+    const [cell] = groups(word);
+    const decor = (cell as THREE.Group).children[1] as THREE.Mesh;
+
+    expect(decor.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+  });
+
+  it('calls onLetter once per drawn letter with its own group, shapes and depth', () => {
+    const seen: { cell: THREE.Group; shapeCount: number; depth: number }[] = [];
+    const word = new Word('AB', stubFont(), 'gold', ROOMY, false, undefined, {
+      onLetter: (cell, shapes, depth) => seen.push({ cell, shapeCount: shapes.length, depth }),
+    });
+
+    expect(seen).toHaveLength(2);
+    expect(seen.map((s) => s.cell)).toEqual(groups(word));
+    for (const s of seen) {
+      expect(s.shapeCount).toBeGreaterThan(0);
+      expect(s.depth).toBeGreaterThan(0);
+    }
+  });
+
+  it('never calls onLetter for a blank glyph', () => {
+    const seen: THREE.Group[] = [];
+    const word = new Word('A B', stubFont(), 'gold', ROOMY, false, undefined, {
+      onLetter: (cell) => seen.push(cell),
+    });
+
+    expect(word.letterCount).toBe(3);
+    expect(seen).toHaveLength(2);
+  });
+});
+
 describe('Word as a block', () => {
   it('gives every line its own row of letters', () => {
     const word = new Word('AB\nCD', stubFont(), 'gold', ROOMY);

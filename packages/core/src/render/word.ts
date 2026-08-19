@@ -24,6 +24,18 @@ import { applyLook, createMaterial, type Look, specOf, tintMaterialOf } from './
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
+/**
+ * Lab-only diagnostic hooks (see debug.ts). Word owns per-letter layout and the tube pipeline,
+ * so a debug view has to plug in here rather than re-deriving either outside core. `createBlitsklieg`
+ * never supplies one, so every real caller is unaffected.
+ */
+export interface WordDebugHooks {
+  /** Overrides a tube decoration's lit or dark run material; undefined keeps the normal one. */
+  tubeMaterial?(which: 'lit' | 'dark'): THREE.Material | undefined;
+  /** Called once per drawn letter with its own transformed group, outline shapes, and extrude depth. */
+  onLetter?(cell: THREE.Group, shapes: THREE.Shape[], depth: number): void;
+}
+
 /** One group per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
 export class Word {
   readonly group = new THREE.Group();
@@ -41,9 +53,10 @@ export class Word {
   private readonly columnCount: number;
   /** Indexed by letter slot, null where the glyph drew no outline. */
   private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
-  private readonly decorMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
+  /** A debug hook may swap in a non-physical material, so these are typed to the material base. */
+  private readonly decorMaterials: (THREE.Material | null)[] = [];
   /** A tube decoration's unlit-run material, one per letter; null for every non-tube letter. */
-  private readonly darkMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
+  private readonly darkMaterials: (THREE.Material | null)[] = [];
   private readonly cache: GlyphCache;
   private readonly decorCache: GlyphCache<Blueprint> | null;
   /** Tube blueprints, one per letter — a per-letter seed can't go through the char-keyed cache. */
@@ -63,6 +76,7 @@ export class Word {
     budget: Budget,
     wrap = false,
     tint?: number,
+    debug?: WordDebugHooks,
   ) {
     this.group.add(this.inner);
 
@@ -135,27 +149,35 @@ export class Word {
         const cell = new THREE.Group();
         cell.add(new THREE.Mesh(geo, material));
 
+        let debugShapes: THREE.Shape[] | undefined;
+
         if (decoration && decoration.kind === 'tube') {
-          const decorMaterial = createMaterial();
-          applyLook(
-            decorMaterial,
-            decoration.look,
-            tintMaterialOf(spec) === 'decoration' ? tint : undefined,
-          );
+          const litOverride = debug?.tubeMaterial?.('lit');
+          const decorMaterial = litOverride ?? createMaterial();
+          if (!litOverride) {
+            applyLook(
+              decorMaterial as THREE.MeshPhysicalMaterial,
+              decoration.look,
+              tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+            );
+          }
           decorMaterial.transparent = true;
           // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
           // would cull that invisible.
           decorMaterial.side = THREE.DoubleSide;
           this.decorMaterials.push(decorMaterial);
 
-          const darkMaterial = createMaterial();
-          applyLook(darkMaterial, decoration.dark);
+          const darkOverride = debug?.tubeMaterial?.('dark');
+          const darkMaterial = darkOverride ?? createMaterial();
+          if (!darkOverride) applyLook(darkMaterial as THREE.MeshPhysicalMaterial, decoration.dark);
           darkMaterial.transparent = true;
           darkMaterial.side = THREE.DoubleSide;
           this.darkMaterials.push(darkMaterial);
 
+          const shapes = glyphToShapes(font.font, g.char, EM);
+          debugShapes = shapes;
           const blueprint = buildTubeBlueprint(
-            glyphToShapes(font.font, g.char, EM),
+            shapes,
             decoration,
             DEFAULT_GLYPH_OPTIONS.depth,
             this.letters.length,
@@ -193,6 +215,14 @@ export class Word {
         } else {
           this.decorMaterials.push(null);
           this.darkMaterials.push(null);
+        }
+
+        if (debug?.onLetter) {
+          debug.onLetter(
+            cell,
+            debugShapes ?? glyphToShapes(font.font, g.char, EM),
+            DEFAULT_GLYPH_OPTIONS.depth,
+          );
         }
 
         this.letters.push(cell);

@@ -63,6 +63,21 @@ describe('sweepRun', () => {
     expect(sweepRun(run, 0.05, 8)).toBeNull();
   });
 
+  it('bakes uv.x as normalized arc length along the run, 0 at the start and 1 at the end', () => {
+    const geo = sweepRun(arcRun(1, Math.PI / 2), 0.05, 6);
+    const uv = geo?.getAttribute('uv') as THREE.BufferAttribute;
+    const ringCount = (geo?.getAttribute('position').count ?? 0) / 7; // segments 6 -> 7 verts/ring
+    let prev = -1;
+    for (let ring = 0; ring < ringCount; ring++) {
+      const t = uv.getX(ring * 7);
+      expect(t).toBeGreaterThanOrEqual(prev);
+      prev = t;
+    }
+    expect(uv.getX(0)).toBeCloseTo(0, 10);
+    expect(uv.getX((ringCount - 1) * 7)).toBeCloseTo(1, 10);
+    geo?.dispose();
+  });
+
   it('produces finite, non-degenerate geometry for a run that bends through 3D', () => {
     // An S-shaped run: bends one way then the other, and wanders in z, the exact shape that
     // tore under Frenet frames.
