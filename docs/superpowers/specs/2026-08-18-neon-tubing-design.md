@@ -87,6 +87,28 @@ A generator's output is closed or open paths. Cutting turns them into runs.
 bends but does not kink, so a corner ends one tube and starts the next. Measured on the lab font:
 `O` is 2 spans, `S` 4, `I` 4, `E` 12, since every join in an `E` is a right angle.
 
+### Corner strategies
+
+A corner is a decision, not automatically a cut, and the decision is **per corner** — different
+corners in one letter can resolve differently, which is where a lot of the hand-made character
+comes from.
+
+- **break** — the tube ends and the next begins. Today's only behavior.
+- **connect** — the tube bends through the corner and continues as one run. Glass can take a tight
+  radius; this is what `piping` wants everywhere, and it is currently faked by setting
+  `cornerAngle` high enough that nothing ever qualifies as a corner.
+- **loop** — the tube carries past the corner, makes one full turn, and continues. A real
+  tube-bender's move, and the most distinctive of the three.
+
+Assignment is seeded per corner so a word builds identically twice, weighted by strategy rather
+than chosen by hand.
+
+Two consequences. A connected or looped corner is **not a run boundary**, so anything anchored to
+run ends — the depth variation, a run's colour, its lit flag — carries through it rather than
+resetting; runs are cut only at breaks. And a loop is high-curvature by construction, so it is the
+first place the sweep's radius taper will engage: a loop whose radius approaches the tube's own is
+not renderable as tube, and the loop radius has to stay clear of it.
+
 **`runs` subdivides.** A count, not a length. Extra cuts are distributed across spans by length,
 largest remainder, at least one piece per span. Total outline length per glyph sits between 3.4
 and 4.3 em across the alphabet, so the same count behaves consistently letter to letter.
