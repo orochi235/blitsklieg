@@ -5,44 +5,99 @@
     <title>blitsklieg lab</title>
     <style>
       body { margin: 0; font: 15px/1.6 system-ui; background: #10131a; color: #e6e9f0; }
-      main { max-width: 640px; margin: 0 auto; padding: 24px; min-height: 150vh; }
+      main { max-width: 640px; margin: 0 auto; padding: 38vh 24px; min-height: 150vh; }
       a { color: #d8b25f; }
-      input, select, button, textarea { font: 12px ui-monospace, monospace; padding: 5px; }
-      textarea { width: 100%; box-sizing: border-box; resize: vertical; }
-      .tint { display: flex; align-items: center; gap: 4px; }
-      .tint input[type="color"] { width: 40px; padding: 1px; }
+      input, select, button, textarea { font: 12px ui-monospace, monospace; padding: 4px; }
 
       /*
-       * Four small panels pinned to the page corners rather than one tall column: the canvas
-       * budget centers the word in the middle ~62% of the viewport width, so the corners are the
-       * only place controls can sit without covering it.
+       * Two full-width docks rather than panels in the page corners: the canvas budget centers the
+       * word in the middle 62% of the width but only 30% of the height, so the bands above and
+       * below it are the largest region controls can hold without ever sitting under the type.
        */
-      .panel { position: fixed; width: 230px; display: grid; gap: 6px; align-content: start;
-               background: #0c0f16e8; border: 1px solid #2a3142; border-radius: 10px;
-               padding: 10px 12px; font: 12px ui-monospace, monospace; z-index: 10;
-               max-height: calc(50vh - 18px); overflow-y: auto; }
-      .panel h2 { margin: 0 0 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+      .dock { position: fixed; left: 0; right: 0; z-index: 10; box-sizing: border-box;
+              display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+              align-items: start; gap: 4px 18px; padding: 7px 14px;
+              background: #0c0f16; border: 0 solid #2a3142;
+              font: 12px ui-monospace, monospace; max-height: 34vh; overflow-y: auto; }
+      .dock--top { top: 0; border-bottom-width: 1px; }
+      .dock--bottom { bottom: 0; border-top-width: 1px; }
+
+      .group { display: grid; gap: 4px; align-content: start; min-width: 0; }
+      .group h2 { margin: 0; font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
                   text-transform: uppercase; color: #d8b25f; }
-      .panel label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-      .panel .row { display: flex; gap: 6px; }
-      .panel .row button { flex: 1; }
-      .panel--scene { top: 12px; left: 12px; }
-      .panel--look { top: 12px; right: 12px; }
-      .panel--tube { bottom: 12px; left: 12px; }
-      .panel--session { bottom: 12px; right: 12px; }
-      #sequences { border-top: 1px solid #2a3142; padding-top: 8px; }
-      #text { width: 100%; box-sizing: border-box; }
-      #log { margin: 4px 0 0; max-height: 7em; overflow-y: auto; white-space: pre-wrap;
+      .group label { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+                     min-height: 22px; }
+      .tint { display: flex; align-items: center; gap: 4px; }
+      .tint input[type="color"] { width: 38px; padding: 1px; flex: none; }
+      /* Controls shrink instead of overflowing: without min-width:0 a select keeps its intrinsic
+         width and pushes itself out past the dock's right edge, where it is clipped. */
+      .group label > input, .group label > select, .group label > .tint {
+        flex: 0 1 112px; min-width: 0; }
+      .group label > input[type="checkbox"] { flex: none; }
+      textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+
+      .row { display: flex; flex-wrap: wrap; gap: 6px; }
+      .row button { flex: 1 1 auto; min-width: 0; }
+      #log { margin: 0; max-height: 4em; overflow-y: auto; white-space: pre-wrap;
              color: #9aa3b8; border-top: 1px solid #2a3142; padding-top: 6px; }
+      #restored { margin: 0; color: #d8b25f; }
+      #restored:empty { display: none; }
     </style>
   </head>
   <body>
+    <div class="dock dock--top">
+      <section class="group">
+        <h2>scene</h2>
+        <textarea id="text" rows="2" autocomplete="off" spellcheck="false">JACKPOT!</textarea>
+        <label>enter <select id="enter"></select></label>
+        <label>active <select id="active"></select></label>
+        <label>exit <select id="exit"></select></label>
+      </section>
+
+      <section class="group">
+        <h2>framing</h2>
+        <label>lighting <select id="lighting"></select></label>
+        <label>yaw <input id="yaw" type="range" min="-60" max="60" step="1" value="0" /></label>
+        <label>pitch <input id="pitch" type="range" min="-60" max="60" step="1" value="0" /></label>
+        <label>roll <input id="roll" type="range" min="-60" max="60" step="1" value="0" /></label>
+        <label>wrap <input id="wrap" type="checkbox" /></label>
+      </section>
+
+      <section class="group">
+        <h2>timing</h2>
+        <label>hold ms <input id="hold" type="number" value="1200" min="0" step="100" /></label>
+        <label>blend ms <input id="blend" type="number" value="120" min="0" step="10" /></label>
+        <label>policy <select id="policy"></select></label>
+        <label>hold click <input id="holdClick" type="checkbox" /></label>
+        <label>modal <input id="modal" type="checkbox" disabled /></label>
+      </section>
+
+      <section class="group">
+        <h2>diagnostics</h2>
+        <label>colour <select id="diagMode">
+          <option value="off">off</option>
+          <option value="depth">depth</option>
+          <option value="arc">along run</option>
+        </select></label>
+        <label>outlines <input id="outlines" type="checkbox" /></label>
+        <h2>session</h2>
+        <div class="row">
+          <button type="button" id="fire">FIRE</button>
+          <button type="button" id="burst">FIRE x3</button>
+          <button type="button" id="destroy">DESTROY</button>
+        </div>
+        <div class="row" id="sequences"></div>
+        <p id="restored"></p>
+        <pre id="log"></pre>
+      </section>
+    </div>
+
     <main>
       <h1>blitsklieg lab</h1>
       <p><a href="https://github.com/orochi235/blitsklieg">blitsklieg</a> slams shiny extruded 3D
          type over the web app you already have. This page is its lab: every effect it ships,
          behind pickers.</p>
-      <p>Press <b>FIRE</b> in a panel, or hit space anywhere outside one. Shift+Enter in the text
+      <p>Press <b>FIRE</b> in a dock, or hit space anywhere outside one. Shift+Enter in the text
          box breaks a line; <b>wrap</b> lets long text find its own breaks. An effect is three
          motion slots — <b>enter</b>, <b>active</b>, <b>exit</b> — plus a material <b>look</b>,
          and each select lists everything available for that slot. <b>moment</b> plays a canned
@@ -52,78 +107,55 @@
          render — colour by pipeline scalar, or a white outline of the glyph the tube follows.</p>
     </main>
 
-    <div class="panel panel--scene">
-      <h2>scene</h2>
-      <textarea id="text" rows="2" autocomplete="off" spellcheck="false">JACKPOT!</textarea>
-      <label>enter <select id="enter"></select></label>
-      <label>active <select id="active"></select></label>
-      <label>exit <select id="exit"></select></label>
-      <label>lighting <select id="lighting"></select></label>
-      <label>yaw <input id="yaw" type="range" min="-60" max="60" step="1" value="0" /></label>
-      <label>pitch <input id="pitch" type="range" min="-60" max="60" step="1" value="0" /></label>
-      <label>roll <input id="roll" type="range" min="-60" max="60" step="1" value="0" /></label>
-      <label>hold ms <input id="hold" type="number" value="1200" min="0" step="100" /></label>
-      <label>blend ms <input id="blend" type="number" value="120" min="0" step="10" /></label>
-      <label>wrap <input id="wrap" type="checkbox" /></label>
-    </div>
+    <div class="dock dock--bottom">
+      <section class="group">
+        <h2>look</h2>
+        <label>look <select id="look"></select></label>
+        <label>grain <input id="grain" type="range" min="20" max="400" step="1" value="80" /></label>
+        <label>density <input id="density" type="range" min="0" max="100" step="1" value="40" /></label>
+        <label>opacity <input id="bodyOpacity" type="range" min="0" max="100" step="1" value="100" /></label>
+        <label>tint <span class="tint"><input id="tintOn" type="checkbox" /><input id="tint"
+               type="color" value="#ff2d6f" /></span></label>
+        <label>bloom <select id="bloom">
+          <option value="auto">auto</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select></label>
+      </section>
 
-    <div class="panel panel--look">
-      <h2>look</h2>
-      <label>look <select id="look"></select></label>
-      <label>grain <input id="grain" type="range" min="20" max="400" step="1" value="80" /></label>
-      <label>density <input id="density" type="range" min="0" max="100" step="1" value="40" /></label>
-      <label>body opacity <input id="bodyOpacity" type="range" min="0" max="100" step="1" value="100" /></label>
-      <label>tint <span class="tint"><input id="tintOn" type="checkbox" /><input id="tint"
-             type="color" value="#ff2d6f" /></span></label>
-      <label>bloom <input id="bloom" type="checkbox" /></label>
-      <label>policy <select id="policy"></select></label>
-      <label>hold until click <input id="holdClick" type="checkbox" /></label>
-      <label>modal <input id="modal" type="checkbox" disabled /></label>
-    </div>
+      <section class="group">
+        <h2>tube</h2>
+        <label>radius <input id="radius" type="range" min="1" max="120" step="1" value="45" /></label>
+        <label>level <input id="level" type="range" min="-120" max="120" step="1" value="0" /></label>
+        <label>runs <input id="runs" type="range" min="1" max="24" step="1" value="7" /></label>
+        <label>min run <input id="minRun" type="range" min="0" max="300" step="5" value="150" /></label>
+        <label>lit <input id="litAmount" type="range" min="0" max="100" step="1" value="85" /></label>
+        <label>surfaces <select id="surfaces">
+          <option value="front">front</option>
+          <option value="front+wall">front+wall</option>
+          <option value="front+back">front+back</option>
+          <option value="all">all three</option>
+        </select></label>
+      </section>
 
-    <div class="panel panel--tube">
-      <h2>tube</h2>
-      <label>radius <input id="radius" type="range" min="1" max="120" step="1" value="45" /></label>
-      <label>level <input id="level" type="range" min="-120" max="120" step="1" value="0" /></label>
-      <label>runs <input id="runs" type="range" min="1" max="24" step="1" value="7" /></label>
-      <label>min run <input id="minRun" type="range" min="0" max="300" step="5" value="150" /></label>
-      <label>lit fraction <input id="litAmount" type="range" min="0" max="100" step="1" value="85" /></label>
-      <label>amplitude <input id="amplitude" type="range" min="0" max="80" step="1" value="20" /></label>
-      <label>wall depth <input id="wallDepth" type="range" min="0" max="100" step="1" value="50" /></label>
-      <label>wall rise <input id="wallRise" type="range" min="0" max="100" step="1" value="0" /></label>
-      <label>break weight <input id="cornerBreak" type="range" min="0" max="100" step="1" value="55" /></label>
-      <label>connect weight <input id="cornerConnect" type="range" min="0" max="100" step="1" value="30" /></label>
-      <label>loop weight <input id="cornerLoop" type="range" min="0" max="100" step="1" value="15" /></label>
-      <label>surfaces <select id="surfaces">
-        <option value="front">front</option>
-        <option value="front+wall">front+wall</option>
-        <option value="front+back">front+back</option>
-        <option value="all">all three</option>
-      </select></label>
-      <h2>chunks</h2>
-      <label>chunk count <input id="count" type="range" min="1" max="300" step="1" value="90" /></label>
-      <label>chunk size <input id="chunkSize" type="range" min="5" max="200" step="1" value="55" /></label>
-      <label>align <input id="align" type="range" min="0" max="100" step="1" value="10" /></label>
-      <label>cluster <input id="cluster" type="range" min="0" max="100" step="1" value="20" /></label>
-      <label>proud <input id="proud" type="range" min="0" max="100" step="1" value="35" /></label>
-    </div>
+      <section class="group">
+        <h2>tube shape</h2>
+        <label>amplitude <input id="amplitude" type="range" min="0" max="80" step="1" value="20" /></label>
+        <label>wall depth <input id="wallDepth" type="range" min="0" max="100" step="1" value="50" /></label>
+        <label>wall rise <input id="wallRise" type="range" min="0" max="100" step="1" value="0" /></label>
+        <label>break <input id="cornerBreak" type="range" min="0" max="100" step="1" value="55" /></label>
+        <label>connect <input id="cornerConnect" type="range" min="0" max="100" step="1" value="30" /></label>
+        <label>loop <input id="cornerLoop" type="range" min="0" max="100" step="1" value="15" /></label>
+      </section>
 
-    <div class="panel panel--session">
-      <h2>diagnostics</h2>
-      <label>colour <select id="diagMode">
-        <option value="off">off</option>
-        <option value="depth">depth</option>
-        <option value="arc">position along run</option>
-      </select></label>
-      <label>outlines <input id="outlines" type="checkbox" /></label>
-      <h2>session</h2>
-      <div class="row">
-        <button type="button" id="fire">FIRE</button>
-        <button type="button" id="burst">FIRE x3</button>
-        <button type="button" id="destroy">DESTROY</button>
-      </div>
-      <div class="row" id="sequences"></div>
-      <pre id="log"></pre>
+      <section class="group">
+        <h2>chunks</h2>
+        <label>count <input id="count" type="range" min="1" max="512" step="1" value="90" /></label>
+        <label>size <input id="chunkSize" type="range" min="5" max="200" step="1" value="55" /></label>
+        <label>align <input id="align" type="range" min="0" max="100" step="1" value="10" /></label>
+        <label>cluster <input id="cluster" type="range" min="0" max="100" step="1" value="20" /></label>
+        <label>proud <input id="proud" type="range" min="0" max="100" step="1" value="35" /></label>
+      </section>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
