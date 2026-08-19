@@ -491,14 +491,8 @@ and set it to `placed.x.length` at the end of the constructor loop Task 1 wrote:
   private liveCount = 0;
 ```
 
-Then add the predicate that reads `frozenInfo`:
-
-```ts
-  /** A letter on its way out, so a stage's slot can tell the two halves apart. */
-  private leavingAt(i: number): boolean {
-    return this.frozenInfo[i] !== null && this.frozenInfo[i] !== undefined;
-  }
-``` `lineCount` and `columnCount` must stop being `readonly` — a regroup rewrites them.
+`leavingAt()` belongs to Task 4, not here — nothing in this task calls it, and biome flags an
+unread private member. `lineCount` and `columnCount` must stop being `readonly` — a regroup rewrites them.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -784,6 +778,11 @@ export interface RegroupResult {
    * the new group; a dropped letter keeps the numbering its exit was staggered against, and stays
    * at its old position until `retire()` takes it off screen.
    */
+  /** A letter on its way out, so a stage's slot can tell the two halves apart. */
+  private leavingAt(i: number): boolean {
+    return this.frozenInfo[i] !== null && this.frozenInfo[i] !== undefined;
+  }
+
   regroup(keep: (letter: LetterInfo) => boolean, as: Arrangement = 'line'): RegroupResult {
     const kept: number[] = [];
     const dropped: number[] = [];
