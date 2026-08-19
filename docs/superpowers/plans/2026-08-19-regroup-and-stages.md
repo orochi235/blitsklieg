@@ -32,6 +32,12 @@
 
 ### Task 1: Extract placement from Word's constructor
 
+> **Landed** as `918076c`, plus review fixes. Three things diverged from the code blocks below, and
+> every later task is written against the *landed* shape: `Placement` carries `char` and
+> `inkWidth`; `fitOf` takes `(placed, geoMinY, geoMaxY, budget)`; and the assertions are glyph
+> origins, so `place('AB')` gives `[-STEP, 0]`. Read `packages/core/src/text/placement.ts` for the
+> current interface rather than this section.
+
 `Word`'s constructor computes glyph positions, the per-line centring shift, and the viewport fit inline. A regroup has to redo all three, so they move to a pure module first. This task must not change any behavior — the existing `word.test.ts` suite is the check.
 
 **Files:**
@@ -273,13 +279,12 @@ Add these fields beside the existing `baseX`/`baseY` declarations:
   private readonly geoMinY: (number | null)[] = [];
   private readonly geoMaxY: (number | null)[] = [];
   private readonly metrics: GlyphMetrics;
-  private readonly scaleToEm: number;
-  private readonly budget: Budget;
-  /** The live fit; `fitFrom`/`fitTo` bracket it while a regroup's fit tween runs. */
   private fit: Fit;
-  private fitFrom: Fit;
-  private fitTo: Fit;
 ```
+
+Only these. Biome's `noUnusedPrivateClassMembers` rejects a private field nothing reads, so
+`scaleToEm`, `budget`, `fitFrom`, `fitTo` and `liveCount` cannot be declared until the task that
+reads them — Task 2 for `liveCount`, Task 4 for the rest.
 
 Replace the whole per-line loop (the `for (let ln = 0; ...)` block) and the fit block that follows it with:
 
@@ -816,11 +821,8 @@ export interface RegroupResult {
     this.fitFrom = this.fit;
     this.fitTo = fitOf(
       placed,
-      chars,
       kept.map((i) => this.geoMinY[i] ?? null),
       kept.map((i) => this.geoMaxY[i] ?? null),
-      this.metrics,
-      this.scaleToEm,
       this.budget,
     );
 
