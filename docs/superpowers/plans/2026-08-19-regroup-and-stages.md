@@ -358,7 +358,14 @@ Add `idxOf` beside the other index arrays:
 ```ts
   /** Reading position within the live group; a regroup renumbers it. */
   private readonly idxOf: number[] = [];
+  /** Set on a letter a regroup dropped; its info stops tracking the live group. */
+  private readonly frozenInfo: (LetterInfo | null)[] = [];
+  /** Letters still in the group — not `letters.length`, which counts the retired ones too. */
+  private liveCount = 0;
 ```
+
+`frozenInfo` and `liveCount` are filled by the constructor loop above and read by Task 2's
+`letterInfo()`; nothing in this task consumes them yet.
 
 - [ ] **Step 6: Run the existing Word suite to verify nothing moved**
 
@@ -467,20 +474,15 @@ In `packages/core/src/render/word.ts`, replace the inline object in `apply()` wi
   }
 ```
 
-Add the two fields it reads:
+`frozenInfo` and `liveCount` already exist — Task 1 declared and filled them. Add the predicate
+that reads the first:
 
 ```ts
-  /** Set on a letter a regroup dropped; its info stops tracking the live group. */
-  private readonly frozenInfo: (LetterInfo | null)[] = [];
-  /** Letters still in the group — not `letters.length`, which counts the retired ones too. */
-  private liveCount = 0;
   /** A letter on its way out, so a stage's slot can tell the two halves apart. */
   private leavingAt(i: number): boolean {
     return this.frozenInfo[i] !== null && this.frozenInfo[i] !== undefined;
   }
-```
-
-Both are filled by the constructor loop from Task 1. `lineCount` and `columnCount` must stop being `readonly` — a regroup rewrites them.
+``` `lineCount` and `columnCount` must stop being `readonly` — a regroup rewrites them.
 
 - [ ] **Step 4: Run test to verify it passes**
 
