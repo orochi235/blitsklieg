@@ -1,21 +1,19 @@
-# Handoff — decoration layer, 2026-08-18
+# Handoff — neon tubing, 2026-08-18
 
 **For:** the next session picking this up. **Answers:** where the work sits, and what the next
 decision is.
 
 ## State
 
-PR https://github.com/orochi235/blitsklieg/pull/1 — `decoration-layer` → `main`. Reviewed as one
-diff; two findings fixed on the branch. `main` is at `9b3b673` (v0.3.1).
+The decoration layer is **done and merged** — PR #1, squashed onto `main` at `43729c6`, shipping
+`@blitsklieg/core` 0.4.0: `tubing`, `piping`, `sequin`, `pyrite`, and per-letter materials. What it
+does and why is in the spec and the CHANGELOG; do not re-read it from here. It was reviewed as one
+diff and two findings were fixed before the merge; the rest are below.
 
-Worktree: `/Users/mike/src/blitsklieg/.claude/worktrees/core-v0`. The shared checkout at
-`/Users/mike/src/blitsklieg` has `main` checked out — git operations from the worktree cannot
-target it.
+Work in the shared checkout at `/Users/mike/src/blitsklieg`. The `core-v0` worktree carried the
+decoration branch and is retired — nothing is left there.
 
-Green: `npm run check` (400 tests), `npm run test:visual` (22 baselines).
-
-Ships `@blitsklieg/core` 0.4.0: `tubing`, `piping`, `sequin`, `pyrite`, and per-letter materials.
-What it does and why is in the spec and the CHANGELOG; do not re-read it from here.
+Green on `main`: `npm run check` (400 tests), `npm run test:visual` (22 baselines).
 
 - Spec: `docs/superpowers/specs/2026-08-18-decoration-layer-design.md`
 - Plan: `docs/superpowers/plans/2026-08-18-decoration-layer.md` (all 12 tasks done)
@@ -50,9 +48,7 @@ re-record baselines. No code change needed.
 
 ## Open review findings
 
-The whole-branch review landed seven. Fixed on the branch: flake chunks were `FrontSide` so ~half
-were culled (and popped in and out under rotation), and the non-clustered draw ignored `taken` so
-5–7 of 90 sequins stacked. The rest are still open, all low:
+The whole-branch review landed seven. Two were fixed before the merge. The rest are open, all low:
 
 - ~30% of the chunk sample pool sits on the back cap, so `sequin` builds ~1.4× the instances it
   shows front-on (`decoration.ts:227`).
@@ -70,13 +66,13 @@ stability loop waits for two consecutive frames. That is what it looks like when
 baseline; it is not instability, and eight back-to-back captures hash identically. `shoot()` now
 passes `timeout: 20000`.
 
-**`maxDiffPixelRatio: 0.15` is too loose to catch bloom appearing or disappearing.** It is set
-that wide because the environment map is generated at runtime. Bloom turning on did not fail the
-`neon` baseline; the change had to be forced with `--update-snapshots=all`.
+**`maxDiffPixelRatio: 0.15` is too loose to catch a real render change**, so a green visual run is
+not evidence that nothing moved. It is set that wide because the environment map is generated at
+runtime. Bloom turning on did not fail the `neon` baseline, and neither did roughly doubling the
+visible sequins; both had to be forced with `--update-snapshots=all`. That flag rewrites **every**
+baseline, including looks the change cannot touch — re-record, then revert the ones that only moved
+by environment-map noise.
 
 **Never add `opacity` to `LookKey`.** There is a comment at the declaration saying so. `Word`
 rewrites `material.opacity` every frame, so a value applied through `PARAM_KEYS` is gone by the
 first tick — and it would pass any test that never calls `apply()`.
-
-**The final whole-branch review was never run.** Per-task reviews were, and they caught four
-defects in the plan text itself, but nobody has read the 28 commits as one diff.
