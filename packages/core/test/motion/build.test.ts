@@ -176,3 +176,34 @@ describe('cycle', () => {
     expect(piece.envRotation).toBe(true);
   });
 });
+
+describe('delayBy', () => {
+  const letter: LetterInfo = { index: 0, count: 1 };
+
+  it('holds a delayed channel at its start value through the delay', () => {
+    const piece = transition(100, {
+      from: { position: [10, 0, 0], scale: 2 },
+      ease: linear,
+      delayBy: { scale: 0.5 },
+    });
+    const half = piece.offset(0.5, letter);
+    // Position is half done; scale has not started.
+    expect(half.position?.[0]).toBeCloseTo(5);
+    expect(half.scale).toBeCloseTo(2);
+  });
+
+  it('still lands the delayed channel at rest by the end of the pass', () => {
+    const piece = transition(100, {
+      from: { scale: 2 },
+      ease: linear,
+      delayBy: { scale: 0.5 },
+    });
+    expect(piece.offset(0.75, letter).scale).toBeCloseTo(1.5);
+    expect(piece.offset(1, letter).scale).toBeCloseTo(1);
+  });
+
+  it('leaves undelayed channels alone', () => {
+    const piece = transition(100, { from: { position: [10, 0, 0] }, ease: linear, delayBy: {} });
+    expect(piece.offset(0.5, letter).position?.[0]).toBeCloseTo(5);
+  });
+});

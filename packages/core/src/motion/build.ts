@@ -20,6 +20,8 @@ export interface TransitionSpec {
   keyframes?: Keyframe[];
   ease?: Easing;
   easeBy?: Partial<Record<Channel, Easing>>;
+  /** Fraction of the pass a channel waits before it starts moving. */
+  delayBy?: Partial<Record<Channel, number>>;
   stagger?: StaggerSpec | number;
 }
 
@@ -51,7 +53,7 @@ const lerp = (a: number | undefined, b: number | undefined, u: number, rest: num
  *
  * Every curve is applied to `s`, the staggered parameter — not to the already-eased value. A
  * channel easing on a curve of a curve is a different motion, and `rise` is written against the
- * former.
+ * former. A channel delay re-maps `s` the same way, before that channel's easing sees it.
  */
 function between(
   a: PoseOffset,
@@ -59,8 +61,14 @@ function between(
   s: number,
   ease: Easing,
   easeBy: TransitionSpec['easeBy'],
+  delayBy?: TransitionSpec['delayBy'],
 ): PoseOffset {
-  const at = (channel: Channel) => (easeBy?.[channel] ?? ease)(s);
+  const at = (channel: Channel) => {
+    // A delay of 1 would leave no span to travel over, so the channel never reaches rest.
+    const delay = Math.min(0.999, Math.max(0, delayBy?.[channel] ?? 0));
+    const local = Math.max(0, (s - delay) / (1 - delay));
+    return (easeBy?.[channel] ?? ease)(Math.min(1, local));
+  };
   return {
     position: lerpVec(a.position, b.position, at('position')),
     rotation: lerpVec(a.rotation, b.rotation, at('rotation')),
@@ -97,8 +105,8 @@ export function transition(duration: number, spec: TransitionSpec): MotionPiece 
 
       // `from` relaxes toward identity; `to` departs from it.
       return spec.to === undefined
-        ? between(resolve(spec.from, letter), {}, s, ease, spec.easeBy)
-        : between({}, resolve(spec.to, letter), s, ease, spec.easeBy);
+        ? between(resolve(spec.from, letter), {}, s, ease, spec.easeBy, spec.delayBy)
+        : between({}, resolve(spec.to, letter), s, ease, spec.easeBy, spec.delayBy);
     },
   };
 }
