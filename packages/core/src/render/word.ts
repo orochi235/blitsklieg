@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { blankPose, type Timeline } from '../motion/compositor.js';
+import type { RegroupResult } from '../motion/sequence.js';
 import type { LetterInfo } from '../motion/types.js';
 import type { LoadedFont } from '../text/font.js';
 import {
@@ -44,15 +45,6 @@ export interface WordDebugHooks {
   tubeMaterial?(which: 'lit' | 'dark'): THREE.Material | undefined;
   /** Called once per drawn letter with its own transformed group, outline shapes, and extrude depth. */
   onLetter?(cell: THREE.Group, shapes: THREE.Shape[], depth: number): void;
-}
-
-export interface RegroupResult {
-  /** Slot indices that survived, in their new reading order. */
-  kept: number[];
-  /** Slot indices that did not; still parked at their old layout positions. */
-  dropped: number[];
-  /** Per slot, the offset from the new layout position back to the old one. */
-  delta: [number, number][];
 }
 
 /** One group per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */

@@ -1,0 +1,204 @@
+import { type Easing, easeOutCubic } from '../easing.js';
+import type { Pose } from '../pose.js';
+import type { Arrangement } from '../text/placement.js';
+import { partition, transition } from './build.js';
+import { blankPose, type Slot, slotDuration, Timeline } from './compositor.js';
+import type { LetterInfo, MotionPiece } from './types.js';
+import { NONE } from './types.js';
+
+/** What a regroup told the sequence about the letters it moved. */
+export interface RegroupResult {
+  /** Slot indices that survived, in their new reading order. */
+  kept: number[];
+  /** Slot indices that did not; still parked at their old layout positions. */
+  dropped: number[];
+  /** Per slot, the offset from the new layout position back to the old one. */
+  delta: [number, number][];
+}
+
+/** The `Word` side of a stage boundary, narrow enough to stub in a test. */
+export interface StageTarget {
+  regroup(keep: (letter: LetterInfo) => boolean, as: Arrangement | undefined): RegroupResult;
+  retire(slots: readonly number[]): void;
+  setFitProgress(u: number): void;
+}
+
+export interface TweenPlan {
+  duration?: number;
+  ease?: Easing;
+  /** Fraction of the move a channel waits before starting. `scale` addresses the viewport fit. */
+  delayBy?: { position?: number; scale?: number };
+}
+
+export interface StagePlan {
+  keep?: (letter: LetterInfo) => boolean;
+  exit: Slot;
+  as?: Arrangement;
+  active: Slot;
+  hold: number | 'click';
+  tween: TweenPlan;
+}
+
+export interface SequenceOptions {
+  enter: Slot;
+  stages: StagePlan[];
+  exit: Slot;
+  hold: number | 'click';
+  blendMs: number;
+  target: StageTarget;
+}
+
+const DEFAULT_MOVE_MS = 700;
+
+/**
+ * Plays the opening phase, then one stage after another, then the exit. Each phase is an ordinary
+ * `Timeline` on its own clock; the sequence is what happens between them — the regroup, retiring
+ * the letters that left, and the viewport fit catching up.
+ */
+export class Sequence {
+  private readonly opts: SequenceOptions;
+  private phase = -1;
+  private phaseStart = 0;
+  private timeline: Timeline;
+  private pending: RegroupResult | null = null;
+  private moveMs = 0;
+  private fitDelay = 0;
+  private retiredThisPhase = false;
+
+  constructor(opts: SequenceOptions) {
+    this.opts = opts;
+    this.timeline = this.openingTimeline();
+  }
+
+  private openingTimeline(): Timeline {
+    const last = this.opts.stages.length === 0;
+    return new Timeline({
+      enter: this.opts.enter,
+      active: NONE,
+      exit: last ? this.opts.exit : NONE,
+      hold: this.opts.hold === 'click' ? 'until-release' : this.opts.hold,
+      blendMs: this.opts.blendMs,
+    });
+  }
+
+  /** Advances the stage if the current phase has run out, and keeps the fit moving. */
+  tick(elapsed: number): void {
+    // Stops on the last stage rather than one past it: that timeline carries the closing exit, and
+    // rebasing `phaseStart` onto it would restart its clock and the sequence would never finish.
+    while (
+      this.phase < this.opts.stages.length - 1 &&
+      this.timeline.isFinished(this.local(elapsed))
+    ) {
+      this.enterNextPhase(elapsed);
+    }
+    if (!this.pending) return;
+
+    const into = this.local(elapsed);
+    const start = this.moveMs * this.fitDelay;
+    const span = this.moveMs - start;
+    const u = span > 0 ? (into - start) / span : 1;
+    this.opts.target.setFitProgress(Math.max(0, Math.min(1, u)));
+    if (!this.retiredThisPhase && into >= this.moveMs) {
+      this.retiredThisPhase = true;
+      this.opts.target.retire(this.pending.dropped);
+    }
+  }
+
+  private enterNextPhase(elapsed: number): void {
+    this.phase++;
+    const plan = this.opts.stages[this.phase];
+    this.phaseStart = elapsed;
+    this.retiredThisPhase = false;
+    if (!plan) return;
+
+    const keep = plan.keep ?? (() => true);
+    const result = this.opts.target.regroup(keep, plan.as);
+    this.pending = result;
+
+    const move = plan.tween.duration ?? DEFAULT_MOVE_MS;
+    this.moveMs = move;
+    this.fitDelay = Math.min(0.999, Math.max(0, plan.tween.delayBy?.scale ?? 0));
+
+    const travel = transition(move, {
+      from: (letter) => {
+        const slot = result.kept[letter.index];
+        const d = slot === undefined ? undefined : result.delta[slot];
+        return d ? { position: [d[0], d[1], 0] } : {};
+      },
+      ease: plan.tween.ease ?? easeOutCubic,
+      delayBy: plan.tween.delayBy?.position ? { position: plan.tween.delayBy.position } : undefined,
+    });
+
+    // A dropped letter keeps its old index, which collides with some survivor's new one — so
+    // `leaving` is the only safe discriminator; `result.kept[index]` would route it wrongly.
+    const isKept = (letter: LetterInfo) => letter.leaving !== true;
+
+    // `partition` hands both halves the same normalized t over the longer one's duration, so the
+    // shorter half must be stretched to the slot or its declared duration is silently ignored.
+    const span = Math.max(move, slotDuration(plan.exit));
+    const last = this.phase === this.opts.stages.length - 1;
+    this.timeline = new Timeline({
+      enter: partition(isKept, within(travel, span), within(asPiece(plan.exit), span)),
+      active: plan.active,
+      exit: last ? this.opts.exit : NONE,
+      hold: plan.hold === 'click' ? 'until-release' : plan.hold,
+      blendMs: this.opts.blendMs,
+    });
+  }
+
+  private local(elapsed: number): number {
+    return Math.max(0, elapsed - this.phaseStart);
+  }
+
+  release(elapsed: number): void {
+    this.timeline.release(this.local(elapsed));
+  }
+
+  isFinished(elapsed: number): boolean {
+    return (
+      this.phase >= this.opts.stages.length - 1 && this.timeline.isFinished(this.local(elapsed))
+    );
+  }
+
+  poseAt(elapsed: number, letter: LetterInfo, out: Pose = blankPose()): Pose {
+    return this.timeline.poseAt(this.local(elapsed), letter, out);
+  }
+}
+
+/**
+ * Runs `piece` over its own duration inside a longer slot, then holds its final value. Without
+ * this a 200ms travel paired with an 800ms exit plays over 800ms, and the sequencer's retire and
+ * fit clocks — which run off the declared duration — drift away from what is on screen.
+ */
+function within(piece: MotionPiece, total: number): MotionPiece {
+  if (total <= 0 || piece.duration <= 0 || piece.duration >= total) return piece;
+  const fraction = piece.duration / total;
+  return {
+    duration: total,
+    offset: (t, letter) => piece.offset(Math.min(1, t / fraction), letter),
+  };
+}
+
+/** A layered slot collapses to one piece so `partition` can take it as a single branch. */
+function asPiece(slot: Slot): MotionPiece {
+  if (!Array.isArray(slot)) return slot;
+  return {
+    duration: slotDuration(slot),
+    offset: (t, letter) => {
+      const out: Pose = blankPose();
+      for (const piece of slot) {
+        const o = piece.offset(t, letter);
+        const { position, rotation } = o;
+        if (position) {
+          for (let i = 0; i < 3; i++) out.position[i] = (out.position[i] ?? 0) + (position[i] ?? 0);
+        }
+        if (rotation) {
+          for (let i = 0; i < 3; i++) out.rotation[i] = (out.rotation[i] ?? 0) + (rotation[i] ?? 0);
+        }
+        if (o.scale !== undefined) out.scale *= o.scale;
+        if (o.opacity !== undefined) out.opacity *= o.opacity;
+      }
+      return out;
+    },
+  };
+}
