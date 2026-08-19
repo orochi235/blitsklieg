@@ -155,3 +155,15 @@ export function cycle(duration: number, spec: CycleSpec = {}): MotionPiece {
 
   return spec.envRotation ? { ...piece, envRotation: true } : piece;
 }
+
+/** One piece for the letters a predicate keeps, another for the rest. */
+export function partition(
+  keep: (letter: LetterInfo) => boolean,
+  kept: MotionPiece,
+  dropped: MotionPiece,
+): MotionPiece {
+  return {
+    duration: Math.max(kept.duration, dropped.duration),
+    offset: (t, letter) => (keep(letter) ? kept.offset(t, letter) : dropped.offset(t, letter)),
+  };
+}

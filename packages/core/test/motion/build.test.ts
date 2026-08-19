@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { linear } from '../../src/easing.js';
-import { cycle, transition } from '../../src/motion/build.js';
-import type { LetterInfo } from '../../src/motion/types.js';
+import { cycle, partition, transition } from '../../src/motion/build.js';
+import type { LetterInfo, MotionPiece } from '../../src/motion/types.js';
 import { scaleOffset } from '../../src/pose.js';
 
 const L: LetterInfo = { index: 0, count: 1 };
@@ -205,5 +205,23 @@ describe('delayBy', () => {
   it('leaves undelayed channels alone', () => {
     const piece = transition(100, { from: { position: [10, 0, 0] }, ease: linear, delayBy: {} });
     expect(piece.offset(0.5, letter).position?.[0]).toBeCloseTo(5);
+  });
+});
+
+describe('partition', () => {
+  const kept: MotionPiece = { duration: 100, offset: () => ({ position: [1, 0, 0] }) };
+  const dropped: MotionPiece = { duration: 300, offset: () => ({ position: [0, 2, 0] }) };
+  const piece = partition((l) => l.index === 0, kept, dropped);
+
+  it('runs the kept piece where the predicate holds', () => {
+    expect(piece.offset(0.5, { index: 0, count: 2 }).position).toEqual([1, 0, 0]);
+  });
+
+  it('runs the dropped piece elsewhere', () => {
+    expect(piece.offset(0.5, { index: 1, count: 2 }).position).toEqual([0, 2, 0]);
+  });
+
+  it('lasts as long as its longer half', () => {
+    expect(piece.duration).toBe(300);
   });
 });
