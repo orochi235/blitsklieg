@@ -52,10 +52,22 @@ absolute destination. `Word` has those numbers as `baseX`/`baseY` and simply nev
   both the front and back planes.
 - **Lab parameter sliders** for `level`, `runs`, `minRun`, lit fraction, wall depth, wall rise and
   a surfaces picker. The old `tubeAt` and `inset` sliders are still in the DOM as dead controls.
-- **Per-corner strategies** — `break`, `connect`, `loop` as a weighted mix. Specced, not built.
-  This makes `cornerAngle` obsolete: `piping` becomes "every corner connects" instead of a
-  threshold nothing can exceed.
 - **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon.
+  This is the last unbuilt look item and the owner rated it a bonus, not the point.
+
+## Corner strategies are in
+
+`break`, `connect` and `loop`, drawn per corner from a seeded weight distribution, biased by the
+corner's turn angle and the room around it. `cornerAngle` is gone — `piping` now sets
+`corners: ALL_CONNECT`, which says what it means. `tubing` ships a placeholder mix of
+55/30/15, tunable from three lab sliders.
+
+Loop radius is 4x the tube radius, clear of the 1.25x floor the curvature taper needs to keep full
+width through the turn.
+
+**All-loop is a stress test, not a setting.** Every corner getting a flourish buries a word, and on
+`E`, whose corners are close together, the loops overlap until the letter is barely legible. The
+mixed distribution is the point.
 
 ## Standing conventions for this work
 
