@@ -396,10 +396,14 @@ export class Word {
    */
   setFitProgress(u: number): void {
     const w = Math.max(0, Math.min(1, u));
-    this.fit = {
-      scale: this.fitFrom.scale + (this.fitTo.scale - this.fitFrom.scale) * w,
-      midY: this.fitFrom.midY + (this.fitTo.midY - this.fitFrom.midY) * w,
-    };
+    // Lerping to w = 1 lands a ULP short of fitTo, leaving the settled fit uncomparable by equality.
+    this.fit =
+      w === 1
+        ? { ...this.fitTo }
+        : {
+            scale: this.fitFrom.scale + (this.fitTo.scale - this.fitFrom.scale) * w,
+            midY: this.fitFrom.midY + (this.fitTo.midY - this.fitFrom.midY) * w,
+          };
     this.applyFit(this.fit);
   }
 

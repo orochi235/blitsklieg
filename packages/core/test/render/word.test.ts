@@ -831,27 +831,38 @@ describe('regroup', () => {
     expect(seen[0]?.leaving).toBeFalsy();
   });
 
-  it('reports the offset that puts a survivor back where it was', () => {
-    const word = new Word('NA\nEB', stubFont(), 'gold', ROOMY);
-    const before: LetterInfo[] = [];
+  it('reports each survivor the offset back to the line and column it left', () => {
+    const word = new Word('NA\nEB\nOC', stubFont(), 'gold', ROOMY);
+    const { delta } = word.regroup(firstOfLine, 'line');
+    // Every survivor was first on a two-glyph line and is now one of three on a single line.
+    expect(delta[0]?.[0]).toBeCloseTo(0.5 * STEP, 10);
+    expect(delta[0]?.[1]).toBeCloseTo(0, 10);
+    expect(delta[2]?.[0]).toBeCloseTo(-0.5 * STEP, 10);
+    expect(delta[2]?.[1]).toBeCloseTo(-1.1, 10);
+    expect(delta[4]?.[0]).toBeCloseTo(-1.5 * STEP, 10);
+    expect(delta[4]?.[1]).toBeCloseTo(-2.2, 10);
+  });
+
+  it('puts a survivor back where it was when its offset is posed onto it', () => {
+    const word = new Word('NA\nEB\nOC', stubFont(), 'gold', ROOMY);
+    const before = groups(word).map((g) => g.position.clone());
+    const { kept, delta } = word.regroup(firstOfLine, 'line');
+
     word.apply(
-      timelineOf((_t, letter) => {
-        before.push({ ...letter });
-        return {};
+      timelineOf((_t, letter): PoseOffset => {
+        // delta is keyed by slot; a survivor's index is its new position in the group.
+        if (letter.leaving) return {};
+        const [dx, dy] = delta[kept[letter.index] as number] as [number, number];
+        return { position: [dx, dy, 0] };
       }),
       0,
     );
-    const result = word.regroup(firstOfLine, 'line');
-    const after: LetterInfo[] = [];
-    word.apply(
-      timelineOf((_t, letter) => {
-        after.push({ ...letter });
-        return {};
-      }),
-      0,
-    );
-    const [dx] = result.delta[0] as [number, number];
-    expect((after[0]?.x as number) + dx).toBeCloseTo(before[0]?.x as number);
+
+    const after = groups(word).map((g) => g.position.clone());
+    for (const i of kept) {
+      expect(after[i]?.x).toBeCloseTo(before[i]?.x as number, 10);
+      expect(after[i]?.y).toBeCloseTo(before[i]?.y as number, 10);
+    }
   });
 
   it('leaves a dropped letter parked where it was', () => {
@@ -933,6 +944,16 @@ describe('fit tween', () => {
     word.setFitProgress(1);
     // Two letters need far less width than ten, so the fit grows.
     expect(word.group.scale.x).toBeGreaterThan(before);
+  });
+
+  it('settles on exactly the fit the survivors get as a word of their own', () => {
+    const word = new Word('NAAAA\nEBBBB', stubFont(), 'gold', TIGHT);
+    word.regroup(firstOfLine, 'line');
+    word.setFitProgress(1);
+    const direct = new Word('NE', stubFont(), 'gold', TIGHT);
+
+    expect(word.group.scale.x).toBe(direct.group.scale.x);
+    expect(word.group.position.y).toBe(direct.group.position.y);
   });
 
   it('is halfway between the two at progress 0.5', () => {
