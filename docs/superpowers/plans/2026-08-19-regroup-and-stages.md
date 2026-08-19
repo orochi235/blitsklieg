@@ -64,13 +64,14 @@ const place = (text: string) =>
 describe('placeBlock', () => {
   it('centres a single line on x = 0', () => {
     const p = place('AB');
-    expect(p.x[0]).toBeCloseTo(-STEP / 2);
-    expect(p.x[1]).toBeCloseTo(STEP / 2);
+    // Positions are glyph origins, so the line spans x[0] to x[1] + one advance.
+    expect(p.x[0]).toBeCloseTo(-STEP);
+    expect(p.x[1]).toBeCloseTo(0);
   });
 
   it('centres each line independently', () => {
     const p = place('AB\nA');
-    expect(p.x[2]).toBeCloseTo(0);
+    expect(p.x[2]).toBeCloseTo(-STEP / 2);
   });
 
   it('excludes a trailing space from the centring', () => {
@@ -381,6 +382,7 @@ git commit -m "extract glyph placement and fit out of Word's constructor"
 
 ---
 
+
 ### Task 2: LetterInfo carries the letter's laid-out position
 
 **Files:**
@@ -404,8 +406,9 @@ describe('LetterInfo position', () => {
       }),
       0,
     );
-    expect(seen[0]?.x).toBeCloseTo(-STEP / 2);
-    expect(seen[1]?.x).toBeCloseTo(STEP / 2);
+    // Glyph origins, centred on the advance span: 'AB' puts A at -STEP and B at 0.
+    expect(seen[0]?.x).toBeCloseTo(-STEP);
+    expect(seen[1]?.x).toBeCloseTo(0);
   });
 
   it('measures y from the block centre, so a single line sits at zero', () => {
@@ -474,8 +477,16 @@ In `packages/core/src/render/word.ts`, replace the inline object in `apply()` wi
   }
 ```
 
-`frozenInfo` and `liveCount` already exist — Task 1 declared and filled them. Add the predicate
-that reads the first:
+`frozenInfo` already exists. `liveCount` does not: biome's `noUnusedPrivateClassMembers` rejects a
+private field nothing reads, so Task 1 could only declare the ones it also read. Declare it here,
+and set it to `placed.x.length` at the end of the constructor loop Task 1 wrote:
+
+```ts
+  /** Letters still in the group — not `letters.length`, which counts the retired ones too. */
+  private liveCount = 0;
+```
+
+Then add the predicate that reads `frozenInfo`:
 
 ```ts
   /** A letter on its way out, so a stage's slot can tell the two halves apart. */
@@ -497,6 +508,7 @@ git commit -m "give every letter its laid-out position through LetterInfo"
 ```
 
 ---
+
 
 ### Task 3: Per-channel delay on transition()
 
@@ -591,7 +603,8 @@ git commit -m "let a transition delay one channel behind the others"
 
 ---
 
-### Task 4: Word.regroup
+
+### Task 4: Word.regroup and the fit tween
 
 **Files:**
 - Modify: `packages/core/src/render/word.ts`
@@ -619,10 +632,10 @@ describe('regroup', () => {
       }),
       0,
     );
-    // Three survivors on one line: centred, one advance apart.
-    expect(seen[0]?.x).toBeCloseTo(-STEP);
-    expect(seen[2]?.x).toBeCloseTo(0);
-    expect(seen[4]?.x).toBeCloseTo(STEP);
+    // Three survivors on one line, origins centred on the advance span.
+    expect(seen[0]?.x).toBeCloseTo(-1.5 * STEP);
+    expect(seen[2]?.x).toBeCloseTo(-0.5 * STEP);
+    expect(seen[4]?.x).toBeCloseTo(0.5 * STEP);
   });
 
   it('stacks one survivor per line when asked', () => {
@@ -638,7 +651,7 @@ describe('regroup', () => {
     );
     expect(seen[0]?.line).toBe(0);
     expect(seen[2]?.line).toBe(1);
-    expect(seen[0]?.x).toBeCloseTo(0);
+    expect(seen[0]?.x).toBeCloseTo(-STEP / 2);
   });
 
   it('renumbers the survivors and leaves the dropped letters their old numbering', () => {
@@ -823,7 +836,17 @@ export interface RegroupResult {
   }
 ```
 
-`regroup` records the new fit as a target and leaves `this.fit` where it is, so nothing jumps. Task 5 adds the tween that walks `fit` from `fitFrom` to `fitTo`; until it exists, a regrouped word keeps its old scale, which is what the tests in this task assume.
+Three more fields have to be declared here for the same reason `liveCount` was deferred to Task 2 — biome rejects a private field nothing reads, so Task 1 could not carry them:
+
+```ts
+  private readonly scaleToEm: number;
+  private readonly budget: Budget;
+  /** The fit before this regroup; `fit` interpolates between this and `fitTo`. */
+  private fitFrom: Fit;
+  private fitTo: Fit;
+```
+
+The constructor sets `scaleToEm`, `budget`, and both fits alongside the `metrics` assignment Task 1 added. The fit tween in the second half of this task is what reads `fitFrom`/`fitTo`, which is why the two halves cannot be separate commits.
 
 `word.ts` already imports `layoutBlock` from `./text/layout.js` for the constructor.
 
@@ -832,24 +855,9 @@ export interface RegroupResult {
 Run: `npx vitest run packages/core/test/render/word.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add packages/core/src/render/word.ts packages/core/test/render/word.test.ts
-git commit -m "let a Word regroup its surviving letters into a new layout"
-```
-
----
-
-### Task 5: The fit tween
-
 The new group is a different size, so its viewport fit differs. Scaling it at the same time as the letters travel is what makes the move hard to tune, so the fit runs on its own progress value that the stage delays.
 
-**Files:**
-- Modify: `packages/core/src/render/word.ts`
-- Test: `packages/core/test/render/word.test.ts`
-
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 5: Write the failing test**
 
 Append to `packages/core/test/render/word.test.ts`:
 
@@ -899,12 +907,12 @@ describe('fit tween', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 6: Run test to verify it fails**
 
 Run: `npx vitest run packages/core/test/render/word.test.ts -t "fit tween"`
 Expected: FAIL — `word.setFitProgress is not a function`.
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 7: Write the implementation**
 
 `fitFrom` and `fitTo` already exist — Task 1 set them, Task 4 updates them. All this task adds is
 the interpolation:
@@ -925,21 +933,22 @@ the interpolation:
   }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 8: Run test to verify it passes**
 
 Run: `npx vitest run packages/core/test/render/word.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add packages/core/src/render/word.ts packages/core/test/render/word.test.ts
-git commit -m "animate the viewport fit across a regroup on its own progress"
+git commit -m "let a Word regroup its letters into a new layout and tween the fit"
 ```
 
 ---
 
-### Task 6: partition()
+
+### Task 5: partition()
 
 A stage runs two different motions at once — survivors travel, the rest exit — and a `Timeline` composes one slot per letter. `partition` is how one slot carries both.
 
@@ -1010,7 +1019,8 @@ git commit -m "add a partition combinator for splitting a slot by predicate"
 
 ---
 
-### Task 7: The Sequence
+
+### Task 6: The Sequence
 
 **Files:**
 - Create: `packages/core/src/motion/sequence.ts`
@@ -1353,7 +1363,8 @@ git commit -m "play staged regroups from a sequence of timelines"
 
 ---
 
-### Task 8: Wire `then` into fire()
+
+### Task 7: Wire `then` into fire()
 
 **Files:**
 - Modify: `packages/core/src/index.ts:114-155` and the body of `run()`
@@ -1519,7 +1530,8 @@ git commit -m "accept a stage list on fire() and play it from a sequence"
 
 ---
 
-### Task 9: tint as a per-letter rule
+
+### Task 8: tint as a per-letter rule
 
 **Files:**
 - Modify: `packages/core/src/render/word.ts` (constructor signature and `buildCell`)
@@ -1558,7 +1570,7 @@ describe('tint as a function', () => {
       seen.push({ ...l });
       return undefined;
     });
-    expect(seen[0]?.x).toBeCloseTo(-STEP / 2);
+    expect(seen[0]?.x).toBeCloseTo(-STEP);
     expect(seen[0]?.index).toBe(0);
     expect(seen[1]?.index).toBe(1);
   });
@@ -1623,7 +1635,8 @@ git commit -m "let tint be a per-letter rule as well as one colour"
 
 ---
 
-### Task 10: The acrostic in the lab, and the README
+
+### Task 9: The acrostic in the lab, and the README
 
 **Files:**
 - Modify: `apps/lab/src/main.ts:344-383`
