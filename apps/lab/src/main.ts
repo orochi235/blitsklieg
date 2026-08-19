@@ -389,7 +389,7 @@ const SEQUENCES: { name: string; steps: Step[] }[] = [
         active: 'none',
         exit: 'recede',
         look: 'neon',
-        tint: (l) => (l.column === 0 ? 0xff2d6f : undefined),
+        tint: (l) => (l.column === 0 ? 0x2df0ff : undefined),
         hold: 'click',
         then: [
           { keep: (l) => l.column === 0, exit: 'fade', as: 'stack', hold: 'click' },

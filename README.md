@@ -163,7 +163,7 @@ word, not the old one.
 `tint` takes a rule as well as a color, which is how the letters that survive get their own one:
 
 ```ts
-tint: (l) => (l.column === 0 ? 0xff2d6f : undefined)
+tint: (l) => (l.column === 0 ? 0x2df0ff : undefined)
 ```
 
 Returning `undefined` leaves that letter the look's own color.
