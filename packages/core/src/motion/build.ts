@@ -20,7 +20,7 @@ export interface TransitionSpec {
   keyframes?: Keyframe[];
   ease?: Easing;
   easeBy?: Partial<Record<Channel, Easing>>;
-  /** Fraction of the pass a channel waits before it starts moving. */
+  /** Fraction of the pass a channel waits before it starts moving. Ignored with `keyframes`. */
   delayBy?: Partial<Record<Channel, number>>;
   stagger?: StaggerSpec | number;
 }
