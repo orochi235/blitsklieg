@@ -49,7 +49,7 @@ describe('wallPointAt', () => {
 
   it('wraps arc length past the perimeter rather than clamping', () => {
     const wall = surfacesOf([square()], 0.3).find((s) => s.kind === 'wall');
-    if (!wall || wall.kind !== 'wall') throw new Error('no wall');
+    if (wall?.kind !== 'wall') throw new Error('no wall');
 
     // A generator walking a running arc-length counter overshoots the perimeter; clamping there
     // would pile every subsequent point onto the seam instead of continuing around.
