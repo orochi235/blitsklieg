@@ -604,7 +604,8 @@ function contourPoints(contour: THREE.Shape | THREE.Path): Point2[] {
   if (raw.length > 1 && first && last && Math.hypot(first.x - last.x, first.y - last.y) < 1e-9) {
     raw.pop();
   }
-  return resample([...raw, raw[0] as Point2], RING_SPACING);
+  // resample closes the loop itself; passing an already-closed ring would double the seam point.
+  return resample(raw, RING_SPACING);
 }
 
 export function surfacesOf(shapes: THREE.Shape[], depth: number): Surface[] {
@@ -734,7 +735,7 @@ Expected: FAIL — cannot resolve `tube/generators.js`
 ```ts
 import * as THREE from 'three';
 import { isoContours, signedDistanceField } from './field.js';
-import { resample, smooth } from './resample.js';
+import { resample } from './resample.js';
 import { type Surface, type SurfaceKind, wallPointAt } from './surfaces.js';
 
 export interface GeneratedPath {
@@ -756,9 +757,6 @@ export interface GenerateOptions {
   pad: number;
 }
 
-/** Passes of three-tap smoothing applied to raw isocontours before they are used. */
-const SMOOTH_PASSES = 3;
-
 export function generatePaths(
   surfaces: Surface[],
   enabled: SurfaceKind[],
@@ -776,7 +774,9 @@ export function generatePaths(
         pad: opts.pad,
       });
       for (const line of isoContours(field, opts.level)) {
-        const cooked = smooth(resample(line, opts.spacing), SMOOTH_PASSES);
+        // Deliberately unsmoothed: cutting detects corners on these points, and smoothing a
+        // square's 90 degree corner down to 26 degrees puts it under the detection threshold.
+        const cooked = resample(line, opts.spacing);
         if (cooked.length < 4) continue;
         out.push({
           points: cooked.map((p) => new THREE.Vector3(p.x, p.y, surface.z)),
@@ -1493,11 +1493,13 @@ Expected: FAIL — cannot resolve `tube/sweep.js`
 
 ```ts
 import * as THREE from 'three';
-import { minCurvatureRadius } from './resample.js';
+import { minCurvatureRadius, smooth } from './resample.js';
 import type { Run } from './runs.js';
 
 /** How much of the local curvature radius a tube may occupy before it self-intersects. */
 const CLEARANCE = 0.8;
+/** Smoothing happens here rather than upstream: a run ends at a corner, so it never crosses one. */
+const SMOOTH_PASSES = 3;
 
 /**
  * A sweep whose radius exceeds the path's local radius of curvature turns inside out. Measured
@@ -1505,7 +1507,7 @@ const CLEARANCE = 0.8;
  * can be long and still contain one tight corner.
  */
 export function sweepRadius(run: Run, requested: number): number {
-  const flat = run.points.map((p) => ({ x: p.x, y: p.y }));
+  const flat = smooth(run.points.map((p) => ({ x: p.x, y: p.y })), SMOOTH_PASSES, 'open');
   const tightest = minCurvatureRadius(flat);
   if (!Number.isFinite(tightest)) return requested;
   return Math.min(requested, tightest * CLEARANCE);
@@ -2053,5 +2055,25 @@ git commit -m "re-record the tubing baseline for the run pipeline"
 **A bloomed look at DPR 2 can exhaust Playwright's default screenshot budget.** `shoot()` passes `timeout: 20000` for this reason. A tubing baseline timeout is that, not instability.
 
 **Never add `opacity` to `LookKey`.** `Word` rewrites `material.opacity` every frame from the pose, so a value applied through `PARAM_KEYS` is gone by the first tick. There is a comment at the declaration saying so.
+
+**Smoothing happens at the sweep, not at generation, and the order matters.** Measured on a
+closed square: raw corners are 90 degrees, resampling leaves them at 38.7, and three passes of
+smoothing takes them to 26.1 — under the 30 degree corner threshold. Smooth before cutting and
+every glyph arrives at the cutter as one cornerless loop, with `E` losing all twelve of its spans.
+Unit tests do not catch it, because Task 5's tests build their own square rather than running the
+generator. Cut first; a run ends at a corner, so smoothing inside one never crosses a corner.
+
+**`smooth()` must not treat an open run as closed.** Its original form wrapped with modulo
+indexing, which is right for an isocontour and wrong for a run — it drags the two endpoints of an
+open polyline toward each other. It takes a required `mode: 'open' | 'closed'` with no default, so
+the wrong behavior cannot be inherited by forgetting an argument. Task 7 passes `'open'`.
+
+**`resample()` closes the loop itself** and always treats its input as closed. Do not pre-append
+the first point — that doubles the seam. It cannot currently resample an open polyline; nothing
+needs that yet.
+
+**`signedDistanceField()` throws on an empty polygon list** rather than returning a degenerate
+field. `surfacesOf()` returns no surfaces when a glyph drew no contours, so the generator never
+reaches the field for a space character — but a new caller must skip empty glyphs itself.
 
 **Task 9 changes tube blueprint caching from per-character to per-letter.** That is deliberate: two `O`s in a word must not get identical run selections. It costs one field build per letter. If that measures badly, cache on `char + seed` rather than reverting to `char`.
