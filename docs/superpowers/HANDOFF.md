@@ -5,38 +5,44 @@ decision is.
 
 ## State
 
-The decoration layer is **done and merged** — PR #1, squashed onto `main` at `43729c6`, shipping
-`@blitsklieg/core` 0.4.0: `tubing`, `piping`, `sequin`, `pyrite`, and per-letter materials.
+The decoration layer merged as 0.4.0 (PR #1, `43729c6`). Neon tubing is **built and unmerged** on
+branch `neon-tubing`: 470 tests green, `npm run check` clean.
 
-Neon tubing is **specced and planned, not implemented.** Branch `neon-tubing`, nothing built yet.
+The pipeline is complete and working — `packages/core/src/render/tube/` holds `field.ts` (signed
+distance field, marching-squares isocontours), `resample.ts`, `surfaces.ts`, `generators.ts`,
+`runs.ts`, `assign.ts`, `sweep.ts`, `wander.ts`, `index.ts`. `tubing` and `piping` both build from
+it; `insetContour` and `CONTOUR_SEGMENTS` are gone.
+
+Also landed, beyond the original plan: a rigid `transform` surface on `Word` and `FireOptions`
+(column-major matrix as plain numbers, with `fromEuler`/`fromAxisAngle`/`compose` helpers in
+`packages/core/src/transform.ts`), applied to an inner group so it composes with the viewport fit;
+depth-varying face runs via `TubeSpec.amplitude`; `TubeSpec.cornerAngle`; the lab's filler text
+removed and yaw/pitch/roll sliders added.
 
 - Spec: `docs/superpowers/specs/2026-08-18-neon-tubing-design.md`
-- Plan: `docs/superpowers/plans/2026-08-18-neon-tubing.md` — 12 tasks, TDD, none started
-- Spike: `spikes/tube-paths.mjs` — the distance field, resampling and curvature already work
-  here and the plan ports them rather than reinventing
+- Plan: `docs/superpowers/plans/2026-08-18-neon-tubing.md` — tasks 1-9 done, 10 partial, 11 not started
 
-Green on `main` and on this branch: `npm run check` (400 tests), `npm run test:visual`
-(22 baselines).
+## Not done on this branch
 
-## Next
+- **The visual baseline has never been re-recorded.** `look-tubing-darwin.png` and
+  `look-piping-darwin.png` still show the pre-rewrite look. Do not re-record until the sweep is
+  fixed, or the baseline captures the defect below.
+- **Lab diagnostics**, all requested and none built: a depth colour ramp, a per-run arc-length
+  colour ramp (both should share one mechanism — a per-vertex scalar through one ramp, with a
+  switchable source), and white letterform outlines drawn from `surfacesOf()`'s contour rings at
+  both the front and back planes.
+- **Lab parameter sliders** for `level`, `runs`, `minRun`, lit fraction, wall depth, wall rise and
+  a surfaces picker. The old `tubeAt` and `inset` sliders are still in the DOM as dead controls.
+- **Per-corner strategies** — `break`, `connect`, `loop` as a weighted mix. Specced, not built.
+  This makes `cornerAngle` obsolete: `piping` becomes "every corner connects" instead of a
+  threshold nothing can exceed.
+- **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon.
 
-**Execute the tubing plan.** It replaces the outline trace with runs cut from isocontours of a
-signed distance field, across the glyph's three surfaces. The spec carries the argument; do not
-re-derive it from here.
+## Standing conventions for this work
 
-**Then: text runs, for an acrostic.** The target to build toward is a poem where the first letter
-of each line carries its own color, then everything except those letters exits on command and the
-first letters travel to the center of the screen and combine into a word. That needs two things
-that do not exist:
-
-- **Styled text runs** — spans of text carrying their own tint or look. `fire()` takes one `tint`
-  for the whole word today. Per-letter materials removed the renderer obstacle in 0.4.0, so what
-  is left is the caller-facing API, which is a text design question rather than a looks one.
-- **Addressed exits and a gather** — an exit that applies to some letters and not others, and a
-  motion piece that moves the survivors to a shared destination and closes the gaps. Today an exit
-  is one slot applied to the whole word.
-
-Both want a spec before code.
+Test string is `NSR` — straight, curved, and mixed-with-counter. `E` spot-checks corner behavior.
+Captures at yaw 30 / pitch 13 degrees so they stay comparable. Judge by looking at the image, not
+by a green test run: the geometry has been correct while the render was visibly torn.
 
 ## Blocking: three's tube sweep breaks on curved 3D paths
 
