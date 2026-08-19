@@ -100,8 +100,16 @@ comes from.
 - **loop** — the tube carries past the corner, makes one full turn, and continues. A real
   tube-bender's move, and the most distinctive of the three.
 
-Assignment is seeded per corner so a word builds identically twice, weighted by strategy rather
-than chosen by hand.
+**A convincing sign mixes all three**, so the parameter is a weight distribution rather than a
+choice of one — the mix is the art direction the way run count is. Assignment is seeded per corner
+so a word builds identically twice.
+
+Drawing purely at random from those weights will read as arbitrary. A bender's choices are forced
+by the geometry: a sharp corner breaks because the glass will not take the radius, a shallow one
+connects because it will, and a loop goes where there is room for one. So bias the weights by the
+corner's own angle and the space available around it, and let the seeded draw pick only among what
+is actually plausible there. That is the difference between a mixture that reads as decisions and
+one that reads as noise.
 
 Two consequences. A connected or looped corner is **not a run boundary**, so anything anchored to
 run ends — the depth variation, a run's colour, its lit flag — carries through it rather than
