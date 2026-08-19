@@ -60,6 +60,13 @@ interface Boundary {
   result: RegroupResult;
   /** The stage's motion slot — the move or the exit, whichever is longer. */
   span: number;
+  /**
+   * When the dropped letters come off screen: their exit has played out, and the blend into the
+   * next phase — which ramps that exit back off, since the slot it sits in is an enter — has not
+   * opened yet.
+   */
+  retireAt: number;
+  retired: boolean;
   /** Fraction of `span` the fit waits out before it starts. */
   fitDelay: number;
 }
@@ -106,6 +113,7 @@ export class Sequence {
     if (!boundary) return;
 
     const into = this.local(elapsed);
+    if (into >= boundary.retireAt) this.retire(boundary);
     if (into >= boundary.span) {
       this.settle();
       return;
@@ -116,13 +124,19 @@ export class Sequence {
     this.opts.target.setFitProgress(Math.max(0, Math.min(1, u)));
   }
 
-  /** Lands the fit and takes the dropped letters off screen; the boundary is done after this. */
+  /** Lands the fit, and takes the dropped letters off screen if they are not gone already. */
   private settle(): void {
-    if (!this.pending) return;
-    const { dropped } = this.pending.result;
+    const boundary = this.pending;
+    if (!boundary) return;
     this.pending = null;
     this.opts.target.setFitProgress(1);
-    this.opts.target.retire(dropped);
+    this.retire(boundary);
+  }
+
+  private retire(boundary: Boundary): void {
+    if (boundary.retired) return;
+    boundary.retired = true;
+    this.opts.target.retire(boundary.result.dropped);
   }
 
   private enterNextPhase(): void {
@@ -138,12 +152,17 @@ export class Sequence {
     const result = this.opts.target.regroup(keep, plan.as);
 
     const move = plan.tween.duration ?? DEFAULT_MOVE_MS;
+    const half = this.opts.blendMs / 2;
+    const leave = slotDuration(plan.exit);
     // `partition` hands both halves the same normalized t over the longer one's duration, so the
     // shorter half must be stretched to the slot or its declared duration is silently ignored.
-    const span = Math.max(move, slotDuration(plan.exit));
+    // The exit also gets the blend's half-window to itself, so it can finish before `retireAt`.
+    const span = Math.max(move, leave > 0 ? leave + half : 0);
     this.pending = {
       result,
       span,
+      retireAt: Math.max(0, span - half),
+      retired: false,
       fitDelay: Math.min(0.999, Math.max(0, plan.tween.delayBy?.scale ?? 0)),
     };
 

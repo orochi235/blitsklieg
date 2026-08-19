@@ -32,6 +32,14 @@ const TWO_OF_THREE: RegroupResult = {
 
 const FLAG: MotionPiece = { duration: 200, offset: () => ({ position: [100, 0, 0] }) };
 
+/** An exit that reads its own progress off the pose: opacity 0 means it has played out. */
+const fading = (duration: number): MotionPiece => ({
+  duration,
+  offset: (t) => ({ opacity: 1 - t }),
+});
+
+const leaving: LetterInfo = { index: 1, count: 2, x: 0, y: 0, leaving: true };
+
 type Spy = StageTarget & { regroups: number; retired: number[][]; fit: number[] };
 
 function target(result: RegroupResult = ONE_OF_TWO): Spy {
@@ -308,6 +316,50 @@ describe('Sequence', () => {
     });
     seq.tick(0);
     expect(seq.poseAt(100, letter).position[0]).toBeCloseTo(100);
+  });
+
+  it('takes a dropped letter off screen before the blend ramps its exit back off', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      active: NONE,
+      stages: [stage({ exit: fading(500), tween: { duration: 700 } })],
+      exit: NONE,
+      hold: 0,
+      blendMs: 120,
+      target: t,
+    });
+    seq.tick(0);
+
+    seq.tick(639);
+    expect(seq.poseAt(639, leaving).opacity).toBe(0);
+    expect(t.retired).toEqual([]);
+    // The letter goes as the blend window opens; the fit still has the rest of the move to run.
+    seq.tick(640);
+    expect(t.retired).toEqual([[1]]);
+    expect(t.fit.at(-1)).toBeLessThan(1);
+    seq.tick(700);
+    expect(t.fit.at(-1)).toBe(1);
+  });
+
+  it('gives an exit longer than the move room to finish before the blend', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      active: NONE,
+      stages: [stage({ exit: fading(800), tween: { duration: 700 } })],
+      exit: NONE,
+      hold: 0,
+      blendMs: 120,
+      target: t,
+    });
+    seq.tick(0);
+
+    seq.tick(799);
+    expect(seq.poseAt(799, leaving).opacity).toBeCloseTo(0.00125, 4);
+    expect(t.retired).toEqual([]);
+    seq.tick(800);
+    expect(t.retired).toEqual([[1]]);
   });
 
   it('finishes after the last stage and the exit', () => {
