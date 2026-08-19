@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { blankPose, type Timeline } from '../motion/compositor.js';
+import type { LetterInfo } from '../motion/types.js';
 import type { LoadedFont } from '../text/font.js';
 import {
   buildGlyphGeometry,
@@ -7,8 +8,9 @@ import {
   GlyphCache,
   glyphToShapes,
 } from '../text/glyphs.js';
-import type { Budget, Line } from '../text/layout.js';
-import { fitScale, LINE_HEIGHT_EM, layoutBlock, wrapBlock } from '../text/layout.js';
+import type { Budget, GlyphMetrics, Line, PlacedGlyph } from '../text/layout.js';
+import { layoutBlock, wrapBlock } from '../text/layout.js';
+import { type Fit, fitOf, placeBlock } from '../text/placement.js';
 import type { Transform } from '../transform.js';
 import {
   type Blueprint,
@@ -17,10 +19,18 @@ import {
   chunkGeometry,
   chunkGeometrySide,
   chunkMatrices,
+  type DecorationSpec,
   type TubeBlueprint,
 } from './decoration.js';
 import type { FlakeUniforms } from './flake.js';
-import { applyLook, createMaterial, type Look, specOf, tintMaterialOf } from './looks.js';
+import {
+  applyLook,
+  createMaterial,
+  type Look,
+  type LookSpec,
+  specOf,
+  tintMaterialOf,
+} from './looks.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
@@ -49,6 +59,17 @@ export class Word {
   private readonly baseY: number[] = [];
   private readonly lineOf: number[] = [];
   private readonly columnOf: number[] = [];
+  /** Every glyph's character, so a regroup can lay the survivors out again. */
+  private readonly charOf: string[] = [];
+  /** Per-letter vertical bounds in em; null where the glyph drew nothing. */
+  private readonly geoMinY: (number | null)[] = [];
+  private readonly geoMaxY: (number | null)[] = [];
+  private readonly metrics: GlyphMetrics;
+  private fit: Fit;
+  /** Reading position within the live group; a regroup renumbers it. */
+  private readonly idxOf: number[] = [];
+  /** Set on a letter a regroup dropped; its info stops tracking the live group. */
+  private readonly frozenInfo: (LetterInfo | null)[] = [];
   readonly lineCount: number;
   private readonly columnCount: number;
   /** Indexed by letter slot, null where the glyph drew no outline. */
@@ -105,161 +126,157 @@ export class Word {
       ? wrapBlock(text, font.metrics, budget, font.unitsPerEm)
       : layoutBlock(text, font.metrics);
 
-    this.lineCount = block.lines.length;
-    this.columnCount = Math.max(0, ...block.lines.map((l) => l.glyphs.length));
+    this.metrics = font.metrics;
 
-    let minY = Number.POSITIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    let minX = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
+    const placed = placeBlock(block, scaleToEm, font.metrics, (char) => this.drawsInk(char));
+    this.lineCount = placed.lineCount;
+    this.columnCount = placed.columnCount;
 
-    for (let ln = 0; ln < block.lines.length; ln++) {
-      const line = block.lines[ln] as Line;
-      const y = -ln * LINE_HEIGHT_EM;
-      const first = this.letters.length;
-      let inkStart: number | null = null;
-      let inkEnd = 0;
+    // Bounds first, cells second. The glyph cache memoizes on (char, depth), so measuring every
+    // glyph before building anything costs one extra map lookup per letter — and it settles the
+    // fit, which a per-letter tint callback needs in order to be handed a meaningful `y`.
+    for (let i = 0; i < placed.x.length; i++) {
+      const line = block.lines[placed.line[i] as number] as Line;
+      const g = line.glyphs[placed.column[i] as number] as PlacedGlyph;
+      const geo = this.cache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
+      const drawn = geo.attributes.position?.count ? geo.boundingBox : null;
+      this.charOf.push(g.char);
+      this.baseX.push(placed.x[i] as number);
+      this.baseY.push(placed.y[i] as number);
+      this.lineOf.push(placed.line[i] as number);
+      this.columnOf.push(placed.column[i] as number);
+      this.idxOf.push(i);
+      this.frozenInfo.push(null);
+      this.geoMinY.push(drawn ? drawn.min.y : null);
+      this.geoMaxY.push(drawn ? drawn.max.y : null);
+    }
+    this.fit = fitOf(
+      placed,
+      this.charOf,
+      this.geoMinY,
+      this.geoMaxY,
+      font.metrics,
+      scaleToEm,
+      budget,
+    );
+    this.applyFit(this.fit);
 
-      for (const g of line.glyphs) {
-        const x = g.x * scaleToEm;
-        this.baseX.push(x);
-        this.baseY.push(y);
-        this.lineOf.push(ln);
-        this.columnOf.push(g.index);
+    for (let i = 0; i < this.charOf.length; i++) {
+      this.buildCell(i, font, look, spec, decoration, tint, debug);
+    }
+  }
 
-        const geo = this.cache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
-        if (!geo.attributes.position?.count) {
-          this.letters.push(null);
-          this.bodyMaterials.push(null);
-          this.decorMaterials.push(null);
-          this.darkMaterials.push(null);
-          continue;
-        }
+  /** A glyph draws ink when its geometry has vertices — the same test the cell build uses. */
+  private drawsInk(char: string): boolean {
+    return !!this.cache.get(char, DEFAULT_GLYPH_OPTIONS.depth).attributes.position?.count;
+  }
 
-        const material = createMaterial();
-        applyLook(material, look, tintMaterialOf(spec) === 'body' ? tint : undefined);
-        // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
-        material.transparent = true;
-        // A near-transparent backing still writes depth by default, which culls the tube drawn
-        // behind it — the sign vanishes as the tube thins rather than being occluded by anything visible.
-        material.depthWrite = (spec.opacity ?? 1) >= 1;
-        (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
-        this.bodyMaterials.push(material);
+  private applyFit(fit: Fit): void {
+    this.group.scale.setScalar(fit.scale);
+    this.group.position.set(0, -fit.midY * fit.scale, 0);
+  }
 
-        const cell = new THREE.Group();
-        cell.add(new THREE.Mesh(geo, material));
-
-        let debugShapes: THREE.Shape[] | undefined;
-
-        if (decoration && decoration.kind === 'tube') {
-          const litOverride = debug?.tubeMaterial?.('lit');
-          const decorMaterial = litOverride ?? createMaterial();
-          if (!litOverride) {
-            applyLook(
-              decorMaterial as THREE.MeshPhysicalMaterial,
-              decoration.look,
-              tintMaterialOf(spec) === 'decoration' ? tint : undefined,
-            );
-          }
-          decorMaterial.transparent = true;
-          // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
-          // would cull that invisible.
-          decorMaterial.side = THREE.DoubleSide;
-          this.decorMaterials.push(decorMaterial);
-
-          const darkOverride = debug?.tubeMaterial?.('dark');
-          const darkMaterial = darkOverride ?? createMaterial();
-          if (!darkOverride) applyLook(darkMaterial as THREE.MeshPhysicalMaterial, decoration.dark);
-          darkMaterial.transparent = true;
-          darkMaterial.side = THREE.DoubleSide;
-          this.darkMaterials.push(darkMaterial);
-
-          const shapes = glyphToShapes(font.font, g.char, EM);
-          debugShapes = shapes;
-          const blueprint = buildTubeBlueprint(
-            shapes,
-            decoration,
-            DEFAULT_GLYPH_OPTIONS.depth,
-            this.letters.length,
-          );
-          this.tubeBlueprints.push(blueprint);
-          for (const geo of blueprint.lit) cell.add(new THREE.Mesh(geo, decorMaterial));
-          for (const geo of blueprint.dark) cell.add(new THREE.Mesh(geo, darkMaterial));
-        } else if (decoration && this.decorCache) {
-          const decorMaterial = createMaterial();
-          applyLook(
-            decorMaterial,
-            decoration.look,
-            tintMaterialOf(spec) === 'decoration' ? tint : undefined,
-          );
-          decorMaterial.transparent = true;
-          if (decoration.kind === 'chunks')
-            decorMaterial.side = chunkGeometrySide(decoration.shape);
-          this.decorMaterials.push(decorMaterial);
-          this.darkMaterials.push(null);
-
-          const blueprint = this.decorCache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
-          if (decoration.kind === 'chunks' && blueprint.kind === 'chunks' && this.chunkGeo) {
-            const matrices = chunkMatrices(blueprint, decoration, this.letters.length);
-            const instanced = new THREE.InstancedMesh(
-              this.chunkGeo,
-              decorMaterial,
-              matrices.length,
-            );
-            for (let m = 0; m < matrices.length; m++) {
-              instanced.setMatrixAt(m, matrices[m] as THREE.Matrix4);
-            }
-            instanced.instanceMatrix.needsUpdate = true;
-            cell.add(instanced);
-          }
-        } else {
-          this.decorMaterials.push(null);
-          this.darkMaterials.push(null);
-        }
-
-        if (debug?.onLetter) {
-          debug.onLetter(
-            cell,
-            debugShapes ?? glyphToShapes(font.font, g.char, EM),
-            DEFAULT_GLYPH_OPTIONS.depth,
-          );
-        }
-
-        this.letters.push(cell);
-        this.inner.add(cell);
-
-        const bounds = geo.boundingBox;
-        if (bounds) {
-          minY = Math.min(minY, y + bounds.min.y);
-          maxY = Math.max(maxY, y + bounds.max.y);
-        }
-        inkStart ??= x;
-        inkEnd = x + font.metrics.advanceOf(g.char) * scaleToEm;
-      }
-
-      // Each line centers on x=0 independently. Spanning the drawn glyphs rather than
-      // line.width keeps a trailing space from pushing the line off center.
-      const shift = inkStart === null ? 0 : -(inkStart + inkEnd) / 2;
-      for (let i = first; i < this.baseX.length; i++) {
-        const x = (this.baseX[i] as number) + shift;
-        this.baseX[i] = x;
-        const cell = this.letters[i];
-        if (cell) cell.position.set(x, y, 0);
-      }
-      if (inkStart !== null) {
-        minX = Math.min(minX, inkStart + shift);
-        maxX = Math.max(maxX, inkEnd + shift);
-      }
+  private buildCell(
+    i: number,
+    font: LoadedFont,
+    look: Look,
+    spec: LookSpec,
+    decoration: DecorationSpec | undefined,
+    tint: number | undefined,
+    debug: WordDebugHooks | undefined,
+  ): void {
+    const char = this.charOf[i] as string;
+    const geo = this.cache.get(char, DEFAULT_GLYPH_OPTIONS.depth);
+    if (!geo.attributes.position?.count) {
+      this.letters.push(null);
+      this.bodyMaterials.push(null);
+      this.decorMaterials.push(null);
+      this.darkMaterials.push(null);
+      return;
     }
 
-    const drawn = Number.isFinite(minY);
-    // Ink height, not cap height: a descender both drops the center and eats budget.
-    const midY = drawn ? (minY + maxY) / 2 : 0;
-    const width = Number.isFinite(minX) ? maxX - minX : 0;
-    const scale = fitScale(width, drawn ? maxY - minY : 0, budget);
-    this.group.scale.setScalar(scale);
-    // Lines are already centered on x, so only the block's vertical midpoint needs correcting.
-    this.group.position.set(0, -midY * scale, 0);
+    const material = createMaterial();
+    applyLook(material, look, tintMaterialOf(spec) === 'body' ? tint : undefined);
+    // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
+    material.transparent = true;
+    // A near-transparent backing still writes depth by default, which culls the tube drawn
+    // behind it — the sign vanishes as the tube thins rather than being occluded by anything visible.
+    material.depthWrite = (spec.opacity ?? 1) >= 1;
+    (material.userData.flake as FlakeUniforms).uFlakeSeed.value = i * 17.13;
+    this.bodyMaterials.push(material);
+
+    const cell = new THREE.Group();
+    cell.add(new THREE.Mesh(geo, material));
+
+    let debugShapes: THREE.Shape[] | undefined;
+
+    if (decoration && decoration.kind === 'tube') {
+      const litOverride = debug?.tubeMaterial?.('lit');
+      const decorMaterial = litOverride ?? createMaterial();
+      if (!litOverride) {
+        applyLook(
+          decorMaterial as THREE.MeshPhysicalMaterial,
+          decoration.look,
+          tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+        );
+      }
+      decorMaterial.transparent = true;
+      // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
+      // would cull that invisible.
+      decorMaterial.side = THREE.DoubleSide;
+      this.decorMaterials.push(decorMaterial);
+
+      const darkOverride = debug?.tubeMaterial?.('dark');
+      const darkMaterial = darkOverride ?? createMaterial();
+      if (!darkOverride) applyLook(darkMaterial as THREE.MeshPhysicalMaterial, decoration.dark);
+      darkMaterial.transparent = true;
+      darkMaterial.side = THREE.DoubleSide;
+      this.darkMaterials.push(darkMaterial);
+
+      const shapes = glyphToShapes(font.font, char, EM);
+      debugShapes = shapes;
+      const blueprint = buildTubeBlueprint(shapes, decoration, DEFAULT_GLYPH_OPTIONS.depth, i);
+      this.tubeBlueprints.push(blueprint);
+      for (const geo of blueprint.lit) cell.add(new THREE.Mesh(geo, decorMaterial));
+      for (const geo of blueprint.dark) cell.add(new THREE.Mesh(geo, darkMaterial));
+    } else if (decoration && this.decorCache) {
+      const decorMaterial = createMaterial();
+      applyLook(
+        decorMaterial,
+        decoration.look,
+        tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+      );
+      decorMaterial.transparent = true;
+      if (decoration.kind === 'chunks') decorMaterial.side = chunkGeometrySide(decoration.shape);
+      this.decorMaterials.push(decorMaterial);
+      this.darkMaterials.push(null);
+
+      const blueprint = this.decorCache.get(char, DEFAULT_GLYPH_OPTIONS.depth);
+      if (decoration.kind === 'chunks' && blueprint.kind === 'chunks' && this.chunkGeo) {
+        const matrices = chunkMatrices(blueprint, decoration, i);
+        const instanced = new THREE.InstancedMesh(this.chunkGeo, decorMaterial, matrices.length);
+        for (let m = 0; m < matrices.length; m++) {
+          instanced.setMatrixAt(m, matrices[m] as THREE.Matrix4);
+        }
+        instanced.instanceMatrix.needsUpdate = true;
+        cell.add(instanced);
+      }
+    } else {
+      this.decorMaterials.push(null);
+      this.darkMaterials.push(null);
+    }
+
+    if (debug?.onLetter) {
+      debug.onLetter(
+        cell,
+        debugShapes ?? glyphToShapes(font.font, char, EM),
+        DEFAULT_GLYPH_OPTIONS.depth,
+      );
+    }
+
+    cell.position.set(this.baseX[i] as number, this.baseY[i] as number, 0);
+    this.letters.push(cell);
+    this.inner.add(cell);
   }
 
   get letterCount(): number {
