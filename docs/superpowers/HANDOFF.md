@@ -42,6 +42,14 @@ Work splits in two: regroup + stages + tween timing, then spans. Both off a fres
 
 ## Not done on this branch
 
+- **The visual suite guards the lab's page, not the type.** `shoot()` in
+  `apps/lab/test/looks.spec.ts` screenshots the whole page rather than the canvas, so any control-
+  panel edit invalidates every look baseline at once — the panel split and the removed filler text
+  put 11 of them over tolerance while the word itself barely moved. Point it at the canvas locator
+  and re-record all 15 once; then `maxDiffPixelRatio` can come down from 0.15 and start catching
+  render changes. Merged as-is by decision, with only `tubing` and `piping` re-recorded.
+- **`visual.spec.ts:162` cannot click `#wrap`** — the tube panel's heading overlaps the checkbox
+  since the control-panel split. That is the lab layout pass, now with a test failing over it.
 - **The visual baseline has never been re-recorded.** `look-tubing-darwin.png` and
   `look-piping-darwin.png` still show the pre-rewrite look. The sweep is fixed now (see below), so
   re-recording is unblocked — but do it after the thin-radius occlusion finding below is settled,
