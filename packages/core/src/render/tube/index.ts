@@ -25,6 +25,8 @@ export interface TubeSpec {
   /** Requested runs per glyph. Bounded below by the corner count, above by `minRun`. */
   runs: number;
   minRun: number;
+  /** Tangent break counted as a corner, in radians. ≥ π means never cut at a corner. */
+  cornerAngle?: number;
   /** Depth fraction the wall generator runs at, 0 back to 1 front. */
   wallDepth?: number;
   /** Peak-to-peak depth swing along a wall path, as a fraction of depth. */
@@ -75,7 +77,11 @@ export function buildTubeBlueprint(
         })
       : [];
   const runs = assign(
-    cutIntoRuns([...paths, ...links], { runs: spec.runs, minRun: spec.minRun }),
+    cutIntoRuns([...paths, ...links], {
+      runs: spec.runs,
+      minRun: spec.minRun,
+      cornerAngle: spec.cornerAngle,
+    }),
     spec.select,
     spec.colors,
     seed,

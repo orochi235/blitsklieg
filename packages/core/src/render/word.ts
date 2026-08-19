@@ -16,6 +16,7 @@ import {
   chunkGeometry,
   chunkGeometrySide,
   chunkMatrices,
+  type TubeBlueprint,
 } from './decoration.js';
 import type { FlakeUniforms } from './flake.js';
 import { applyLook, createMaterial, type Look, specOf, tintMaterialOf } from './looks.js';
@@ -42,6 +43,8 @@ export class Word {
   private readonly darkMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   private readonly cache: GlyphCache;
   private readonly decorCache: GlyphCache<Blueprint> | null;
+  /** Tube blueprints, one per letter — a per-letter seed can't go through the char-keyed cache. */
+  private readonly tubeBlueprints: TubeBlueprint[] = [];
   private readonly chunkGeo: THREE.BufferGeometry | null;
   private readonly pose = blankPose();
   private readonly bodyOpacity: number;
@@ -69,13 +72,14 @@ export class Word {
     this.decorOpacity = decoration?.look.opacity ?? 1;
     this.darkOpacity = decoration?.kind === 'tube' ? (decoration.dark.opacity ?? 1) : 1;
     this.chunkGeo = decoration?.kind === 'chunks' ? chunkGeometry(decoration.shape) : null;
-    this.decorCache = decoration
-      ? new GlyphCache<Blueprint>((char, depth) =>
-          decoration.kind === 'tube'
-            ? buildTubeBlueprint(glyphToShapes(font.font, char, EM), decoration, depth, 0)
-            : buildChunkBlueprint(this.cache.get(char, depth)),
-        )
-      : null;
+    // A tube's runs need a per-letter seed, so two letters of the same char don't repeat the
+    // same partial-lit pattern — that can't go through a cache keyed on (char, depth) alone.
+    this.decorCache =
+      decoration && decoration.kind !== 'tube'
+        ? new GlyphCache<Blueprint>((char, depth) =>
+            buildChunkBlueprint(this.cache.get(char, depth)),
+          )
+        : null;
 
     const scaleToEm = EM / font.unitsPerEm;
     const block = wrap
@@ -123,7 +127,31 @@ export class Word {
         const cell = new THREE.Group();
         cell.add(new THREE.Mesh(geo, material));
 
-        if (decoration && this.decorCache) {
+        if (decoration && decoration.kind === 'tube') {
+          const decorMaterial = createMaterial();
+          applyLook(
+            decorMaterial,
+            decoration.look,
+            tintMaterialOf(spec) === 'decoration' ? tint : undefined,
+          );
+          decorMaterial.transparent = true;
+          this.decorMaterials.push(decorMaterial);
+
+          const darkMaterial = createMaterial();
+          applyLook(darkMaterial, decoration.dark);
+          darkMaterial.transparent = true;
+          this.darkMaterials.push(darkMaterial);
+
+          const blueprint = buildTubeBlueprint(
+            glyphToShapes(font.font, g.char, EM),
+            decoration,
+            DEFAULT_GLYPH_OPTIONS.depth,
+            this.letters.length,
+          );
+          this.tubeBlueprints.push(blueprint);
+          for (const geo of blueprint.lit) cell.add(new THREE.Mesh(geo, decorMaterial));
+          for (const geo of blueprint.dark) cell.add(new THREE.Mesh(geo, darkMaterial));
+        } else if (decoration && this.decorCache) {
           const decorMaterial = createMaterial();
           applyLook(
             decorMaterial,
@@ -134,18 +162,10 @@ export class Word {
           if (decoration.kind === 'chunks')
             decorMaterial.side = chunkGeometrySide(decoration.shape);
           this.decorMaterials.push(decorMaterial);
+          this.darkMaterials.push(null);
 
           const blueprint = this.decorCache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);
-          let darkMaterial: THREE.MeshPhysicalMaterial | null = null;
-          if (blueprint.kind === 'tube' && decoration.kind === 'tube') {
-            for (const geo of blueprint.lit) cell.add(new THREE.Mesh(geo, decorMaterial));
-            if (blueprint.dark.length > 0) {
-              darkMaterial = createMaterial();
-              applyLook(darkMaterial, decoration.dark);
-              darkMaterial.transparent = true;
-              for (const geo of blueprint.dark) cell.add(new THREE.Mesh(geo, darkMaterial));
-            }
-          } else if (decoration.kind === 'chunks' && blueprint.kind === 'chunks' && this.chunkGeo) {
+          if (decoration.kind === 'chunks' && blueprint.kind === 'chunks' && this.chunkGeo) {
             const matrices = chunkMatrices(blueprint, decoration, this.letters.length);
             const instanced = new THREE.InstancedMesh(
               this.chunkGeo,
@@ -158,7 +178,6 @@ export class Word {
             instanced.instanceMatrix.needsUpdate = true;
             cell.add(instanced);
           }
-          this.darkMaterials.push(darkMaterial);
         } else {
           this.decorMaterials.push(null);
           this.darkMaterials.push(null);
@@ -250,6 +269,8 @@ export class Word {
     this.decorMaterials.length = 0;
     for (const material of this.darkMaterials) material?.dispose();
     this.darkMaterials.length = 0;
+    for (const blueprint of this.tubeBlueprints) blueprint.dispose();
+    this.tubeBlueprints.length = 0;
     this.decorCache?.dispose();
     this.chunkGeo?.dispose();
     // An InstancedMesh owns an instanceMatrix buffer that clearing the group does not free.

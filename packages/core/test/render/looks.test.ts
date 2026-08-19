@@ -297,6 +297,28 @@ describe('decorated looks', () => {
     expect(tintMaterialOf(specOf('piping'))).toBe('body');
   });
 
+  it('gives tubing dark glass its own look rather than a copy of the lit one', () => {
+    const decoration = specOf('tubing').decoration;
+    if (decoration?.kind !== 'tube') throw new Error('not a tube');
+
+    expect(decoration.dark.color).not.toBe(decoration.look.color);
+    expect(decoration.dark.emissiveIntensity ?? 0).toBeLessThan(
+      decoration.look.emissiveIntensity ?? 0,
+    );
+    // Lightly lit, so an unlit run reads as present glass rather than a gap.
+    expect(decoration.select.amount).toBeLessThan(1);
+  });
+
+  it('keeps piping continuous around corners, with its cord proud of the seam', () => {
+    const decoration = specOf('piping').decoration;
+    if (decoration?.kind !== 'tube') throw new Error('not a tube');
+
+    expect(decoration.runs).toBe(1);
+    expect(decoration.cornerAngle).toBeGreaterThanOrEqual(Math.PI);
+    expect(decoration.level).toBeLessThan(0);
+    expect(decoration.level).toBeGreaterThan(-decoration.radius);
+  });
+
   it('gives pyrite crystal habit and sequin free tumble', () => {
     const pyrite = specOf('pyrite').decoration;
     const sequin = specOf('sequin').decoration;

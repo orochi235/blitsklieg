@@ -409,6 +409,17 @@ describe('Word', () => {
     expect(spy).toHaveBeenCalled();
   });
 
+  it('disposes every tube run geometry along with its per-letter blueprint', () => {
+    const word = new Word('AB', stubFont(), TUBE, ROOMY);
+    const spies = groups(word).map((group) =>
+      group.children.slice(1).map((child) => vi.spyOn((child as THREE.Mesh).geometry, 'dispose')),
+    );
+
+    word.dispose();
+
+    for (const perLetter of spies) for (const spy of perLetter) expect(spy).toHaveBeenCalled();
+  });
+
   it('renders flake chunks from both sides so tumbled ones stay visible', () => {
     const flakes: LookSpec = {
       decoration: {
@@ -449,6 +460,43 @@ describe('Word', () => {
 
     expect(instanced).toBeInstanceOf(THREE.InstancedMesh);
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe('tube run seeding', () => {
+  const PARTIAL_TUBE: LookSpec = {
+    decoration: {
+      kind: 'tube',
+      radius: 0.03,
+      segments: 6,
+      spacing: 0.03,
+      surfaces: ['front'],
+      level: 0,
+      runs: 8,
+      minRun: 0,
+      select: { by: 'seed', amount: 0.5 },
+      colors: [0xff2d95],
+      look: {},
+      dark: {},
+    },
+  };
+
+  /** First position sample of every decoration mesh, in insertion order. */
+  function decorFingerprint(cell: THREE.Group): string {
+    return cell.children
+      .slice(1)
+      .flatMap((child) => {
+        const pos = (child as THREE.Mesh).geometry.getAttribute('position');
+        return [pos.getX(0), pos.getY(0), pos.getZ(0)];
+      })
+      .join(',');
+  }
+
+  it('gives two letters of the same glyph different run selections', () => {
+    const word = new Word('OO', stubFont(), PARTIAL_TUBE, ROOMY);
+    const [a, b] = groups(word);
+
+    expect(decorFingerprint(a as THREE.Group)).not.toBe(decorFingerprint(b as THREE.Group));
   });
 });
 

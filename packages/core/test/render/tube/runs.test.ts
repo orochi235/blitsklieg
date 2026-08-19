@@ -128,4 +128,9 @@ describe('cutIntoRuns', () => {
     const runs = cutIntoRuns([OPEN_PATH(openLPath())], { runs: 2, minRun: 0 });
     expect(runs).toHaveLength(2);
   });
+
+  it('stops cutting at corners once cornerAngle is raised past any real turn', () => {
+    const runs = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, cornerAngle: Math.PI });
+    expect(runs).toHaveLength(1);
+  });
 });

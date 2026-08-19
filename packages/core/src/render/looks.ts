@@ -174,9 +174,9 @@ export const LOOKS: Record<LookName, LookSpec> = {
       spacing: 0.02,
       surfaces: ['front'],
       level: 0,
-      runs: 8,
-      minRun: 0.05,
-      select: { by: 'seed', amount: 1 },
+      runs: 7,
+      minRun: 0.15,
+      select: { by: 'seed', amount: 0.85 },
       colors: [0xff2d95],
       look: {
         color: 0x1a0010,
@@ -186,9 +186,11 @@ export const LOOKS: Record<LookName, LookSpec> = {
         roughness: 0.35,
       },
       dark: {
-        color: 0x1a0010,
-        clearcoat: 0,
-        roughness: 0.35,
+        color: 0x2a1520,
+        emissive: 0x000000,
+        roughness: 0.25,
+        clearcoat: 1,
+        clearcoatRoughness: 0.1,
       },
     },
   },
@@ -207,9 +209,13 @@ export const LOOKS: Record<LookName, LookSpec> = {
       segments: 8,
       spacing: 0.02,
       surfaces: ['front'],
-      level: 0,
-      runs: 6,
+      // Cord bulges proud of the seam rather than riding it: tangent to the silhouette (-radius)
+      // would leave nothing protruding, so this sits halfway to that floor.
+      level: -0.015,
+      runs: 1,
       minRun: 0.05,
+      // Fabric cord bends around a corner; only neon glass needs the mandatory corner cut.
+      cornerAngle: Math.PI,
       select: { by: 'seed', amount: 1 },
       colors: [0xe8c9a0],
       look: { color: 0xe8c9a0, roughness: 0.55, clearcoat: 0.4, sheen: 0.5 },

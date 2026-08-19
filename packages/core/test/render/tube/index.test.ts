@@ -73,6 +73,20 @@ describe('buildTubeBlueprint', () => {
     bp.dispose();
   });
 
+  it('stays uncut through corners when cornerAngle is at or above pi', () => {
+    const cut = buildTubeBlueprint([square()], { ...SPEC, runs: 1 }, 0.3, 0);
+    const uncut = buildTubeBlueprint(
+      [square()],
+      { ...SPEC, runs: 1, cornerAngle: Math.PI },
+      0.3,
+      0,
+    );
+    expect(cut.runs.length).toBeGreaterThan(1);
+    expect(uncut.runs).toHaveLength(1);
+    cut.dispose();
+    uncut.dispose();
+  });
+
   it('emits connectors between front and back when both faces are enabled', () => {
     const spec: TubeSpec = {
       ...SPEC,
