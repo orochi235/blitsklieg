@@ -38,6 +38,24 @@ that do not exist:
 
 Both want a spec before code.
 
+## Queued behind tubing
+
+**`pyrite` needs roughly 20-30x its crystal count, or it goes.** At `count: 55` it reads as a few
+gold flecks rather than intergrown crystal, and the owner's call is that if it stays that sparse it
+is not worth shipping. Killing it is a breaking change — it is in the published `LookName` union
+since 0.4.0 — so try the fix first.
+
+Four things block a higher count, and the first three also cap `sequin`:
+
+- `POOL = 512` in `decoration.ts` is a hard ceiling on distinct positions. Past it `chunkMatrices`
+  exhausts its probe loop and reuses an index, so extra chunks stack co-located instead of covering
+  new surface.
+- ~30% of that pool sits on the back cap, so only about 360 samples are ever front-facing.
+- The clustering draw scans the whole pool per chunk, so raising the pool makes placement quadratic.
+- The lab's `chunk count` slider stops at 300, below even the current ceiling.
+
+Crystal size wants to come down as count goes up, or the glyph just armours over.
+
 ## Open review findings
 
 From the 0.4.0 whole-branch review. Two were fixed before the merge; these are the rest, all low:
