@@ -73,11 +73,11 @@ describe('buildTubeBlueprint', () => {
     bp.dispose();
   });
 
-  it('stays uncut through corners when cornerAngle is at or above pi', () => {
+  it('stays uncut through corners with an all-connect distribution', () => {
     const cut = buildTubeBlueprint([square()], { ...SPEC, runs: 1 }, 0.3, 0);
     const uncut = buildTubeBlueprint(
       [square()],
-      { ...SPEC, runs: 1, cornerAngle: Math.PI },
+      { ...SPEC, runs: 1, corners: { break: 0, connect: 1, loop: 0 } },
       0.3,
       0,
     );
@@ -85,6 +85,23 @@ describe('buildTubeBlueprint', () => {
     expect(uncut.runs).toHaveLength(1);
     cut.dispose();
     uncut.dispose();
+  });
+
+  it('does not pinch the depth wander at a corner an all-connect distribution carries through', () => {
+    const bp = buildTubeBlueprint(
+      [square()],
+      { ...SPEC, runs: 1, corners: { break: 0, connect: 1, loop: 0 }, amplitude: 0.02 },
+      0.3,
+      0,
+    );
+    const run = bp.runs[0] as (typeof bp.runs)[number];
+    // The run now carries through all four corners of the square rather than ending at them, so
+    // z should wander away from the flat plane at interior points, not just pin to it.
+    const interior = run.points.slice(1, -1);
+    expect(interior.some((p) => Math.abs(p.z - (run.points[0] as THREE.Vector3).z) > 1e-6)).toBe(
+      true,
+    );
+    bp.dispose();
   });
 
   it('leaves runs flat by default, and bends them once amplitude is set', () => {

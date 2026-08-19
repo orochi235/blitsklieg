@@ -314,7 +314,7 @@ describe('decorated looks', () => {
     if (decoration?.kind !== 'tube') throw new Error('not a tube');
 
     expect(decoration.runs).toBe(1);
-    expect(decoration.cornerAngle).toBeGreaterThanOrEqual(Math.PI);
+    expect(decoration.corners).toEqual({ break: 0, connect: 1, loop: 0 });
     expect(decoration.level).toBeLessThan(0);
     expect(decoration.level).toBeGreaterThan(-decoration.radius);
   });

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { cutIntoRuns } from '../../../src/render/tube/runs.js';
+import { ALL_BREAK, ALL_CONNECT, cutIntoRuns } from '../../../src/render/tube/runs.js';
 
 /** A closed square path in 3D, four corners, evenly sampled along each side. */
 function squarePath(): THREE.Vector3[] {
@@ -128,9 +128,59 @@ describe('cutIntoRuns', () => {
     const runs = cutIntoRuns([OPEN_PATH(openLPath())], { runs: 2, minRun: 0 });
     expect(runs).toHaveLength(2);
   });
+});
 
-  it('stops cutting at corners once cornerAngle is raised past any real turn', () => {
-    const runs = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, cornerAngle: Math.PI });
+describe('corner strategies', () => {
+  it('an all-break distribution reproduces the plain corner-cut run count', () => {
+    const runs = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: ALL_BREAK });
+    expect(runs).toHaveLength(4);
+  });
+
+  it('an all-connect distribution on a closed contour yields one run', () => {
+    const runs = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: ALL_CONNECT });
     expect(runs).toHaveLength(1);
+  });
+
+  it('an all-connect distribution keeps an open path in one piece too', () => {
+    const runs = cutIntoRuns([OPEN_PATH(openLPath())], {
+      runs: 1,
+      minRun: 0,
+      corners: ALL_CONNECT,
+    });
+    expect(runs).toHaveLength(1);
+  });
+
+  it('a loop inserts geometry and leaves the run continuous', () => {
+    const broken = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: ALL_BREAK });
+    const looped = cutIntoRuns([PATH(squarePath())], {
+      runs: 1,
+      minRun: 0,
+      corners: { break: 0, connect: 0, loop: 1 },
+      radius: 0.02,
+    });
+    // Still one continuous run around the square, not four.
+    expect(looped).toHaveLength(1);
+    // But a lot longer than the plain square outline: four loops were spliced in.
+    const brokenTotal = broken.reduce((a, r) => a + r.length, 0);
+    expect((looped[0] as { length: number }).length).toBeGreaterThan(brokenTotal * 1.3);
+  });
+
+  it('is deterministic for a seed and differs across seeds', () => {
+    const weights = { break: 1, connect: 1, loop: 1 };
+    const a = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: weights, seed: 3 });
+    const b = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: weights, seed: 3 });
+    expect(a.map((r) => r.length)).toEqual(b.map((r) => r.length));
+
+    const lengths = new Set<number>();
+    for (let seed = 0; seed < 8; seed++) {
+      const runs = cutIntoRuns([PATH(squarePath())], {
+        runs: 1,
+        minRun: 0,
+        corners: weights,
+        seed,
+      });
+      lengths.add(runs.length);
+    }
+    expect(lengths.size).toBeGreaterThan(1);
   });
 });

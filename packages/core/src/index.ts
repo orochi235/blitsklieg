@@ -40,7 +40,15 @@ export type { FlakeSpec } from './render/flake.js';
 export type { LookParams, TintTarget } from './render/looks.js';
 /** The spec behind a built-in name, for building a variation on one. */
 export { specOf } from './render/looks.js';
-export type { Run, SelectSpec, SurfaceKind, TubeSpec } from './render/tube/index.js';
+export type {
+  CornerStrategy,
+  CornerWeights,
+  Run,
+  SelectSpec,
+  SurfaceKind,
+  TubeSpec,
+} from './render/tube/index.js';
+export { ALL_BREAK, ALL_CONNECT } from './render/tube/index.js';
 export { compose, fromAxisAngle, fromEuler, type Transform } from './transform.js';
 export type {
   ActiveName,

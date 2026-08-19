@@ -5,8 +5,8 @@ import type { TubeBlueprint, TubeSpec } from './tube/index.js';
 /** A decoration's own material, in the same plain numbers a look takes. */
 export type MaterialSpec = Omit<LookSpec, 'decoration' | 'bloom'>;
 
-export type { TubeBlueprint, TubeSpec } from './tube/index.js';
-export { buildTubeBlueprint } from './tube/index.js';
+export type { CornerStrategy, CornerWeights, TubeBlueprint, TubeSpec } from './tube/index.js';
+export { ALL_BREAK, ALL_CONNECT, buildTubeBlueprint } from './tube/index.js';
 
 export interface ChunkSpec {
   kind: 'chunks';

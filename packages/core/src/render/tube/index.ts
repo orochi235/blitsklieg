@@ -2,14 +2,15 @@ import type * as THREE from 'three';
 import type { MaterialSpec } from '../decoration.js';
 import { assign, type SelectSpec } from './assign.js';
 import { generateConnectors, generatePaths } from './generators.js';
-import { cutIntoRuns, type Run } from './runs.js';
+import { type CornerWeights, cutIntoRuns, type Run } from './runs.js';
 import type { SurfaceKind } from './surfaces.js';
 import { surfacesOf } from './surfaces.js';
 import { sweepRun } from './sweep.js';
 import { wanderFaceRuns } from './wander.js';
 
 export type { SelectSpec } from './assign.js';
-export type { Run } from './runs.js';
+export type { CornerStrategy, CornerWeights, Run } from './runs.js';
+export { ALL_BREAK, ALL_CONNECT } from './runs.js';
 export type { SurfaceKind } from './surfaces.js';
 
 export interface TubeSpec {
@@ -26,8 +27,8 @@ export interface TubeSpec {
   /** Requested runs per glyph. Bounded below by the corner count, above by `minRun`. */
   runs: number;
   minRun: number;
-  /** Tangent break counted as a corner, in radians. ≥ π means never cut at a corner. */
-  cornerAngle?: number;
+  /** Weight distribution over what a corner does. Defaults to every corner breaking. */
+  corners?: CornerWeights;
   /** Depth fraction the wall generator runs at, 0 back to 1 front. */
   wallDepth?: number;
   /** Peak-to-peak depth swing along a wall path, as a fraction of depth. */
@@ -87,7 +88,9 @@ export function buildTubeBlueprint(
     cutIntoRuns([...paths, ...links], {
       runs: spec.runs,
       minRun: spec.minRun,
-      cornerAngle: spec.cornerAngle,
+      corners: spec.corners,
+      radius: spec.radius,
+      seed,
     }),
     spec.select,
     spec.colors,

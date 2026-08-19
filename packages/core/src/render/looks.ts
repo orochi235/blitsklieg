@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { DecorationSpec } from './decoration.js';
+import { ALL_CONNECT, type DecorationSpec } from './decoration.js';
 import {
   createFlakeUniforms,
   type FlakeSpec,
@@ -177,6 +177,9 @@ export const LOOKS: Record<LookName, LookSpec> = {
       runs: 7,
       minRun: 0.15,
       amplitude: 0.02,
+      // A convincing sign mixes all three: mostly breaks, connects where the glass would take
+      // it, and the occasional loop as the bender's flourish.
+      corners: { break: 0.55, connect: 0.3, loop: 0.15 },
       select: { by: 'seed', amount: 0.85 },
       colors: [0xff2d95],
       look: {
@@ -215,8 +218,8 @@ export const LOOKS: Record<LookName, LookSpec> = {
       level: -0.015,
       runs: 1,
       minRun: 0.05,
-      // Fabric cord bends around a corner; only neon glass needs the mandatory corner cut.
-      cornerAngle: Math.PI,
+      // Fabric cord bends around every corner; only neon glass needs the mandatory break.
+      corners: ALL_CONNECT,
       select: { by: 'seed', amount: 1 },
       colors: [0xe8c9a0],
       look: { color: 0xe8c9a0, roughness: 0.55, clearcoat: 0.4, sheen: 0.5 },

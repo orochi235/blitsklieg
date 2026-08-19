@@ -24,7 +24,7 @@ function estimateTangents(points: THREE.Vector3[]): THREE.Vector3[] {
 }
 
 /** A unit vector orthogonal to `tangent`, built from whichever axis is least parallel to it. */
-function seedNormal(tangent: THREE.Vector3): THREE.Vector3 {
+export function seedNormal(tangent: THREE.Vector3): THREE.Vector3 {
   const ax = Math.abs(tangent.x);
   const ay = Math.abs(tangent.y);
   const az = Math.abs(tangent.z);
