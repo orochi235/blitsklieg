@@ -29,6 +29,17 @@ context. `Placement` carries `char` and `inkWidth`; `fitOf` takes `(placed, geoM
 budget)`. **The plan's Task 1 code blocks are stale against this** — the module as it stands is
 authoritative, and the plan says so inline.
 
+### The `then` name costs a lint rule
+
+`FireOptions.then` trips biome's `lint/suspicious/noThenProperty` on every object literal that sets
+it — the API surface, every test, the lab, and the README examples. The rule is now **off
+repo-wide** (`df95d15`) rather than suppressed at each call site, which is a real relaxation bought
+by the field's name.
+
+The hazard the rule guards against does not apply: promise resolution only treats an object as a
+thenable when `then` is *callable*, and this one is an array. But if the name is ever regretted,
+`stages` would cost nothing and give the rule back.
+
 ### Traps this work has already hit
 
 - **The plan's placement assertions were wrong twice over.** Positions are glyph *origins* centred
