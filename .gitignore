@@ -8,3 +8,6 @@ playwright-report/
 .DS_Store
 *.log
 .claude/worktrees/
+
+# brainstorming visual companion scratch
+.superpowers/
