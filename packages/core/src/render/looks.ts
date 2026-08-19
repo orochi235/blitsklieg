@@ -169,16 +169,14 @@ export const LOOKS: Record<LookName, LookSpec> = {
     tintTo: 'decoration',
     decoration: {
       kind: 'tube',
-      radius: 0.045,
+      radius: 0.04,
       segments: 10,
       spacing: 0.02,
       surfaces: ['front'],
       level: 0,
       runs: 7,
       minRun: 0.15,
-      // Higher breaks curved runs (see wander.ts's TubeGeometry/Frenet-frame note) — not a look
-      // choice, a ceiling.
-      amplitude: 0.006,
+      amplitude: 0.02,
       select: { by: 'seed', amount: 0.85 },
       colors: [0xff2d95],
       look: {

@@ -76,19 +76,39 @@ export function smooth(line: Point2[], passes: number, mode: 'open' | 'closed'):
   return cur;
 }
 
+export interface Point3 extends Point2 {
+  z: number;
+}
+
+const dist3 = (a: Point3, b: Point3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
 /** Radius of the circle through each consecutive triple; the sweep pinches past this. */
-export function minCurvatureRadius(line: Point2[]): number {
+export function minCurvatureRadius3(line: Point3[]): number {
   let min = Number.POSITIVE_INFINITY;
   for (let i = 1; i + 1 < line.length; i++) {
-    const A = line[i - 1] as Point2;
-    const B = line[i] as Point2;
-    const C = line[i + 1] as Point2;
-    const a = dist(B, C);
-    const b = dist(A, C);
-    const c = dist(A, B);
-    const area = Math.abs((B.x - A.x) * (C.y - A.y) - (C.x - A.x) * (B.y - A.y)) / 2;
+    const A = line[i - 1] as Point3;
+    const B = line[i] as Point3;
+    const C = line[i + 1] as Point3;
+    const abx = B.x - A.x;
+    const aby = B.y - A.y;
+    const abz = B.z - A.z;
+    const acx = C.x - A.x;
+    const acy = C.y - A.y;
+    const acz = C.z - A.z;
+    const cx = aby * acz - abz * acy;
+    const cy = abz * acx - abx * acz;
+    const cz = abx * acy - aby * acx;
+    const area = Math.hypot(cx, cy, cz) / 2;
     if (area < 1e-12) continue;
+    const a = dist3(B, C);
+    const b = dist3(A, C);
+    const c = dist3(A, B);
     min = Math.min(min, (a * b * c) / (4 * area));
   }
   return min;
+}
+
+/** Radius of the circle through each consecutive triple; the sweep pinches past this. */
+export function minCurvatureRadius(line: Point2[]): number {
+  return minCurvatureRadius3(line.map((p) => ({ x: p.x, y: p.y, z: 0 })));
 }

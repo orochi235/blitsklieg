@@ -26,10 +26,6 @@ function cumulativeLengths(points: THREE.Vector3[]): number[] {
  * Bends a face run's z gently along its length — x/y keep hugging the level set. `sin(s * PI *
  * lobes)` is zero at s=0 and s=1 for any integer `lobes`, which pins both ends to their original
  * z for free: a run boundary stays put, so an adjacent run still meets it without a seam.
- *
- * Keep amplitude small (~0.006 em): `TubeGeometry`'s Frenet-frame sweep twists unpredictably on a
- * long, continuously-curved, cornerless run (an `S`'s bowls) once real z-curvature is added,
- * leaving visible gaps. Short/straight runs are unaffected.
  */
 export function wanderFaceRuns(runs: Run[], amplitude: number, seed: number): void {
   if (amplitude === 0) return;

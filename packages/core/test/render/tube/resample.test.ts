@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { minCurvatureRadius, resample, smooth } from '../../../src/render/tube/resample.js';
+import {
+  minCurvatureRadius,
+  minCurvatureRadius3,
+  resample,
+  smooth,
+} from '../../../src/render/tube/resample.js';
 
 /** A circle of radius r, sampled unevenly so resampling has something to correct. */
 function circle(r: number, n: number): { x: number; y: number }[] {
@@ -88,5 +93,26 @@ describe('minCurvatureRadius', () => {
     const before = minCurvatureRadius(noisy);
     const after = minCurvatureRadius(smooth(noisy, 3, 'closed'));
     expect(after).toBeGreaterThan(before * 2);
+  });
+});
+
+describe('minCurvatureRadius3', () => {
+  it('agrees with the 2D version when z is flat', () => {
+    const line = smooth(resample(circle(0.5, 200), 0.01), 3, 'closed');
+    const r2 = minCurvatureRadius(line);
+    const r3 = minCurvatureRadius3(line.map((p) => ({ ...p, z: 0 })));
+    expect(r3).toBeCloseTo(r2, 5);
+  });
+
+  it('sees curvature that lives entirely in z, where a flat x/y view sees none', () => {
+    // Collinear in x/y (y is constant) but a tight arc once z is included.
+    const arc = Array.from({ length: 40 }, (_, i) => {
+      const t = (i / 39) * (Math.PI / 2);
+      return { x: Math.cos(t) * 0.02, y: 0, z: Math.sin(t) * 0.02 };
+    });
+    expect(minCurvatureRadius(arc)).toBe(Number.POSITIVE_INFINITY);
+    const r3 = minCurvatureRadius3(arc);
+    expect(r3).toBeGreaterThan(0);
+    expect(r3).toBeLessThan(0.03);
   });
 });
