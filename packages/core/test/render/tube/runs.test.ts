@@ -63,6 +63,15 @@ describe('cutIntoRuns', () => {
     expect(runs).toHaveLength(5);
   });
 
+  it('hits the requested count exactly at high piece counts, not just low ones', () => {
+    // A single-span cornerless loop with no floor: nothing but slice()'s own arithmetic can
+    // cost a run here. Low counts (a handful of cuts) can't show compounding drift; these can.
+    for (const requested of [13, 30, 60]) {
+      const runs = cutIntoRuns([PATH(circlePath())], { runs: requested, minRun: 0 });
+      expect(runs.length, `requested ${requested}, got ${runs.length}`).toBe(requested);
+    }
+  });
+
   it('never returns fewer runs than there are corners', () => {
     const runs = cutIntoRuns([PATH(squarePath())], { runs: 2, minRun: 0 });
     expect(runs).toHaveLength(4);
@@ -83,12 +92,14 @@ describe('cutIntoRuns', () => {
   });
 
   it('drops runs under the floor and keeps the rest', () => {
-    const loose = cutIntoRuns([PATH(squarePath())], { runs: 20, minRun: 0 });
-    const floored = cutIntoRuns([PATH(squarePath())], { runs: 20, minRun: 0.15 });
+    // 18 requested over 4 equal-length sides splits unevenly by largest-remainder: two sides
+    // get 5 pieces (length 0.2), two get 4 (length 0.25). A 0.22 floor keeps only the latter.
+    const loose = cutIntoRuns([PATH(squarePath())], { runs: 18, minRun: 0 });
+    const floored = cutIntoRuns([PATH(squarePath())], { runs: 18, minRun: 0.22 });
     // Some must survive: a floor that drops everything satisfies the per-run assertion vacuously.
     expect(floored.length).toBeGreaterThan(0);
     expect(floored.length).toBeLessThan(loose.length);
-    for (const run of floored) expect(run.length).toBeGreaterThanOrEqual(0.15);
+    for (const run of floored) expect(run.length).toBeGreaterThanOrEqual(0.22);
   });
 
   it('carries surface, length and index on every run', () => {

@@ -123,22 +123,31 @@ function spansOf(path: GeneratedPath, angle: number): THREE.Vector3[][] {
   return spans.filter((span) => span.length > 1);
 }
 
+/**
+ * Cuts `span` into `pieces` runs by arc length. A span needs at least 2 vertices per piece, so
+ * a request beyond `span.length - 1` is capped rather than honored.
+ */
 function slice(span: THREE.Vector3[], pieces: number): THREE.Vector3[][] {
-  if (pieces <= 1) return [span];
-  const per = polyLength(span) / pieces;
+  const n = Math.min(Math.max(1, pieces), Math.max(1, span.length - 1));
+  if (n <= 1) return [span];
+
+  const total = polyLength(span);
   const out: THREE.Vector3[][] = [];
-  let acc = 0;
   let cur: THREE.Vector3[] = [span[0] as THREE.Vector3];
+  let acc = 0;
+  let next = 1;
   for (let i = 1; i < span.length; i++) {
     acc += (span[i] as THREE.Vector3).distanceTo(span[i - 1] as THREE.Vector3);
     cur.push(span[i] as THREE.Vector3);
-    if (acc >= per && out.length < pieces - 1 && i < span.length - 1) {
+    // Absolute target (next * total / n), not accumulate-and-reset: resetting acc to 0 after
+    // each cut discards the previous piece's overshoot, and that loss compounds over many pieces.
+    if (next < n && i < span.length - 1 && acc >= (next * total) / n) {
       out.push(cur);
       cur = [span[i] as THREE.Vector3];
-      acc = 0;
+      next++;
     }
   }
-  if (cur.length > 1) out.push(cur);
+  out.push(cur);
   return out;
 }
 
