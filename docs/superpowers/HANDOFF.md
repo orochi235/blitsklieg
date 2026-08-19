@@ -5,11 +5,26 @@ decision is.
 
 ## State
 
-Regroup and stages **merged into `main`** (`885368d`) and pushed. `main` deploys the lab, so a push
-is a deliberate act; this one was asked for.
+Two passes are merged into `main`: regroup and stages (`885368d`, pushed), then lab layout and the
+visual suite (`0d1f6bf`, **not pushed** — `main` deploys the lab, so that is a deliberate call the
+owner has not made yet). See **What just landed** for the second.
 
-Since the merge, one pass of lab and visual-suite work has landed on top — see **What just
-landed**. Everything else below is what is left.
+Current work is the **tube lab** on branch `tube-lab`, one commit deep (`3dd8750`): the design doc
+only, no implementation.
+
+- Spec: `docs/superpowers/specs/2026-08-19-tube-lab-design.md` — settled with the owner and
+  self-contained. Read it rather than this section.
+- Next step: an implementation plan from the writing-plans skill. Nothing has been built.
+
+Decisions made in conversation that the spec already carries, so do not re-litigate: it lives in
+`packages/core/dev/tube-lab` as package tooling rather than an `apps/` consumer; layout is
+`windease` (the owner's own library, 0.8.0) through its **React** bindings; panels are
+`{ letter, mode }` pairs at arbitrary count; `debug.ts` and `apps/lab/src/diagnostics.ts` are
+deleted as part of that work.
+
+The two geometry defects the lab exists to expose — the per-run radius clamp and the closed planar
+loop — are **out of scope** for it and get their own spec once the lab can measure them. Both are
+recorded at the end of the tube lab spec.
 
 ### What just landed
 
