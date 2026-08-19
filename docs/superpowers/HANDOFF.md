@@ -40,21 +40,31 @@ Both want a spec before code.
 
 ## Queued behind tubing
 
-**`pyrite` needs roughly 20-30x its crystal count, or it goes.** At `count: 55` it reads as a few
-gold flecks rather than intergrown crystal, and the owner's call is that if it stays that sparse it
-is not worth shipping. Killing it is a breaking change — it is in the published `LookName` union
-since 0.4.0 — so try the fix first.
+**`pyrite` is built on the wrong model and should be respecced before it is tuned.** The chunk
+generator samples surface points and sticks a chunk on each — dip it in glue and roll it in
+sprinkles. That is right for `glitter` and roughly right for `sequin`, which genuinely are applied
+to a surface. Pyrite is *intergrown*: cubes grown out of the matrix, mostly buried, penetrating
+each other, faces parallel within a grain because they share a lattice.
 
-Four things block a higher count, and the first three also cap `sequin`:
+More crystals will not fix that. Three changes to the placement model would do more than raising
+the count 30x:
 
-- `POOL = 512` in `decoration.ts` is a hard ceiling on distinct positions. Past it `chunkMatrices`
-  exhausts its probe loop and reuses an index, so extra chunks stack co-located instead of covering
-  new surface.
-- ~30% of that pool sits on the back cap, so only about 360 samples are ever front-facing.
-- The clustering draw scans the whole pool per chunk, so raising the pool makes placement quadratic.
-- The lab's `chunk count` slider stops at 300, below even the current ceiling.
+- **Vary size.** Every chunk uses one `size`. Crystal beds are power-law — many small, a few large
+  — and that scale variation is most of what makes a texture read as grown rather than applied.
+- **Vary embedding.** `proud` is one value for every chunk, so all of them sit the same fraction
+  out, which is precisely the glued look. Most should barely break the surface.
+- **Allow interpenetration.** `chunkMatrices` draws sample points without replacement, so chunks
+  can never overlap. Real cubes grow into each other; combined with the existing `align` toward a
+  shared per-letter lattice, overlap is what turns scattered dice into one crystal mass.
 
-Crystal size wants to come down as count goes up, or the glyph just armours over.
+If a respec still leaves it not worth shipping, killing it is the owner's call — but note that is a
+breaking change, since `pyrite` has been in the published `LookName` union since 0.4.0.
+
+Separately, and independent of the model question, two ceilings cap **both** chunk looks:
+`POOL = 512` in `decoration.ts` bounds distinct positions (past it `chunkMatrices` exhausts its
+probe loop and stacks chunks co-located), about 30% of that pool sits on the back cap, and the
+clustering draw scans the whole pool per chunk so raising it makes placement quadratic. The lab's
+`chunk count` slider also stops at 300, below even the current ceiling.
 
 ## Open review findings
 
