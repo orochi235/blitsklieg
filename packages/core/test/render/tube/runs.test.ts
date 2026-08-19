@@ -36,7 +36,20 @@ function circlePath(): THREE.Vector3[] {
   });
 }
 
+/** An open L-shaped polyline: one interior 90 degree corner, straight legs on either side. */
+function openLPath(): THREE.Vector3[] {
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 10; i++) pts.push(new THREE.Vector3(i / 10, 0, 0));
+  for (let i = 1; i <= 10; i++) pts.push(new THREE.Vector3(1, i / 10, 0));
+  return pts;
+}
+
 const PATH = (points: THREE.Vector3[]) => ({ points, surface: 'front' as const, closed: true });
+const OPEN_PATH = (points: THREE.Vector3[]) => ({
+  points,
+  surface: 'front' as const,
+  closed: false,
+});
 
 describe('corner detection', () => {
   it('ignores repeated points instead of reading them as corners', () => {
@@ -109,5 +122,10 @@ describe('cutIntoRuns', () => {
       expect(run.index).toBe(i);
       expect(run.length).toBeGreaterThan(0);
     });
+  });
+
+  it('cuts an open path at an interior corner without treating its endpoints as corners', () => {
+    const runs = cutIntoRuns([OPEN_PATH(openLPath())], { runs: 2, minRun: 0 });
+    expect(runs).toHaveLength(2);
   });
 });

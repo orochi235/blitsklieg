@@ -66,4 +66,16 @@ describe('assign', () => {
     const out = assign(runs(6), { by: 'length', amount: 2 }, COLORS, 3);
     expect(out.map((r) => r.index)).toEqual([0, 1, 2, 3, 4, 5]);
   });
+
+  it('does not throw on an empty run list', () => {
+    expect(assign([], { by: 'seed', amount: 1 }, COLORS, 3)).toEqual([]);
+  });
+
+  it('cycles the palette across lit runs only, not across every run', () => {
+    // Indices 0, 2, 4 lit out of 6, palette of 2: cycling over all runs would give
+    // [red, red, red] since 0, 2, 4 are all even; cycling over only the lit ones gives
+    // [red, green, red], which is the only case that tells the two apart.
+    const out = assign(runs(6), { by: 'index', amount: 1, stride: 2 }, [0xff0000, 0x00ff00], 3);
+    expect(out.filter((r) => r.lit).map((r) => r.color)).toEqual([0xff0000, 0x00ff00, 0xff0000]);
+  });
 });
