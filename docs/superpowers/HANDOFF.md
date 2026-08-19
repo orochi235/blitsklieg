@@ -61,12 +61,34 @@ Verified with a synthetic S-curve test (`frames.test.ts`): the old Frenet frame'
 consecutive-normal dot product goes negative (a flip past 90°) at high depth amplitude on this
 font's actual `S` glyph, where the new RMF frame stays above 0.5 on the same run.
 
-**New finding, not fixed:** thinning `tubing.radius` much past ~0.04 (e.g. toward the originally
-requested 0.022) makes most of the sign vanish at the standard yaw 30° / pitch 13° capture — proven
-present under both the old Frenet sweep and the new RMF one, so it is not a frame-stability issue.
-It looks like the same occlusion this file already notes for `piping` ("cord is largely occluded
-front-on at radius 0.03") — a thin `level: 0` tube sitting flush with the glyph's own side wall gets
-hidden behind it from an oblique angle. Fixing it is a separate task from the frame sweep.
+`radius` is now 0.022 and `amplitude` 0.02 in `looks.ts`. Verified with a synthetic S-curve test
+(`frames.test.ts`): the old Frenet frame's worst consecutive-normal dot product goes negative — a
+flip past 90 degrees — at high depth amplitude on this font's actual `S`, where the RMF frame stays
+above 0.5 on the same run.
+
+## Fixed: a transparent backing was depth-culling its own tube
+
+This one is worth reading, because it was misdiagnosed twice and the misdiagnosis cost real work.
+
+Thinning `tubing.radius` used to make most of the sign vanish. That was attributed first to Frenet
+instability and then to the tube being occluded by the glyph's own extrusion wall. Neither. A
+`transparent` material still writes depth by default, and tubing's backing sits at `opacity: 0.08`
+— 92% see-through, and writing depth the whole time. It was culling the tube drawn behind it.
+Thinning the radius put more of the tube inside the silhouette, so more of it disappeared, which
+read convincingly as a sweep bug getting worse.
+
+The fix is one line in `word.ts`: do not write depth when the body is not opaque. The tube then
+renders correctly at 0.022, and the unlit dark-glass runs became visible for the first time — they
+had been hidden by the same mechanism.
+
+This is also the "piping's cord is largely occluded front-on at radius 0.03" note from 0.4.0,
+recorded then as something to tune rather than as a defect.
+
+**The lesson worth keeping:** a cheap hypothesis about render state should be eliminated before an
+expensive one about geometry. "The transparent thing in front is hiding it" costs one line to test;
+"the frame algorithm is unstable" cost two agents' budget. The RMF work was still correct and worth
+keeping — Frenet genuinely does tear at higher amplitude — but it was dispatched as a fix for a
+blocker that was somewhere else entirely.
 
 ## The lab panel needs a layout pass
 
