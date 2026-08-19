@@ -61,6 +61,16 @@ existing, which is valid output.
 
 `spikes/tube-paths.mjs` implements this end to end and is the reference for the arithmetic.
 
+**`piping` is this generator with different numbers.** A cord of radius `r` whose centerline sits
+`d` inside the boundary protrudes past it by `r - d`, so `level: 0` straddles the edge, `level: -r`
+sits flush, and between them the cord bulges proud of the seam the way real piping does. With a
+`cornerAngle` high enough never to fire it stays one continuous run. No piping-specific code.
+
+This is also what the rewrite bought. The deleted `inset` parameter walked polygon vertices along
+angle bisectors and discarded an entire contour when one vertex reversed, so `piping` shipped at
+inset 0, riding the outline. A level set cannot fail that way, so the inset it always wanted is now
+just a number.
+
 **Wall generator.** Paths in arc length by depth. A constant depth gives a band running around
 the letter's edge; a varying one gives tube that rises and falls across the wall.
 
