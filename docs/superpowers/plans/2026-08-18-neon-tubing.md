@@ -1081,6 +1081,15 @@ describe('cutIntoRuns', () => {
     expect(runs).toHaveLength(8);
   });
 
+  it('treats a corner split across two vertices as one corner', () => {
+    // A resampled 90 degree corner lands between vertices, so both neighbours break the
+    // threshold. Counting them separately cuts a sliver out of the corner.
+    const pts = squarePath();
+    const rounded = pts.map((p, i) => (i === 10 ? new THREE.Vector3(0.47, -0.47, 0) : p));
+    const runs = cutIntoRuns([PATH(rounded)], { runs: 1, minRun: 0 });
+    expect(runs).toHaveLength(4);
+  });
+
   it('drops runs under the floor', () => {
     const loose = cutIntoRuns([PATH(squarePath())], { runs: 20, minRun: 0 });
     const floored = cutIntoRuns([PATH(squarePath())], { runs: 20, minRun: 0.3 });
@@ -1140,10 +1149,15 @@ function polyLength(points: THREE.Vector3[]): number {
   return total;
 }
 
-/** Indices where the direction breaks by more than `angle`. */
+/**
+ * Indices where the direction breaks by more than `angle`, with adjacent breaks merged.
+ * A resampled corner rarely lands on one vertex: measured on a square through the real
+ * generator, one 90 degree corner split 53/37 across two neighbours and both cleared the
+ * threshold, which would cut a spacing-length sliver out of the corner instead of turning it.
+ */
 function cornersOf(points: THREE.Vector3[], closed: boolean, angle: number): number[] {
-  const out: number[] = [];
   const n = points.length;
+  const broken: { index: number; turn: number }[] = [];
   const last = closed ? n : n - 1;
   for (let i = 1; i < last; i++) {
     const prev = points[i - 1] as THREE.Vector3;
@@ -1152,7 +1166,34 @@ function cornersOf(points: THREE.Vector3[], closed: boolean, angle: number): num
     const a = cur.clone().sub(prev);
     const b = next.clone().sub(cur);
     if (a.lengthSq() < 1e-18 || b.lengthSq() < 1e-18) continue;
-    if (a.normalize().angleTo(b.normalize()) > angle) out.push(i);
+    const turn = a.normalize().angleTo(b.normalize());
+    if (turn > angle) broken.push({ index: i, turn });
+  }
+  if (broken.length === 0) return [];
+
+  // Collapse each consecutive stretch to its sharpest vertex.
+  const out: number[] = [];
+  let group = [broken[0] as { index: number; turn: number }];
+  const flush = () => {
+    let best = group[0] as { index: number; turn: number };
+    for (const b of group) if (b.turn > best.turn) best = b;
+    out.push(best.index);
+  };
+  for (let k = 1; k < broken.length; k++) {
+    const b = broken[k] as { index: number; turn: number };
+    const prev = broken[k - 1] as { index: number; turn: number };
+    if (b.index === prev.index + 1) group.push(b);
+    else {
+      flush();
+      group = [b];
+    }
+  }
+  flush();
+  // On a closed path the first and last groups may be the same corner across the seam.
+  if (closed && out.length > 1) {
+    const first = out[0] as number;
+    const lastIndex = out[out.length - 1] as number;
+    if (first === 1 && lastIndex === n - 1) out.pop();
   }
   return out;
 }
@@ -1247,7 +1288,7 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): Run[] {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run packages/core/test/render/tube/runs.test.ts`
-Expected: PASS, 7 tests
+Expected: PASS, 8 tests
 
 - [ ] **Step 5: Commit**
 
