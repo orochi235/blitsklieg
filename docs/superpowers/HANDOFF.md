@@ -23,11 +23,27 @@ already supports. Spans are deliberately second, in their own plan afterwards.
 
 ### Progress
 
-Task 1 landed (`918076c`, review fixes in `8072695`): layout arithmetic moved out of `Word`'s
-constructor into a pure `packages/core/src/text/placement.ts`, which is testable without a GL
-context. `Placement` carries `char` and `inkWidth`; `fitOf` takes `(placed, geoMinY, geoMaxY,
-budget)`. **The plan's Task 1 code blocks are stale against this** — the module as it stands is
-authoritative, and the plan says so inline.
+**All nine tasks are done.** 547 tests green, `npm run check` clean, 22 commits ahead of `main`,
+unmerged and unpushed. The acrostic plays in the lab under the `acrostic` sequence button.
+
+What landed, in order: layout arithmetic extracted to a pure `text/placement.ts`; `LetterInfo`
+carrying `x`/`y`/`leaving`; a per-channel `delayBy` on `transition()`; `Word.regroup()` with the
+fit tween; a `partition()` combinator; the `Sequence` stage runner; `FireOptions.then`; `tint` as
+a per-letter rule; the lab demo and README docs.
+
+### Still open
+
+- **No final whole-branch review.** Each task was reviewed as it landed, but nothing has looked at
+  the nine commits together.
+- **The lab's corner panels render over the type.** The grown word reaches into the `tube` panel's
+  column and the panel is opaque at `z-index: 10`, so it eats part of the first `N`. Same effect
+  clips the poem's first line against the `scene` panel. This is the lab layout pass, already
+  queued below, now with a second reason.
+- **`readme.test.ts` does not compile the README's examples.** It hand-mirrors them and asserts
+  export names; nothing extracts from the markdown. The new `Stages` section is type-checked only
+  indirectly, via `tsc -b` over the lab, which uses `then`/`keep`/`as`/`tween`.
+- **`packages/core/README.md` is a build artifact** — gitignored, written by `prepack` copying the
+  root `README.md`. Edit the root one.
 
 ### The `then` name costs a lint rule
 
