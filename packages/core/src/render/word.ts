@@ -10,7 +10,7 @@ import {
 } from '../text/glyphs.js';
 import type { Budget, GlyphMetrics } from '../text/layout.js';
 import { layoutBlock, wrapBlock } from '../text/layout.js';
-import { type Fit, fitOf, placeBlock } from '../text/placement.js';
+import { type Arrangement, arrange, type Fit, fitOf, placeBlock } from '../text/placement.js';
 import type { Transform } from '../transform.js';
 import {
   type Blueprint,
@@ -46,6 +46,15 @@ export interface WordDebugHooks {
   onLetter?(cell: THREE.Group, shapes: THREE.Shape[], depth: number): void;
 }
 
+export interface RegroupResult {
+  /** Slot indices that survived, in their new reading order. */
+  kept: number[];
+  /** Slot indices that did not; still parked at their old layout positions. */
+  dropped: number[];
+  /** Per slot, the offset from the new layout position back to the old one. */
+  delta: [number, number][];
+}
+
 /** One group per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
 export class Word {
   readonly group = new THREE.Group();
@@ -65,7 +74,13 @@ export class Word {
   private readonly geoMinY: (number | null)[] = [];
   private readonly geoMaxY: (number | null)[] = [];
   private readonly metrics: GlyphMetrics;
+  /** Font units to em, so a regroup can re-place the survivors on the same scale. */
+  private readonly scaleToEm: number;
+  private readonly budget: Budget;
   private fit: Fit;
+  /** The fit before the last regroup; `setFitProgress` interpolates between this and `fitTo`. */
+  private fitFrom: Fit;
+  private fitTo: Fit;
   /** Reading position within the live group; a regroup renumbers it. */
   private readonly idxOf: number[] = [];
   /** Set on a letter a regroup dropped; its info stops tracking the live group. */
@@ -123,14 +138,15 @@ export class Word {
           )
         : null;
 
-    const scaleToEm = EM / font.unitsPerEm;
+    this.scaleToEm = EM / font.unitsPerEm;
     const block = wrap
       ? wrapBlock(text, font.metrics, budget, font.unitsPerEm)
       : layoutBlock(text, font.metrics);
 
     this.metrics = font.metrics;
+    this.budget = budget;
 
-    const placed = placeBlock(block, scaleToEm, font.metrics, (char) => this.drawsInk(char));
+    const placed = placeBlock(block, this.scaleToEm, font.metrics, (char) => this.drawsInk(char));
     this.lineCount = placed.lineCount;
     this.columnCount = placed.columnCount;
 
@@ -151,6 +167,8 @@ export class Word {
     }
     this.liveCount = placed.x.length;
     this.fit = fitOf(placed, this.geoMinY, this.geoMaxY, budget);
+    this.fitFrom = this.fit;
+    this.fitTo = this.fit;
     this.applyFit(this.fit);
 
     for (let i = 0; i < this.charOf.length; i++) {
@@ -306,6 +324,83 @@ export class Word {
       x: this.baseX[i] as number,
       y: (this.baseY[i] as number) - this.fit.midY,
     };
+  }
+
+  /** A letter a regroup already dropped: it is playing its exit and never rejoins the group. */
+  private leavingAt(i: number): boolean {
+    return !!this.frozenInfo[i];
+  }
+
+  /**
+   * Re-lays the letters `keep` selects as a word of their own. Survivors are renumbered against
+   * the new group; a dropped letter keeps the numbering its exit was staggered against, and stays
+   * at its old position until `retire()` takes it off screen. Returns, per slot, the offset from
+   * the new position back to the old one, so a move can start from where the letter visually was.
+   */
+  regroup(keep: (letter: LetterInfo) => boolean, as: Arrangement = 'line'): RegroupResult {
+    const kept: number[] = [];
+    const dropped: number[] = [];
+    const delta: [number, number][] = this.charOf.map(() => [0, 0]);
+
+    for (let i = 0; i < this.charOf.length; i++) {
+      if (this.leavingAt(i)) continue;
+      (keep(this.letterInfo(i)) ? kept : dropped).push(i);
+    }
+
+    // Frozen before the renumbering below, so each keeps the count its exit was staggered against.
+    for (const i of dropped) this.frozenInfo[i] = this.letterInfo(i);
+
+    const chars = kept.map((i) => this.charOf[i] as string);
+    const block = layoutBlock(arrange(chars, as), this.metrics);
+    const placed = placeBlock(block, this.scaleToEm, this.metrics, (char) => this.drawsInk(char));
+
+    this.lineCount = placed.lineCount;
+    this.columnCount = placed.columnCount;
+    this.liveCount = kept.length;
+
+    for (let n = 0; n < kept.length; n++) {
+      const i = kept[n] as number;
+      const oldX = this.baseX[i] as number;
+      const oldY = this.baseY[i] as number;
+      this.baseX[i] = placed.x[n] as number;
+      this.baseY[i] = placed.y[n] as number;
+      this.lineOf[i] = placed.line[n] as number;
+      this.columnOf[i] = placed.column[n] as number;
+      this.idxOf[i] = n;
+      delta[i] = [oldX - (this.baseX[i] as number), oldY - (this.baseY[i] as number)];
+    }
+
+    this.fitFrom = this.fit;
+    this.fitTo = fitOf(
+      placed,
+      kept.map((i) => this.geoMinY[i] ?? null),
+      kept.map((i) => this.geoMaxY[i] ?? null),
+      this.budget,
+    );
+
+    return { kept, dropped, delta };
+  }
+
+  /** Takes dropped letters off screen once their exit has played out. */
+  retire(slots: readonly number[]): void {
+    for (const i of slots) {
+      const cell = this.letters[i];
+      if (cell) cell.visible = false;
+    }
+  }
+
+  /**
+   * Moves the viewport fit from the pre-regroup one to the new group's, `u` in 0..1. Kept off the
+   * per-letter pose deliberately: pose scale grows each letter in place, where the fit has to
+   * scale the whole group so the letters spread with it.
+   */
+  setFitProgress(u: number): void {
+    const w = Math.max(0, Math.min(1, u));
+    this.fit = {
+      scale: this.fitFrom.scale + (this.fitTo.scale - this.fitFrom.scale) * w,
+      midY: this.fitFrom.midY + (this.fitTo.midY - this.fitFrom.midY) * w,
+    };
+    this.applyFit(this.fit);
   }
 
   apply(timeline: Timeline, elapsed: number): void {
