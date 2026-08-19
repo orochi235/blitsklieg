@@ -26,7 +26,10 @@ export interface StageTarget {
 export interface TweenPlan {
   duration?: number;
   ease?: Easing;
-  /** Fraction of the move a channel waits before starting. `scale` addresses the viewport fit. */
+  /**
+   * How long a channel waits before starting: `position` as a fraction of the move, `scale` — the
+   * viewport fit — as a fraction of the whole slot, so it can be held back past a longer exit.
+   */
   delayBy?: { position?: number; scale?: number };
 }
 
@@ -50,6 +53,15 @@ export interface SequenceOptions {
 
 const DEFAULT_MOVE_MS = 700;
 
+/** A stage boundary still playing out: what the regroup moved, and the clock the sequence runs. */
+interface Boundary {
+  result: RegroupResult;
+  /** The stage's motion slot — the move or the exit, whichever is longer. */
+  span: number;
+  /** Fraction of `span` the fit waits out before it starts. */
+  fitDelay: number;
+}
+
 /**
  * Plays the opening phase, then one stage after another, then the exit. Each phase is an ordinary
  * `Timeline` on its own clock; the sequence is what happens between them — the regroup, retiring
@@ -60,10 +72,7 @@ export class Sequence {
   private phase = -1;
   private phaseStart = 0;
   private timeline: Timeline;
-  private pending: RegroupResult | null = null;
-  private moveMs = 0;
-  private fitDelay = 0;
-  private retiredThisPhase = false;
+  private pending: Boundary | null = null;
 
   constructor(opts: SequenceOptions) {
     this.opts = opts;
@@ -89,35 +98,52 @@ export class Sequence {
       this.phase < this.opts.stages.length - 1 &&
       this.timeline.isFinished(this.local(elapsed))
     ) {
-      this.enterNextPhase(elapsed);
+      this.enterNextPhase();
     }
-    if (!this.pending) return;
+    const boundary = this.pending;
+    if (!boundary) return;
 
     const into = this.local(elapsed);
-    const start = this.moveMs * this.fitDelay;
-    const span = this.moveMs - start;
-    const u = span > 0 ? (into - start) / span : 1;
-    this.opts.target.setFitProgress(Math.max(0, Math.min(1, u)));
-    if (!this.retiredThisPhase && into >= this.moveMs) {
-      this.retiredThisPhase = true;
-      this.opts.target.retire(this.pending.dropped);
+    if (into >= boundary.span) {
+      this.settle();
+      return;
     }
+
+    const start = boundary.span * boundary.fitDelay;
+    const u = (into - start) / (boundary.span - start);
+    this.opts.target.setFitProgress(Math.max(0, Math.min(1, u)));
   }
 
-  private enterNextPhase(elapsed: number): void {
+  /** Lands the fit and takes the dropped letters off screen; the boundary is done after this. */
+  private settle(): void {
+    if (!this.pending) return;
+    const { dropped } = this.pending.result;
+    this.pending = null;
+    this.opts.target.setFitProgress(1);
+    this.opts.target.retire(dropped);
+  }
+
+  private enterNextPhase(): void {
+    // Rebasing on the outgoing phase's end rather than on `elapsed` is what lets `tick`'s loop
+    // catch up: a frame long enough to span several stages would otherwise advance only one.
+    this.phaseStart += this.timeline.duration;
+    this.settle();
     this.phase++;
     const plan = this.opts.stages[this.phase];
-    this.phaseStart = elapsed;
-    this.retiredThisPhase = false;
     if (!plan) return;
 
     const keep = plan.keep ?? (() => true);
     const result = this.opts.target.regroup(keep, plan.as);
-    this.pending = result;
 
     const move = plan.tween.duration ?? DEFAULT_MOVE_MS;
-    this.moveMs = move;
-    this.fitDelay = Math.min(0.999, Math.max(0, plan.tween.delayBy?.scale ?? 0));
+    // `partition` hands both halves the same normalized t over the longer one's duration, so the
+    // shorter half must be stretched to the slot or its declared duration is silently ignored.
+    const span = Math.max(move, slotDuration(plan.exit));
+    this.pending = {
+      result,
+      span,
+      fitDelay: Math.min(0.999, Math.max(0, plan.tween.delayBy?.scale ?? 0)),
+    };
 
     const travel = transition(move, {
       from: (letter) => {
@@ -133,9 +159,6 @@ export class Sequence {
     // `leaving` is the only safe discriminator; `result.kept[index]` would route it wrongly.
     const isKept = (letter: LetterInfo) => letter.leaving !== true;
 
-    // `partition` hands both halves the same normalized t over the longer one's duration, so the
-    // shorter half must be stretched to the slot or its declared duration is silently ignored.
-    const span = Math.max(move, slotDuration(plan.exit));
     const last = this.phase === this.opts.stages.length - 1;
     this.timeline = new Timeline({
       enter: partition(isKept, within(travel, span), within(asPiece(plan.exit), span)),
@@ -167,11 +190,15 @@ export class Sequence {
 
 /**
  * Runs `piece` over its own duration inside a longer slot, then holds its final value. Without
- * this a 200ms travel paired with an 800ms exit plays over 800ms, and the sequencer's retire and
- * fit clocks — which run off the declared duration — drift away from what is on screen.
+ * this a 200ms travel paired with an 800ms exit plays over the whole 800ms, since `partition`
+ * hands both halves the slot's normalized `t`.
  */
 function within(piece: MotionPiece, total: number): MotionPiece {
-  if (total <= 0 || piece.duration <= 0 || piece.duration >= total) return piece;
+  if (total <= 0 || piece.duration >= total) return piece;
+  // A no-time piece has no span to map `t` onto, but it is finished, not unstarted: returning it
+  // unwrapped would let the slot's `t` drag it across the whole slot.
+  if (piece.duration <= 0)
+    return { duration: total, offset: (_t, letter) => piece.offset(1, letter) };
   const fraction = piece.duration / total;
   return {
     duration: total,

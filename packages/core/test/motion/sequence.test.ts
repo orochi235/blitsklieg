@@ -172,6 +172,99 @@ describe('Sequence', () => {
     expect(t.retired).toEqual([[1]]);
   });
 
+  it('holds a no-time move at its landing place across a longer slot', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      stages: [stage({ exit: { duration: 800, offset: () => ({}) }, tween: { duration: 0 } })],
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    expect(seq.poseAt(0, letter).position[0]).toBeCloseTo(0);
+    expect(seq.poseAt(400, letter).position[0]).toBeCloseTo(0);
+  });
+
+  it('runs the retire and the fit off the slot when the exit outlasts the move', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      stages: [stage({ exit: { duration: 800, offset: () => ({}) }, tween: { duration: 200 } })],
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    seq.tick(400);
+    expect(t.retired).toEqual([]);
+    expect(t.fit.at(-1)).toBeCloseTo(0.5);
+    seq.tick(800);
+    expect(t.retired).toEqual([[1]]);
+    expect(t.fit.at(-1)).toBe(1);
+  });
+
+  it('measures the fit delay against the slot, so it can wait out a longer exit', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      stages: [
+        stage({
+          exit: { duration: 800, offset: () => ({}) },
+          tween: { duration: 200, delayBy: { scale: 0.5 } },
+        }),
+      ],
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    seq.tick(400);
+    expect(t.fit.at(-1)).toBeCloseTo(0);
+    seq.tick(600);
+    expect(t.fit.at(-1)).toBeCloseTo(0.5);
+    seq.tick(800);
+    expect(t.fit.at(-1)).toBe(1);
+  });
+
+  it('stops writing the fit once the stage has settled', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      stages: [stage()],
+      exit: { duration: 100, offset: () => ({}) },
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    seq.tick(400);
+    const settled = t.fit.length;
+    seq.tick(500);
+    seq.tick(600);
+    expect(t.fit.length).toBe(settled);
+    expect(t.retired).toEqual([[1]]);
+  });
+
+  it('catches up across several stages in one tick', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      stages: [stage(), stage(), stage()],
+      exit: NONE,
+      hold: 0,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(100000);
+    expect(t.regroups).toBe(3);
+    expect(t.retired).toEqual([[1], [1], [1]]);
+    expect(seq.isFinished(100000)).toBe(true);
+  });
+
   it('advances one stage per release and no more', () => {
     const t = target();
     const seq = new Sequence({
