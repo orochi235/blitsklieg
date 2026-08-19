@@ -205,13 +205,18 @@ Vitest has no WebGL context, so the GL-free assertions are:
 
 Visual verification is a Playwright screenshot in the lab, as today.
 
-## Deferred
+## Looking at the result
 
-**Off-axis capture.** A depth-varying run is invisible head-on and idle yaw is only ~0.1 rad, so
-the visual baseline cannot see most of what this spec adds. Wanted: a contact sheet of several
-viewpoints, built by yawing `word.group` between captures rather than by moving the camera —
-`viewportBudget()` treats `camera.position.z` as the distance to the word plane, so an off-axis
-camera drifts the fit until that is reworked.
+Everything here is z-structure, and head-on it is invisible: a depth-varying run, a wall path and a
+connector all read as a flat outline, and idle yaw is only about 0.1 rad. The look cannot be judged
+from the standing visual baseline, so a contact sheet at several yaw angles is part of building it
+rather than a nicety.
+
+Yaw `word.group`; do not move the camera. `viewportBudget()` treats `camera.position.z` as the
+distance to the word plane, so an off-axis camera drifts the fit and changes the word's size along
+with its angle.
+
+## Deferred
 
 **Post-effects over the run list.** Blinking segments and simulated wear are a layer that
 modulates the lit flag, statically or per frame. Because unlit runs already carry geometry,

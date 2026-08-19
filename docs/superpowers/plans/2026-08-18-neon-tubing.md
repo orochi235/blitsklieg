@@ -1988,6 +1988,7 @@ Delete the `tubeAt` and `inset` rows. Keep `radius`. Add:
       <label>tube lit <input id="lit" type="range" min="0" max="100" step="1" value="85" /></label>
       <label>wall depth <input id="wallDepth" type="range" min="0" max="100" step="5" value="50" /></label>
       <label>wall rise <input id="wallRise" type="range" min="0" max="100" step="5" value="0" /></label>
+      <label>yaw <input id="yaw" type="range" min="-60" max="60" step="1" value="0" /></label>
 ```
 
 - [ ] **Step 2: Add a surface picker to `index.html`**
@@ -2030,6 +2031,20 @@ Import the type at the top of `main.ts`:
 import type { SurfaceKind } from '@blitsklieg/core';
 ```
 
+- [ ] **Step 3b: Drive the yaw control**
+
+Everything this feature adds is z-structure — tube standing off the face, runs varying in depth,
+connectors travelling back through the backing. Head-on none of it is visible, and idle yaw is only
+about 0.1 rad, so the lab cannot show whether the geometry is right.
+
+Yaw the word, never the camera. `viewportBudget()` treats `camera.position.z` as the distance to
+the word plane, so an off-axis camera drifts the fit and changes the word's size along with its
+angle. `word.group` takes a rotation directly and the fit is unaffected.
+
+`Word` does not expose its group's rotation as something a caller sets. Add a narrow public surface
+for it — a `yaw` setter or equivalent — rather than reaching into `group.rotation` from the lab.
+Wire the slider to it in degrees.
+
 - [ ] **Step 4: Verify by eye**
 
 Run: `npm run dev -w @blitsklieg/lab`
@@ -2070,10 +2085,19 @@ npx playwright test --update-snapshots=all --grep tubing
 Run: `git status --short apps/lab/test/looks.spec.ts-snapshots/`
 Expected: exactly one modified file, `look-tubing-darwin.png`
 
-- [ ] **Step 4: Look at it**
+- [ ] **Step 4: Build a contact sheet and look at it**
 
-Run: `open apps/lab/test/looks.spec.ts-snapshots/look-tubing-darwin.png`
-Expected: separate runs of glowing tube with visible gaps and dark glass between them — not a continuous outline.
+One head-on capture cannot show what this feature adds. Produce a contact sheet of the same word at
+several yaw angles — 0, 20, 35 and 50 degrees is a reasonable spread — by setting the word's yaw
+between captures and compositing the frames side by side. This is a throwaway script for looking at
+the result, not a committed baseline; write the sheet outside the repo and `open` it.
+
+Expected, reading across the sheet: separate runs of glowing tube with visible gaps and dark glass
+between them, and at the off-axis frames, tube standing clear of the letter face with a visible
+round cross-section rather than a flat outline drawn on the glyph.
+
+The committed baseline stays head-on — a yawed baseline would use a pose nothing else in the suite
+shares.
 
 - [ ] **Step 5: Run everything**
 
