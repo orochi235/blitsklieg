@@ -107,6 +107,8 @@ slots.
 Each list is also exported as a runtime array — `ENTER_NAMES`, `ACTIVE_NAMES`, `EXIT_NAMES`,
 `LOOK_NAMES`, `LIGHTING_NAMES`, `POLICY_NAMES` — for building a picker.
 
+### tint
+
 `tint` recolors any look to your own color, keeping everything else about the material:
 
 ```js
@@ -119,6 +121,13 @@ color; `gem` is clear stone whose red comes from what light picks up passing *th
 `neon` is a near-black body whose color is entirely its glow, so tinting either one's base color
 would change nothing you could see.
 
+A function is consulted per letter instead, and may return `undefined` for "not mine", leaving
+that letter the look's own color:
+
+```ts
+tint: (l) => (l.column === 0 ? 0x2df0ff : undefined)
+```
+
 `look` also takes a plain object instead of a name, for a material of your own:
 
 ```js
@@ -128,6 +137,56 @@ await bk.fire('YOU WIN', { look: { metalness: 1, roughness: 0.3, color: 0x00e5ff
 Every field is a number, so nothing about three appears in your types. Out-of-range values clamp
 rather than throw. `tintTarget` overrides which channel `tint` writes to when the default
 routing guesses wrong.
+
+## Stages
+
+An effect can exit part of its word and lay the survivors out again as a word of their own — a
+poem whose first letters are their own color, then everything else leaves and those letters
+gather into a word. `stages` is the list, played after the enter:
+
+```ts
+await bk.fire(poem, {
+  hold: 'click',
+  tint: (l) => (l.column === 0 ? 0x2df0ff : undefined),
+  stages: [
+    { keep: (l) => l.column === 0, exit: 'fade', as: 'stack', hold: 'click' },
+    { as: 'line', hold: 'click' },
+  ],
+});
+```
+
+Each stage:
+
+| field | default | |
+|---|---|---|
+| `keep` | keeps all | the letters that continue; the rest play this stage's `exit` |
+| `exit` | `'fade'` | how the letters that do not continue leave |
+| `as` | `'line'` | the survivors' new layout — one line, or `'stack'` for one letter per line |
+| `active` | `'none'` | what the new word does while it holds |
+| `hold` | `1200` | milliseconds, or `'click'` to wait for the viewer |
+| `tween` | none | timing for the move into the new layout |
+
+Survivors keep their own material, so a letter's color travels with it, and they are renumbered
+against the new word: `index`, `count`, `line`, `column`, `x` and `y` all describe it. A letter
+playing its exit instead keeps what it read before the regroup and is marked `leaving: true`, so
+its stagger stays coherent with the word it is leaving.
+
+The per-letter form of [`tint`](#tint) is how the survivors get their own color.
+
+`tween`:
+
+| field | default | |
+|---|---|---|
+| `duration` | `700` | milliseconds for the move into the new layout |
+| `ease` | `easeOutCubic` | curve the move runs on |
+| `delayBy` | none | holds one channel back, as a fraction of a span (below) |
+
+`delayBy.position` is a fraction of the move; `delayBy.scale` — the viewport refit — is a
+fraction of the move or this stage's exit, whichever is longer, so it can wait out an exit that
+outlasts the move. `delayBy: { scale: 0.45 }` lands the word before it grows to fill the screen.
+
+Under `prefers-reduced-motion: reduce` the stages do not play — that path holds a pose and never
+travels, so there is nothing to regroup.
 
 ## Writing your own motion
 
@@ -151,6 +210,11 @@ A `MotionPiece` is `{ duration, offset(t, letter) }` where `offset` returns a *r
 position and rotation add onto rest, scale and opacity multiply. It must be a **pure function**:
 the compositor samples up to three pieces at three different points in the same frame to
 crossfade them, so a piece that remembers anything between calls will tear.
+
+`letter` says where that letter sits: `index` and `count` in reading order, `line`, `column`,
+`lineCount` and `columnCount` in the block, and `x`/`y`, its layout position in em relative to
+the block center — negate those to travel to the middle. `leaving: true` marks a letter a
+[stage](#stages) has dropped, which is playing its exit and will not be back.
 
 `transition(duration, spec)` builds an arrival or a departure. `from` starts displaced and
 relaxes to rest; `to` starts at rest and departs. Either accepts a function of the letter, which
@@ -196,12 +260,13 @@ const bounce = transition(700, { from: { scale: 0 }, ease: easeElasticOut });
 | `exit` | `'fade'` | how it leaves |
 | `look` | `'gold'` | the material — a name, or a spec of your own |
 | `lighting` | `'sweep'` | how the environment lights it |
-| `tint` | none | recolors the look, as `0xff2d6f` |
+| `tint` | none | recolors the look, as `0xff2d6f`, or a rule consulted per letter |
 | `hold` | `1200` | milliseconds in the active phase, or `'click'` to hold until dismissed |
+| `stages` | none | stages played after the enter, each regrouping what survives it |
 | `blendMs` | `120` | crossfade window straddling each phase boundary |
 | `bloom` | look's choice | adds a glow pass, at the cost of three render targets while the effect runs |
 | `wrap` | `false` | break long text into the arrangement that renders largest |
-| `modal` | `false` | with `hold: 'click'`, let the overlay swallow the dismissing click |
+| `modal` | `false` | while a `'click'` hold waits, let the overlay swallow the dismissing press |
 | `placement` | `{ kind: 'fullscreen' }` | accepted but unread in v0; the overlay is always fullscreen |
 
 ## Multiple lines
@@ -223,7 +288,8 @@ height binds; blitsklieg renders banners, not paragraphs.
 `hold: 'click'` keeps the effect on screen until the viewer presses a pointer or Escape, then
 plays the exit normally. The promise stays pending until then, and under the default `queue`
 policy a held effect blocks every later `fire()` — use `replace` if a later effect should cancel
-it instead.
+it instead. A stage's `hold: 'click'` waits for the same press whatever the top-level `hold` is:
+each press advances one stage, and only the last ends the effect.
 
 The dismissing click passes through to your page by default, so it both dismisses the effect and
 presses whatever was underneath. `modal: true` makes the overlay swallow it instead; that is the
@@ -255,7 +321,7 @@ Under `prefers-reduced-motion: reduce` the word holds the pose its enter settles
 
 - `npm run dev -w @blitsklieg/lab` — the lab page: every motion, look and policy behind
   pickers, plus canned sequences.
-- `npm run check` — biome, tsc and the unit suite (202 tests).
+- `npm run check` — biome, tsc and the unit suite (550 tests).
 - `npm run test:visual` — Playwright specs asserting the overlay composites over a live page
   without tinting or blocking it.
 - `npm run build:pages -w @blitsklieg/lab && npm run preview:pages -w @blitsklieg/lab` — the

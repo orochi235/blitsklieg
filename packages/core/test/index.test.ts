@@ -488,6 +488,148 @@ describe('createBlitsklieg', () => {
       expect(bloom.dispose).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('stages', () => {
+    it('plays a stage list and resolves once the whole thing has played', async () => {
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        exit: 'none',
+        hold: 10,
+        stages: [{ keep: (l) => l.column === 0, exit: 'fade', as: 'line', hold: 10 }],
+      });
+      await flush();
+      clock.advance(16);
+
+      // The stage has regrouped, but the letters it dropped are still playing their exit.
+      const cells = firstCell().parent?.children ?? [];
+      expect(cells.filter((c) => c.visible)).toHaveLength(4);
+
+      for (let t = 0; t < 60; t++) clock.advance(50);
+
+      expect(cells.filter((c) => c.visible)).toHaveLength(2);
+      expect(words()).toHaveLength(0);
+      await expect(done).resolves.toBeUndefined();
+    });
+
+    it('lays the survivors out in the arrangement the stage asks for', async () => {
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        active: 'none',
+        exit: 'none',
+        hold: 0,
+        stages: [{ keep: (l) => l.column === 0, exit: 'none', as: 'stack', hold: 1000 }],
+      });
+      await flush();
+      // Past the move, so the survivors have landed in the layout the stage asked for.
+      for (let t = 0; t < 10; t++) clock.advance(100);
+
+      const [n, , e] = (firstCell().parent?.children ?? []) as THREE.Group[];
+      expect(n?.position.x).toBeCloseTo(e?.position.x as number, 6);
+      expect((n?.position.y as number) - (e?.position.y as number)).toBeCloseTo(1.1, 6);
+
+      bk.destroy();
+      await done;
+    });
+
+    it('drops the letters that leave on the exit the stage names', async () => {
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        active: 'none',
+        exit: 'none',
+        hold: 0,
+        stages: [{ keep: (l) => l.column === 0, exit: 'drop', hold: 1000 }],
+      });
+      await flush();
+      clock.advance(16);
+      // Halfway through `drop`, which falls 22 em under a squared curve.
+      clock.advance(334);
+
+      const cells = (firstCell().parent?.children ?? []) as THREE.Group[];
+      expect(cells[1]?.position.y).toBeLessThan(-4);
+      expect(cells[0]?.position.y).toBeCloseTo(0, 6);
+
+      bk.destroy();
+      await done;
+    });
+
+    it('regroups the survivors into the word they spell', async () => {
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        exit: 'none',
+        hold: 10,
+        stages: [{ keep: (l) => l.column === 0, exit: 'fade', as: 'line', hold: 1000 }],
+      });
+      await flush();
+      // Past the stage boundary and its move, so the dropped letters have been retired.
+      for (let t = 0; t < 20; t++) clock.advance(50);
+
+      const cells = firstCell().parent?.children ?? [];
+      expect(cells.filter((c) => c.visible)).toHaveLength(2);
+
+      for (let t = 0; t < 60; t++) clock.advance(50);
+      await done;
+    });
+
+    it('skips the stages under reduced motion, which never travels', async () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        exit: 'none',
+        hold: 100,
+        // A stage held on 'click' would never advance from a pose that does not move.
+        stages: [{ keep: (l) => l.column === 0, hold: 'click' }],
+      });
+      await flush();
+      clock.advance(16);
+
+      const cells = firstCell().parent?.children ?? [];
+      expect(cells.filter((c) => c.visible)).toHaveLength(4);
+
+      clock.advance(100);
+      await expect(done).resolves.toBeUndefined();
+    });
+
+    it('plays the top-level active while the opening phase holds', async () => {
+      const lift = { duration: 1000, offset: () => ({ position: [0, 1, 0] as Vec3 }) };
+
+      const bk = create();
+      void bk.fire('AB', {
+        enter: 'none',
+        active: lift,
+        exit: 'none',
+        hold: 1000,
+        blendMs: 0,
+        stages: [{ keep: (l) => l.index === 0, exit: 'none', hold: 10 }],
+      });
+      await flush();
+      clock.advance(500);
+
+      expect(firstCell().position.y).toBeCloseTo(1, 6);
+    });
+
+    it('leaves an effect with no stages behaving exactly as before', async () => {
+      const bk = create();
+      const done = bk.fire('NA\nEB', { enter: 'none', active: 'none', exit: 'none', hold: 100 });
+      await flush();
+      clock.advance(16);
+      const cells = (firstCell().parent?.children ?? []) as THREE.Group[];
+      const laidOut = cells.map((c) => [c.position.x, c.position.y]);
+
+      clock.advance(50);
+      // Nothing regroups, so every letter is still where the two-line block put it.
+      expect(cells.map((c) => [c.position.x, c.position.y])).toEqual(laidOut);
+      expect(cells.filter((c) => c.visible)).toHaveLength(4);
+
+      clock.advance(50);
+      expect(words()).toHaveLength(0);
+      await expect(done).resolves.toBeUndefined();
+    });
+  });
 });
 
 describe('holding until dismissed', () => {
@@ -616,6 +758,57 @@ describe('holding until dismissed', () => {
     await done;
 
     expect(attached()).toBe(0);
+  });
+
+  it('advances one stage per press, ending the effect only on the last', async () => {
+    const bk = create();
+    const done = bk.fire('NA\nEB', {
+      ...HELD,
+      stages: [{ keep: (l) => l.column === 0, exit: 'none', hold: 'click' }],
+    });
+    await flush();
+    clock.advance(1000);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    // Past the stage's move, so the survivors are in place and it is holding on its own.
+    clock.advance(1000);
+    await flush();
+
+    // The first press only ended the opening hold, and must not have detached the listeners.
+    expect(words()).toHaveLength(1);
+    expect(attached()).toBe(2);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    await done;
+
+    expect(words()).toHaveLength(0);
+    expect(attached()).toBe(0);
+  });
+
+  it('waits for the press a stage holds on, under a numeric top-level hold', async () => {
+    const bk = create();
+    const done = bk.fire('NA\nEB', {
+      enter: 'none',
+      active: 'none',
+      exit: 'none',
+      hold: 10,
+      stages: [{ keep: (l) => l.column === 0, exit: 'none', hold: 'click' }],
+    });
+    await flush();
+    clock.advance(60_000);
+    await flush();
+
+    // Nothing but a press ends that stage, so without listeners the effect never leaves the screen.
+    expect(attached()).toBe(2);
+    expect(words()).toHaveLength(1);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    await done;
+
+    expect(words()).toHaveLength(0);
   });
 
   it('a second press cannot cut the exit short', async () => {

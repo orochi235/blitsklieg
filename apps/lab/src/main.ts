@@ -380,6 +380,24 @@ const SEQUENCES: { name: string; steps: Step[] }[] = [
       },
     ],
   },
+  {
+    name: 'acrostic',
+    steps: [
+      {
+        text: 'NIGHT FALLS ON THE STREET\nEVERY WINDOW BURNS\nONLY THE SIGN KNOWS\nNOBODY READS IT',
+        enter: 'rise',
+        active: 'none',
+        exit: 'recede',
+        look: 'neon',
+        tint: (l) => (l.column === 0 ? 0x2df0ff : undefined),
+        hold: 'click',
+        stages: [
+          { keep: (l) => l.column === 0, exit: 'fade', as: 'stack', hold: 'click' },
+          { as: 'line', hold: 'click', tween: { duration: 900, delayBy: { scale: 0.45 } } },
+        ],
+      },
+    ],
+  },
 ];
 
 let playing = false;
