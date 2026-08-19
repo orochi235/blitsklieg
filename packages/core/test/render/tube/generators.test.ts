@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { generatePaths } from '../../../src/render/tube/generators.js';
+import { generateConnectors, generatePaths } from '../../../src/render/tube/generators.js';
 import { surfacesOf } from '../../../src/render/tube/surfaces.js';
 
 function square(): THREE.Shape {
@@ -11,6 +11,18 @@ function square(): THREE.Shape {
   s.lineTo(-0.5, 0.5);
   s.closePath();
   return s;
+}
+
+function ring(): THREE.Shape {
+  const outer = square();
+  const hole = new THREE.Path();
+  hole.moveTo(-0.2, -0.2);
+  hole.lineTo(-0.2, 0.2);
+  hole.lineTo(0.2, 0.2);
+  hole.lineTo(0.2, -0.2);
+  hole.closePath();
+  outer.holes.push(hole);
+  return outer;
 }
 
 const OPTS = { level: 0, spacing: 0.02, wallDepth: 0.5, resolution: 192, pad: 0.4 };
@@ -42,5 +54,58 @@ describe('generatePaths', () => {
     const surfaces = surfacesOf([square()], 0.3);
     const paths = generatePaths(surfaces, ['front', 'back'], OPTS);
     expect(new Set(paths.map((p) => p.surface))).toEqual(new Set(['front', 'back']));
+  });
+});
+
+describe('generateConnectors', () => {
+  it('emits nothing unless two surfaces are present', () => {
+    const surfaces = surfacesOf([square()], 0.3);
+    const frontOnly = generatePaths(surfaces, ['front'], OPTS);
+    expect(generateConnectors(frontOnly, { count: 3, overshoot: 0.05 })).toHaveLength(0);
+  });
+
+  it('joins front paths to back paths', () => {
+    const surfaces = surfacesOf([square()], 0.3);
+    const paths = generatePaths(surfaces, ['front', 'back'], OPTS);
+    const links = generateConnectors(paths, { count: 3, overshoot: 0.05 });
+    expect(links).toHaveLength(3);
+    for (const link of links) expect(link.surface).toBe('connector');
+  });
+
+  it('runs mostly along z', () => {
+    const surfaces = surfacesOf([square()], 0.3);
+    const paths = generatePaths(surfaces, ['front', 'back'], OPTS);
+    const link = generateConnectors(paths, { count: 1, overshoot: 0.05 })[0];
+    if (!link) throw new Error('no connector');
+    const a = link.points[0];
+    const b = link.points[link.points.length - 1];
+    if (!a || !b) throw new Error('empty connector');
+    expect(Math.abs(b.z - a.z)).toBeGreaterThan(Math.hypot(b.x - a.x, b.y - a.y));
+  });
+
+  it('overshoots past the back plane so the tube disappears into the backing', () => {
+    const surfaces = surfacesOf([square()], 0.3);
+    const paths = generatePaths(surfaces, ['front', 'back'], OPTS);
+    const link = generateConnectors(paths, { count: 1, overshoot: 0.05 })[0];
+    if (!link) throw new Error('no connector');
+    const zs = link.points.map((p) => p.z);
+    expect(Math.min(...zs)).toBeLessThan(0);
+  });
+
+  it('is open, not closed', () => {
+    const surfaces = surfacesOf([square()], 0.3);
+    const paths = generatePaths(surfaces, ['front', 'back'], OPTS);
+    for (const link of generateConnectors(paths, { count: 2, overshoot: 0.05 })) {
+      expect(link.closed).toBe(false);
+    }
+  });
+
+  it('emits count connectors per front path, not count total', () => {
+    const surfaces = surfacesOf([ring()], 0.3);
+    const paths = generatePaths(surfaces, ['front', 'back'], OPTS);
+    const frontPaths = paths.filter((p) => p.surface === 'front');
+    expect(frontPaths.length).toBe(2);
+    const links = generateConnectors(paths, { count: 3, overshoot: 0.05 });
+    expect(links).toHaveLength(3 * frontPaths.length);
   });
 });

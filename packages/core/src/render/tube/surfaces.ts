@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Point2 } from './field.js';
 import { pathLength, resample } from './resample.js';
 
-export type SurfaceKind = 'front' | 'back' | 'wall';
+export type SurfaceKind = 'front' | 'back' | 'wall' | 'connector';
 
 export interface FaceSurface {
   kind: 'front' | 'back';

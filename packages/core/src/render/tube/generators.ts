@@ -66,3 +66,47 @@ export function generatePaths(
 
   return out;
 }
+
+export interface ConnectorOptions {
+  /** How many connectors to emit per front path. */
+  count: number;
+  /** How far past the back plane the tube continues, in em. */
+  overshoot: number;
+}
+
+/**
+ * Short runs joining a front path to the back plane beneath it, travelling along z. Anchors are
+ * spaced evenly along the front path rather than placed at its ends, because the ends move
+ * whenever the run count changes and a connector that follows them would jump.
+ */
+export function generateConnectors(
+  paths: GeneratedPath[],
+  opts: ConnectorOptions,
+): GeneratedPath[] {
+  const front = paths.filter((p) => p.surface === 'front');
+  const back = paths.filter((p) => p.surface === 'back');
+  if (front.length === 0 || back.length === 0) return [];
+
+  const backZ = (back[0]?.points[0] as THREE.Vector3 | undefined)?.z ?? 0;
+  const out: GeneratedPath[] = [];
+
+  for (const path of front) {
+    if (path.points.length === 0) continue;
+    for (let k = 0; k < opts.count; k++) {
+      const anchor = path.points[
+        Math.floor((k / opts.count) * path.points.length)
+      ] as THREE.Vector3;
+      const frontZ = anchor.z;
+      out.push({
+        points: [
+          new THREE.Vector3(anchor.x, anchor.y, frontZ),
+          new THREE.Vector3(anchor.x, anchor.y, (frontZ + backZ) / 2),
+          new THREE.Vector3(anchor.x, anchor.y, backZ - opts.overshoot),
+        ],
+        surface: 'connector',
+        closed: false,
+      });
+    }
+  }
+  return out;
+}
