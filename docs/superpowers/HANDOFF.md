@@ -38,6 +38,35 @@ that do not exist:
 
 Both want a spec before code.
 
+## Blocking: three's tube sweep breaks on curved 3D paths
+
+**The tube cannot get thinner, and its depth variation cannot grow, until the sweep stops using
+Frenet frames.** `THREE.TubeGeometry` calls `path.computeFrenetFrames()`
+(`node_modules/three/src/geometries/TubeGeometry.js:66`), which is unstable along a curve that
+bends in three dimensions — the frame flips and the swept surface tears.
+
+Failure signature: long, continuously curved, cornerless runs degrade first; straight and short
+runs survive. `S` is the worst case in the alphabet and fails visibly. Thinner radius and larger
+depth amplitude each independently make it worse.
+
+`radius: 0.045` and depth `amplitude: 0.006` are the values that currently survive. **They are a
+floor imposed by this bug, not a chosen look** — the owner asked for a markedly thinner tube and
+could not have it.
+
+The fix is to sweep the geometry ourselves using parallel-transport (rotation-minimising) frames,
+which `THREE.TubeGeometry` does not expose. That is a bounded, well-documented algorithm and it
+unblocks both the thin tube and any larger depth wander.
+
+Second, related defect: `sweepRadius` in `sweep.ts` measures curvature on the flat x/y projection
+only, so it cannot see z-curvature at all. Now that runs vary in depth, the radius taper is reading
+the wrong curve.
+
+## The lab panel needs a layout pass
+
+It has grown into a single tall column of controls covering roughly a third of the canvas, so every
+screenshot loses part of the word and there is nowhere to put the diagnostics still to come. Split
+it into groups and use the available width.
+
 ## Queued behind tubing
 
 **`pyrite` is built on the wrong model and should be respecced before it is tuned.** The chunk
