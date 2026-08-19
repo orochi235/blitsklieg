@@ -82,11 +82,13 @@ describe('cutIntoRuns', () => {
     expect(runs).toHaveLength(4);
   });
 
-  it('drops runs under the floor', () => {
+  it('drops runs under the floor and keeps the rest', () => {
     const loose = cutIntoRuns([PATH(squarePath())], { runs: 20, minRun: 0 });
-    const floored = cutIntoRuns([PATH(squarePath())], { runs: 20, minRun: 0.3 });
+    const floored = cutIntoRuns([PATH(squarePath())], { runs: 20, minRun: 0.15 });
+    // Some must survive: a floor that drops everything satisfies the per-run assertion vacuously.
+    expect(floored.length).toBeGreaterThan(0);
     expect(floored.length).toBeLessThan(loose.length);
-    for (const run of floored) expect(run.length).toBeGreaterThanOrEqual(0.3);
+    for (const run of floored) expect(run.length).toBeGreaterThanOrEqual(0.15);
   });
 
   it('carries surface, length and index on every run', () => {
