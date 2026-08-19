@@ -1,16 +1,19 @@
 import { type Clock, RafClock } from './clock.js';
+import type { Easing } from './easing.js';
 import { ACTIVE } from './motion/active.js';
 import { type Slot, slotDrivesEnv, slotDuration, Timeline } from './motion/compositor.js';
 import { ENTER } from './motion/enter.js';
 import { EXIT } from './motion/exit.js';
-import type { ActiveName, EnterName, ExitName, MotionPiece } from './motion/types.js';
+import { Sequence } from './motion/sequence.js';
+import type { ActiveName, EnterName, ExitName, LetterInfo, MotionPiece } from './motion/types.js';
 import { EffectQueue, type QueuePolicy } from './queue.js';
 import { BloomPath } from './render/bloom.js';
 import { envRotationAt, LIGHTING, type LightingName } from './render/lighting.js';
 import { LOOKS, type Look, type LookName, type LookSpec, specOf } from './render/looks.js';
-import { prefersReducedMotion, Stage, webglSupported } from './render/stage.js';
+import { prefersReducedMotion, Stage as SceneStage, webglSupported } from './render/stage.js';
 import { Word } from './render/word.js';
 import { type LoadedFont, loadFont } from './text/font.js';
+import type { Arrangement } from './text/placement.js';
 import type { Transform } from './transform.js';
 
 export { ManualClock } from './clock.js';
@@ -49,6 +52,7 @@ export type {
   TubeSpec,
 } from './render/tube/index.js';
 export { ALL_BREAK, ALL_CONNECT } from './render/tube/index.js';
+export type { Arrangement } from './text/placement.js';
 export { compose, fromAxisAngle, fromEuler, type Transform } from './transform.js';
 export type {
   ActiveName,
@@ -144,6 +148,32 @@ export interface FireOptions {
   wrap?: boolean;
   /** Let the overlay swallow the dismissing click instead of passing it through to the page. */
   modal?: boolean;
+  /**
+   * Stages played after the enter, each regrouping what survives it. Advanced by the viewer when
+   * a stage holds on `'click'`. Ignored under reduced motion, which never travels.
+   */
+  then?: Stage[];
+}
+
+/** Timing for the move into a new layout. `scale` addresses the viewport fit, not letter size. */
+export interface TweenSpec {
+  duration?: number;
+  ease?: Easing;
+  /** Fraction of the move a channel waits before starting. */
+  delayBy?: { position?: number; scale?: number };
+}
+
+/** One regroup: some letters leave, the rest re-lay out and the effect carries on. */
+export interface Stage {
+  /** Letters that continue. The rest exit. Omitted keeps all of them. */
+  keep?: (letter: LetterInfo) => boolean;
+  /** How the letters that do not continue leave. */
+  exit?: ExitSlot;
+  /** Arrangement for the survivors' new layout. One line by default. */
+  as?: Arrangement;
+  active?: ActiveSlot;
+  hold?: number | 'click';
+  tween?: TweenSpec;
 }
 
 export interface Blitsklieg {
@@ -158,7 +188,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
   const supported = webglSupported();
   const clock = options.clock ?? new RafClock();
   const queue = new EffectQueue(options.policy ?? 'queue');
-  const stage = new Stage({
+  const stage = new SceneStage({
     target: options.target,
     idleTimeoutMs: options.idleTimeoutMs ?? 8000,
   });
@@ -204,16 +234,40 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
     const envDriven = slotDrivesEnv(active);
     const hold = opts.hold ?? 1200;
     const untilClick = hold === 'click';
+    const exit = resolveSlot(opts.exit ?? 'fade', EXIT);
+    const blendMs = opts.blendMs ?? 120;
     const timeline = new Timeline({
       enter,
       active,
-      exit: resolveSlot(opts.exit ?? 'fade', EXIT),
+      exit,
       hold: untilClick ? 'until-release' : (hold as number),
-      blendMs: opts.blendMs ?? 120,
+      blendMs,
     });
 
     // Reduced motion: hold the pose the enter settles into for `hold`, then leave. No travel.
     const still = prefersReducedMotion();
+
+    // Reduced motion never travels, so a regroup has nothing to play — and a stage held on
+    // 'click' would never advance from a clock this path pins to the settled pose.
+    const stages = still ? [] : (opts.then ?? []);
+    const sequence = stages.length
+      ? new Sequence({
+          enter,
+          stages: stages.map((s) => ({
+            keep: s.keep,
+            exit: resolveSlot(s.exit ?? 'fade', EXIT),
+            as: s.as,
+            active: resolveSlot(s.active ?? 'none', ACTIVE),
+            hold: s.hold ?? 1200,
+            tween: s.tween ?? {},
+          })),
+          exit,
+          hold: untilClick ? 'click' : (hold as number),
+          blendMs,
+          target: word,
+        })
+      : null;
+    const driver: Sequence | Timeline = sequence ?? timeline;
     const startedAt = clock.now();
 
     await new Promise<void>((resolve, reject) => {
@@ -235,11 +289,15 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
       const finish = () => settle(resolve);
 
       if (untilClick) {
+        // Not one-shot with stages: each dismissal advances one stage, and only the last ends it.
         const dismiss = () => {
           if (released) return;
-          released = true;
-          timeline.release(clock.now() - startedAt);
-          detachDismiss();
+          const since = clock.now() - startedAt;
+          driver.release(since);
+          if (!sequence || sequence.isFinished(since)) {
+            released = true;
+            detachDismiss();
+          }
         };
         // Capture on window catches the press in both modes; `modal` only decides whether the
         // canvas absorbs it on the way down or the page underneath sees it too.
@@ -267,8 +325,11 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
           // rAF reports the frame's start time, which can precede a now() sampled moments earlier.
           const since = now - startedAt;
           const settled = slotDuration(enter);
-          const elapsed = Math.min(Math.max(still ? settled : since, 0), timeline.duration);
-          word.apply(timeline, elapsed);
+          const raw = Math.max(still ? settled : since, 0);
+          const elapsed = sequence ? raw : Math.min(raw, timeline.duration);
+          // Ahead of the pose, or the fit and the phase advance both lag it by a frame.
+          sequence?.tick(elapsed);
+          word.apply(driver, elapsed);
 
           // A caller piece declaring envRotation wins: it is the more specific choice, and it
           // carries its own duration as the period.
@@ -285,7 +346,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
           }
 
           const stillDone = untilClick ? released : since >= (hold as number);
-          if (still ? stillDone : timeline.isFinished(since)) finish();
+          if (still ? stillDone : driver.isFinished(since)) finish();
         } catch (err) {
           // RafClock keeps a throwing subscriber subscribed, so a lost context would otherwise
           // throw every frame forever with the word still on a stage destroy() can never settle.

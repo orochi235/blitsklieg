@@ -488,6 +488,70 @@ describe('createBlitsklieg', () => {
       expect(bloom.dispose).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('then', () => {
+    it('plays a stage list and resolves once the whole thing has played', async () => {
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        exit: 'none',
+        hold: 10,
+        then: [{ keep: (l) => l.column === 0, exit: 'fade', as: 'line', hold: 10 }],
+      });
+      await flush();
+      for (let t = 0; t < 60; t++) clock.advance(50);
+
+      await expect(done).resolves.toBeUndefined();
+    });
+
+    it('regroups the survivors into the word they spell', async () => {
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        exit: 'none',
+        hold: 10,
+        then: [{ keep: (l) => l.column === 0, exit: 'fade', as: 'line', hold: 1000 }],
+      });
+      await flush();
+      // Past the stage boundary and its move, so the dropped letters have been retired.
+      for (let t = 0; t < 20; t++) clock.advance(50);
+
+      const cells = firstCell().parent?.children ?? [];
+      expect(cells.filter((c) => c.visible)).toHaveLength(2);
+
+      for (let t = 0; t < 60; t++) clock.advance(50);
+      await done;
+    });
+
+    it('skips the stages under reduced motion, which never travels', async () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      const bk = create();
+      const done = bk.fire('NA\nEB', {
+        enter: 'none',
+        exit: 'none',
+        hold: 100,
+        // A stage held on 'click' would never advance from a pose that does not move.
+        then: [{ keep: (l) => l.column === 0, hold: 'click' }],
+      });
+      await flush();
+      clock.advance(16);
+
+      const cells = firstCell().parent?.children ?? [];
+      expect(cells.filter((c) => c.visible)).toHaveLength(4);
+
+      clock.advance(100);
+      await expect(done).resolves.toBeUndefined();
+    });
+
+    it('leaves an effect with no stages behaving exactly as before', async () => {
+      const bk = create();
+      const done = bk.fire('AB', { enter: 'none', exit: 'none', hold: 10 });
+      await flush();
+      for (let t = 0; t < 30; t++) clock.advance(50);
+
+      await expect(done).resolves.toBeUndefined();
+    });
+  });
 });
 
 describe('holding until dismissed', () => {
@@ -615,6 +679,33 @@ describe('holding until dismissed', () => {
     bk.destroy();
     await done;
 
+    expect(attached()).toBe(0);
+  });
+
+  it('advances one stage per press, ending the effect only on the last', async () => {
+    const bk = create();
+    const done = bk.fire('NA\nEB', {
+      ...HELD,
+      then: [{ keep: (l) => l.column === 0, exit: 'none', hold: 'click' }],
+    });
+    await flush();
+    clock.advance(1000);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    // Past the stage's move, so the survivors are in place and it is holding on its own.
+    clock.advance(1000);
+    await flush();
+
+    // The first press only ended the opening hold, and must not have detached the listeners.
+    expect(words()).toHaveLength(1);
+    expect(attached()).toBe(2);
+
+    dispatch('pointerdown');
+    clock.advance(16);
+    await done;
+
+    expect(words()).toHaveLength(0);
     expect(attached()).toBe(0);
   });
 

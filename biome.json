@@ -2,7 +2,13 @@
   "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "javascript": { "formatter": { "quoteStyle": "single" } },
-  "linter": { "enabled": true, "rules": { "preset": "recommended" } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "suspicious": { "noThenProperty": "off" }
+    }
+  },
   "files": {
     "includes": [
       "**",

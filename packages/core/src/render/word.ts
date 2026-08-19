@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { blankPose, type Timeline } from '../motion/compositor.js';
+import { blankPose } from '../motion/compositor.js';
 import type { RegroupResult } from '../motion/sequence.js';
 import type { LetterInfo } from '../motion/types.js';
+import type { Pose } from '../pose.js';
 import type { LoadedFont } from '../text/font.js';
 import {
   buildGlyphGeometry,
@@ -399,7 +400,10 @@ export class Word {
     this.applyFit(this.fit);
   }
 
-  apply(timeline: Timeline, elapsed: number): void {
+  apply(
+    source: { poseAt(elapsed: number, letter: LetterInfo, out?: Pose): Pose },
+    elapsed: number,
+  ): void {
     if (this.disposed) return;
 
     for (let i = 0; i < this.letters.length; i++) {
@@ -407,7 +411,7 @@ export class Word {
       if (!cell) continue;
 
       // One scratch pose for the whole word; this loop runs per letter per frame.
-      const pose = timeline.poseAt(elapsed, this.letterInfo(i), this.pose);
+      const pose = source.poseAt(elapsed, this.letterInfo(i), this.pose);
       cell.position.x = (this.baseX[i] as number) + pose.position[0];
       cell.position.y = (this.baseY[i] as number) + pose.position[1];
       cell.position.z = pose.position[2];
