@@ -37,6 +37,16 @@ import {
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
 /**
+ * Offsets a material's flake field so repeated letters do not sparkle in lockstep. Every material
+ * a letter owns takes the same offset — body, tube and chunk alike — so a decoration whose look
+ * carries a flake spec breaks up along with the body it sits on.
+ */
+function seedFlake(material: THREE.Material, i: number): void {
+  const flake = material.userData.flake as FlakeUniforms | undefined;
+  if (flake) flake.uFlakeSeed.value = i * 17.13;
+}
+
+/**
  * Lab-only diagnostic hooks (see debug.ts). Word owns per-letter layout and the tube pipeline,
  * so a debug view has to plug in here rather than re-deriving either outside core. `createBlitsklieg`
  * never supplies one, so every real caller is unaffected.
@@ -207,7 +217,7 @@ export class Word {
     // A near-transparent backing still writes depth by default, which culls the tube drawn
     // behind it — the sign vanishes as the tube thins rather than being occluded by anything visible.
     material.depthWrite = (spec.opacity ?? 1) >= 1;
-    (material.userData.flake as FlakeUniforms).uFlakeSeed.value = i * 17.13;
+    seedFlake(material, i);
     this.bodyMaterials.push(material);
 
     const cell = new THREE.Group();
@@ -229,6 +239,7 @@ export class Word {
       // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
       // would cull that invisible.
       decorMaterial.side = THREE.DoubleSide;
+      seedFlake(decorMaterial, i);
       this.decorMaterials.push(decorMaterial);
 
       const darkOverride = debug?.tubeMaterial?.('dark');
@@ -236,6 +247,7 @@ export class Word {
       if (!darkOverride) applyLook(darkMaterial as THREE.MeshPhysicalMaterial, decoration.dark);
       darkMaterial.transparent = true;
       darkMaterial.side = THREE.DoubleSide;
+      seedFlake(darkMaterial, i);
       this.darkMaterials.push(darkMaterial);
 
       const shapes = glyphToShapes(font.font, char, EM);
@@ -253,6 +265,7 @@ export class Word {
       );
       decorMaterial.transparent = true;
       if (decoration.kind === 'chunks') decorMaterial.side = chunkGeometrySide(decoration.shape);
+      seedFlake(decorMaterial, i);
       this.decorMaterials.push(decorMaterial);
       this.darkMaterials.push(null);
 

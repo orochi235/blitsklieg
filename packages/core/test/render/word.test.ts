@@ -713,6 +713,35 @@ describe('flake seeding', () => {
 
     expect((a as THREE.Mesh).geometry).toBe((b as THREE.Mesh).geometry);
   });
+
+  it('gives a decoration material the same per-letter seed the body gets', () => {
+    const FLAKED_TUBE: LookSpec = {
+      decoration: {
+        kind: 'tube',
+        radius: 0.04,
+        segments: 8,
+        spacing: 0.03,
+        surfaces: ['front'],
+        level: 0,
+        runs: 4,
+        minRun: 0,
+        select: { by: 'seed', amount: 1 },
+        colors: [0xff2d95],
+        look: { flake: { size: 0.02, density: 0.5, spread: 0.3 } },
+        dark: {},
+      },
+    };
+    const word = new Word('AA', stubFont(), FLAKED_TUBE, ROOMY);
+    const [a, b] = groups(word);
+    // children[0] is the body; the decoration meshes follow it.
+    const decorSeed = (cell: THREE.Group) =>
+      (
+        ((cell.children[1] as THREE.Mesh).material as THREE.MeshPhysicalMaterial).userData
+          .flake as FlakeUniforms
+      ).uFlakeSeed.value;
+
+    expect(decorSeed(a as THREE.Group)).not.toBe(decorSeed(b as THREE.Group));
+  });
 });
 
 describe('LetterInfo position', () => {
