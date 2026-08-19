@@ -97,6 +97,9 @@ function rasterise(polygons: Point2[][], size: number, toGrid: (p: Point2) => Po
 }
 
 export function signedDistanceField(polygons: Point2[][], opts: FieldOptions): Field {
+  if (polygons.length === 0) {
+    throw new Error('signedDistanceField: polygons must be non-empty');
+  }
   const { resolution: size, pad } = opts;
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;

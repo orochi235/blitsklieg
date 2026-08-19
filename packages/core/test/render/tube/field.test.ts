@@ -11,6 +11,19 @@ function square(): { x: number; y: number }[] {
   ];
 }
 
+/** A square ring: a 1x1 outer square with a 0.3x0.3 hole, as two polygons like an 'O'. */
+function ring(): { x: number; y: number }[][] {
+  return [
+    square(),
+    [
+      { x: -0.15, y: -0.15 },
+      { x: 0.15, y: -0.15 },
+      { x: 0.15, y: 0.15 },
+      { x: -0.15, y: 0.15 },
+    ],
+  ];
+}
+
 describe('signedDistanceField', () => {
   it('is negative inside and positive outside', () => {
     const f = signedDistanceField([square()], { resolution: 128, pad: 0.4 });
@@ -23,6 +36,17 @@ describe('signedDistanceField', () => {
     // collapses to zero everywhere, which is the failure this pins.
     const f = signedDistanceField([square()], { resolution: 256, pad: 0.4 });
     expect(f.sample(0, 0)).toBeCloseTo(-0.5, 1);
+  });
+
+  it('cuts a hole with even-odd fill across multiple contours', () => {
+    // A glyph counter (the hole in O, B, A, D, P, Q, R) is a second polygon inside the first.
+    const f = signedDistanceField(ring(), { resolution: 256, pad: 0.4 });
+    expect(f.sample(0, 0)).toBeGreaterThan(0); // hole centre: outside
+    expect(f.sample(0.3, 0)).toBeLessThan(0); // ring between the two squares: inside
+  });
+
+  it('throws on an empty polygon list instead of returning a garbage field', () => {
+    expect(() => signedDistanceField([], { resolution: 128, pad: 0.4 })).toThrow();
   });
 });
 
@@ -39,5 +63,10 @@ describe('isoContours', () => {
     const f = signedDistanceField([square()], { resolution: 256, pad: 0.4 });
     expect(isoContours(f, -0.4).length).toBe(1);
     expect(isoContours(f, -0.6).length).toBe(0);
+  });
+
+  it('returns two loops for a ring, one per boundary', () => {
+    const f = signedDistanceField(ring(), { resolution: 256, pad: 0.4 });
+    expect(isoContours(f, 0)).toHaveLength(2);
   });
 });
