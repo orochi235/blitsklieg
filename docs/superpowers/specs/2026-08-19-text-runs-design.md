@@ -1,149 +1,159 @@
 # Text runs — design
 
-**What:** spans of text carrying their own look, motion pieces that apply to some letters and not
-others, and a gather that collects the survivors into a word.
+**What:** letters that survive a partial exit, regroup into a new word, and carry their own colour.
 **For:** whoever implements this in `@blitsklieg/core`.
-**Answers:** how a caller styles part of a string, how a piece addresses a subset of letters, and
-what a letter needs to know to travel somewhere absolute.
-
-**Status: draft, written without the owner.** Four decisions were made alone and are marked
-**[OPEN]**. They are the ones worth overturning before anyone writes code.
+**Answers:** what a regroup is, how a caller drives one, and how a letter gets its colour.
 
 ## The target
 
-An acrostic. Each line of a poem has its first letter in its own colour. On command, everything
-except those letters exits; the first letters then travel to the centre of the screen and combine
-into a word.
-
-That one effect needs three things that do not exist, and they are independent enough to ship
-separately.
+An acrostic. Each line of a poem has its first letter in its own colour. The viewer clicks;
+everything except those letters exits, and the first letters gather into a word.
 
 ## What already exists
 
-More than it first appears.
-
 Per-letter materials landed in 0.4.0, so nothing in the renderer prevents two letters differing.
-`LetterInfo` — `index`, `count`, `line`, `column`, `lineCount`, `columnCount` — is already passed to
-every `MotionPiece.offset(t, letter)` call, so a piece can already behave differently per letter and
-return a zero offset for letters it does not want. `PoseOffset` is an offset onto a letter's layout
-position, not an absolute, so pieces compose.
+`LetterInfo` — `index`, `count`, `line`, `column`, `lineCount`, `columnCount` — already reaches
+every `MotionPiece.offset(t, letter)` call, so a piece can already behave differently per letter.
+`hold: 'click'` already means "wait for the viewer."
 
-What is missing is a way for a caller to *say* which letters, and a way for a letter to know where
-it actually is.
+What is missing is a letter's laid-out position, and any notion of the word changing what it says.
+
+## Groups and regroup
+
+A word is a group of letters with a layout. A **regroup** takes a predicate over the group, exits
+the letters that fail it, and makes the survivors a new group whose layout is the existing layout
+code re-run over their own glyphs.
+
+Letters keep their identity across a regroup — same mesh, same material — so a letter's colour
+travels with it. `LetterInfo` is re-derived from the new group: `index`, `count`, `line`, `column`
+and `x`/`y` all describe the new word. `span` is the exception. It records where a letter came
+from, not where it sits, so it survives every regroup. That asymmetry is the trap in this feature
+and it wants its own test.
+
+Because the new layout runs the same code over the survivors' glyphs, arranging them as a line
+costs no more than arranging them as a column. There is no cheap version to ship first.
+
+A regroup is not a `MotionPiece`. A piece returns an offset from a letter's laid-out position and
+sees one letter at a time, so it can neither know where the other survivors are nor change what the
+layout says. Reaching for a `gather` piece is the natural first move and it dead-ends.
+
+## Stages
+
+`FireOptions` gains `then`, a list of stages played in order after the enter:
+
+```ts
+interface Stage {
+  /** Letters that continue. The rest exit. Omitted means all of them. */
+  keep?: (letter: LetterInfo) => boolean;
+  /** How the letters that do not continue leave. */
+  exit?: ExitSlot;
+  /** Arrangement for the survivors' new layout. Omitted leaves the layout alone. */
+  as?: 'line' | 'stack';
+  active?: ActiveSlot;
+  hold?: number | 'click';
+  tween?: TweenSpec;
+}
+```
+
+```ts
+fire(poem, {
+  enter: 'rise', look: 'neon', hold: 'click',
+  then: [
+    { keep: l => l.column === 0, exit: 'fade', as: 'stack', hold: 'click' },
+    { as: 'line', hold: 'click' },
+  ],
+  exit: 'shatter',
+});
+```
+
+`as` names an arrangement, never a string. The survivors already are those glyphs; naming the text
+a second time introduces a mismatch nothing can check.
+
+The stage list is data, and the trigger is the viewer. A host page that needs to drive a regroup
+from its own events needs a handle out of `fire()` before the effect ends — deferred, below.
+
+## Tweens
+
+Moving into a new layout is one tween per letter, from its current pose to its new laid-out pose.
+A `TweenSpec` is a duration, an easing, and a per-channel delay. Channels are timed independently:
+position leads, scale follows after a delay, so the word arrives before it resizes to fill the
+viewport. `TransitionSpec` already carries `easeBy` for per-channel easing, and the delay is the
+same idea one field further, so both live on `transition()`.
+
+Timing belongs in the tween, not in the sequencer. A stage should be a target state plus timing,
+so that nothing needs a rule about which properties may change in which phase. That is the shape
+the eventual general property-tween model grows from.
+
+## Colour
+
+```ts
+tint?: number | ((letter: LetterInfo) => number | undefined);
+```
+
+The function is consulted first and may return `undefined`, meaning "not mine." Colour then falls
+through to the letter's span tint, then the call's `tint`, then the look's own colour. Every source
+has a place in one cascade, so there is no precedence to argue later.
+
+For an acrostic the rule is `l => (l.column === 0 ? 0xff2d6f : undefined)` — one field where spans
+would take eight runs.
 
 ## Spans
 
-`fire()` takes `text: string`. It also accepts an array of spans:
+Spans are the next piece of work, not this one, but the seam is cut for them now.
 
 ```ts
 interface TextRun {
   text: string;
-  look?: Look;
   tint?: number;
 }
 
 fire(text: string | TextRun[], options?: FireOptions): Promise<void>
 ```
 
-Spans concatenate in order to form the string that gets laid out — layout, wrapping and line
-breaking are unchanged and unaware of spans. Each letter records the index of the span it came
-from. `Word` already builds one material per letter; it now builds that material from the span's
-`look` and `tint` where given, falling back to the call's own.
+Runs concatenate in order to form the string that gets laid out. Layout, wrapping and line breaking
+stay span-unaware. Each letter records its run's index as `LetterInfo.span`, which is what survives
+a regroup.
 
-**[OPEN 1] Representation.** An array of objects, versus markup inside the string (`"[red]N[/]eon"`),
-versus a parallel array of styles. The array is the least magic and needs no parser or escaping
-rules, and a string with markup cannot carry a whole `Look` object. It is also the most verbose to
-write by hand for something like an acrostic, where the pattern is regular.
+## What changes in core
 
-**[OPEN 2] Whether a span may change `look` at all, or only `tint`.** A different `look` per span
-means different materials, different decoration geometry, possibly bloom on for one span and not
-another — and `bloom` is a whole-frame pass, not per letter. Tint-only is a much smaller change and
-covers the acrostic. Allowing `look` is the more general answer and the one that matches "spans
-carrying their own look" as originally stated.
-
-## Addressing letters
-
-`LetterInfo` gains the span index:
-
-```ts
-span?: number;
-```
-
-That is enough for a piece to select: a piece that exits everything except the first letter of each
-line checks `letter.span` (or `letter.column === 0`) and returns a zero offset otherwise.
-
-Rather than leave every caller writing that branch, ship a combinator:
-
-```ts
-only(piece: MotionPiece, where: (letter: LetterInfo) => boolean): MotionPiece
-```
-
-It wraps a piece so it applies where the predicate holds and is inert elsewhere. Built-in names
-compose with it, so `only(EXIT.shatter, l => l.span !== 0)` is the acrostic's exit without any new
-exit piece being written.
-
-**[OPEN 3] Where selection lives.** A combinator over pieces, as above, versus a `where` field on
-the slot in `FireOptions`, versus letting each piece read `letter.span` itself. The combinator keeps
-`FireOptions` unchanged and composes with layering, since a slot already accepts an array of pieces.
-
-## Absolute travel
-
-This is the part with a genuine hole.
-
-`PoseOffset` is an offset onto the letter's laid-out position, which is what makes pieces compose
-and what stops a stagger from collapsing the word. But a letter cannot currently compute *where it
-is*, so it cannot compute the offset that would take it somewhere absolute. A gather needs exactly
-that: every surviving letter must move to a shared destination, which is a different offset for each
-one.
-
-`LetterInfo` gains the letter's laid-out position, in em, relative to the block's centre:
-
-```ts
-/** Layout position in em, relative to the block centre. Add the negation to travel to the centre. */
-x: number;
-y: number;
-```
-
-`Word` already computes these — `baseX` and `baseY`, after the per-line centring shift. They are
-simply never handed to the motion system.
-
-With that, a gather is an ordinary piece: interpolate each letter from its own position toward a
-shared target, and it needs no privileged access to anything.
-
-**[OPEN 4] What "combine into a word" means precisely.** Letters arriving at one point overlap. The
-acrostic wants them to form a readable word, which means they must arrive at *different* points —
-laid out as a new word, in span order, centred. That is a second layout pass over a subset of the
-letters, which is more than a motion piece can do with an offset alone: the destination depends on
-the widths of the other survivors. Either `Word` computes the gathered layout and exposes each
-letter's destination through `LetterInfo`, or the gather is a distinct mechanism rather than a
-`MotionPiece`.
-
-This is the one that most needs deciding before code, because it decides whether gather is a piece
-or a new concept.
+- `LetterInfo` gains `x` and `y`: layout position in em, relative to the block centre. `Word`
+  computes these as `baseX`/`baseY` after the per-line centring shift and never passes them on.
+- Layout gains a re-run over a subset of an existing word's letters.
+- `Timeline` gains the stage sequencer.
+- `transition()` gains per-channel delay.
 
 ## Testing
 
-Vitest has no GL context, so the GL-free assertions are:
+Vitest has no GL context. The GL-free assertions:
 
-- Spans concatenate to the same string the plain form lays out, and produce identical layout.
-- A letter's `span` index matches the span its character came from, across a wrap and a newline.
-- Per-span `tint` reaches that letter's material and no other's.
-- `only()` returns a zero offset outside its predicate and the wrapped piece's offset inside it.
-- `LetterInfo.x`/`y` match `Word`'s computed layout positions, including the per-line centring.
-- A letter at the block centre gets `x === 0`.
-- Gather: every selected letter's final pose lands on its destination, and unselected letters are
-  untouched.
+- `x`/`y` match `Word`'s computed positions, including the per-line centring shift; a letter at the
+  block centre gets `x === 0`.
+- A regrouped layout equals laying out the survivors' string directly.
+- `span` survives a regroup while `index`, `line` and `column` are re-derived.
+- `keep` selects, and the letters it rejects are gone from the following stage.
+- The tint cascade, including a function returning `undefined` falling through.
+- A click advances one stage and no more.
+- A per-channel delay holds its channel at rest for the delay, then moves it.
 
-Visual verification is the acrostic itself in the lab.
+Visual verification is the acrostic in the lab.
 
 ## Deferred
 
-**Per-span motion.** A span carrying its own enter or exit, rather than only its own look. The
-combinator covers the acrostic; per-span slots are a bigger API question.
+**A host-driven handle.** `fire()` returning something that exposes the stage advance, for a page
+that triggers a regroup from its own events rather than a click.
 
-**Bloom per span.** Bloom is a whole-frame pass. A span asking for bloom would have to promote it
-for the entire effect, which is surprising enough that it should stay out until someone wants it.
+**Per-span `look`, and bloom per span.** A different `look` per span means different materials and
+different decoration geometry per letter; `bloom` is a whole-frame pass and cannot be per-letter at
+all, so a span asking for it would promote it for the whole effect.
 
-**Rich text.** Line breaks, alignment and wrapping already exist and are span-unaware, which is
-correct. Anything beyond runs of style — inline sizing, baseline shifts, mixed fonts — is a
-different project.
+**The general property-tween model.** Every event a stage can cause — layout change, fit change,
+colour change — expressed as a target value plus timing, tweened uniformly.
+
+**Rich text.** Inline sizing, baseline shifts, mixed fonts. A different project.
+
+## Order of work
+
+1. Regroup, stages and tween timing — everything above except spans.
+2. Spans.
+
+Both want a fresh branch off `main`, after `neon-tubing` merges.
