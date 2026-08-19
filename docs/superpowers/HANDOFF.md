@@ -23,18 +23,38 @@ already supports. Spans are deliberately second, in their own plan afterwards.
 
 ### Progress
 
-**All nine tasks are done.** 547 tests green, `npm run check` clean, 22 commits ahead of `main`,
-unmerged and unpushed. The acrostic plays in the lab under the `acrostic` sequence button.
+**All nine tasks are done, plus a whole-branch review and its fixes.** 561 tests green,
+`npm run check` clean, 27 commits ahead of `main`, unmerged and unpushed. The acrostic plays in the
+lab under the `acrostic` sequence button.
+
+The public field is `FireOptions.stages`, not `then` — renamed after review, which also restored
+biome's `noThenProperty` rule repo-wide.
 
 What landed, in order: layout arithmetic extracted to a pure `text/placement.ts`; `LetterInfo`
 carrying `x`/`y`/`leaving`; a per-channel `delayBy` on `transition()`; `Word.regroup()` with the
 fit tween; a `partition()` combinator; the `Sequence` stage runner; `FireOptions.stages`; `tint` as
 a per-letter rule; the lab demo and README docs.
 
-### Still open
+### What the whole-branch review found
 
-- **No final whole-branch review.** Each task was reviewed as it landed, but nothing has looked at
-  the nine commits together.
+Three reviewers ran over `3897483..b994919` — integration, API surface, and test adequacy by
+mutation. Everything they raised at Critical or Important is fixed. Worth keeping:
+
+- **A numeric top-level `hold` with a click-holding stage hung forever** — no listener was ever
+  attached, so there was no way to dismiss it and the queue was poisoned for the life of the page.
+  Listener attachment is now derived from any phase that can wait for a press.
+- **A stage's exit sits in a `Timeline`'s enter slot**, and the blend machinery assumes an enter
+  slot relaxes to rest — so a dropped letter was partly *un-exited* over the last half-blend.
+  Retire now happens before the blend can reach it, with the slot padded so a long exit still
+  finishes. Complementary blend weights hold an additive channel but not a multiplicative one, so
+  holding the final pose does not fix it.
+- **Compatibility is proven, not asserted:** 3,240 configurations × 41 frames against the
+  pre-branch tree, zero mismatches, including the per-letter seed indices no test can observe.
+- **Mutation testing found every gap at a module seam**, never in the core. The worst was that the
+  line giving each stage its own clock could be deleted with the suite green, because every test
+  used a near-zero opening phase. All eleven are closed with tests proven to die under mutation.
+
+### Still open
 - **The lab's corner panels render over the type.** The grown word reaches into the `tube` panel's
   column and the panel is opaque at `z-index: 10`, so it eats part of the first `N`. Same effect
   clips the poem's first line against the `scene` panel. This is the lab layout pass, already
