@@ -24,21 +24,21 @@ removed and yaw/pitch/roll sliders added.
 
 ## Next, after tubing lands
 
-**Text runs, for an acrostic.** The target is a poem with each line's first letter in its own
-colour; on command everything else exits, and the first letters travel to the centre and combine
-into a word.
+**Text runs, for an acrostic.** A poem with each line's first letter in its own colour; the viewer
+clicks, everything else exits, and the first letters gather into a word.
 
-A draft spec is at `docs/superpowers/specs/2026-08-19-text-runs-design.md`, written without the
-owner. It carries four decisions marked **[OPEN]** that want confirming before code. The one that
-matters most: letters gathering to a single point overlap, so "combine into a word" means laying
-them out as a new word — a second layout pass over a subset, where each letter's destination
-depends on the widths of the other survivors. A `MotionPiece` returns an offset and cannot see
-that, so this decides whether gather is a piece or a new concept.
+The spec at `docs/superpowers/specs/2026-08-19-text-runs-design.md` is settled with the owner. The
+shape it landed on is **regrouping**: survivors leave their old group and become a new group whose
+layout is the existing layout code re-run over their own glyphs. That makes the readable-word
+version no more expensive than a cheap collapse, and it rules out the natural first move — a
+`gather` motion piece cannot see the other survivors or change what the layout says.
 
-The spec also finds that less is missing than it looked: per-letter materials already exist, and
-`LetterInfo` already reaches every motion piece, so a piece can already select letters. The real
-hole is that a letter does not know its own laid-out position, so nothing can compute travel to an
-absolute destination. `Word` has those numbers as `baseX`/`baseY` and simply never passes them on.
+Stages are data on `FireOptions` (`then: Stage[]`), advanced by the viewer's click, which
+`hold: 'click'` already supports. Colour is a `tint` function cascading into span tint. Spans are
+deliberately second, immediately after.
+
+Work splits in two: regroup + stages + tween timing, then spans. Both off a fresh branch from
+`main`.
 
 ## Not done on this branch
 
