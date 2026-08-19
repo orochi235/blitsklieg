@@ -4,6 +4,7 @@ import {
   buildChunkBlueprint,
   buildTubeBlueprint,
   type ChunkSpec,
+  chunkGeometrySide,
   chunkMatrices,
   type TubeSpec,
 } from '../../src/render/decoration.js';
@@ -242,6 +243,15 @@ describe('chunkMatrices', () => {
     expect(spread(1)).toBeLessThan(spread(0));
   });
 
+  it('never places two chunks on one sample point', () => {
+    const spec = { ...CHUNKS, count: 90, cluster: 0 };
+    const matrices = chunkMatrices(buildChunkBlueprint(box()), spec, 3);
+    const at = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m);
+    const distinct = new Set(matrices.map((m) => at(m).toArray().join(',')));
+
+    expect(distinct.size).toBe(spec.count);
+  });
+
   it('sits chunks proud of the surface', () => {
     const blueprint = buildChunkBlueprint(box());
     const flush = chunkMatrices(blueprint, { ...CHUNKS, proud: 0 }, 3);
@@ -249,5 +259,15 @@ describe('chunkMatrices', () => {
 
     const at = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m).length();
     expect(at(raised[0] as THREE.Matrix4)).toBeGreaterThan(at(flush[0] as THREE.Matrix4));
+  });
+});
+
+describe('chunkGeometrySide', () => {
+  it('renders a flake from both sides', () => {
+    expect(chunkGeometrySide('flake')).toBe(THREE.DoubleSide);
+  });
+
+  it('leaves a closed cube front-sided', () => {
+    expect(chunkGeometrySide('cube')).toBe(THREE.FrontSide);
   });
 });

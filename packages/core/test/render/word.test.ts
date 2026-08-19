@@ -402,6 +402,25 @@ describe('Word', () => {
     expect(spy).toHaveBeenCalled();
   });
 
+  it('renders flake chunks from both sides so tumbled ones stay visible', () => {
+    const flakes: LookSpec = {
+      decoration: {
+        kind: 'chunks',
+        count: 8,
+        size: 0.05,
+        shape: 'flake',
+        align: 0,
+        cluster: 0,
+        proud: 0.4,
+        look: {},
+      },
+    };
+    const word = new Word('A', stubFont(), flakes, ROOMY);
+    const instanced = (groups(word)[0] as THREE.Group).children[1] as THREE.InstancedMesh;
+
+    expect((instanced.material as THREE.Material).side).toBe(THREE.DoubleSide);
+  });
+
   it('frees the instance buffer a chunk decoration allocates', () => {
     const chunks: LookSpec = {
       decoration: {

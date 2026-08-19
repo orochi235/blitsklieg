@@ -14,6 +14,7 @@ import {
   buildChunkBlueprint,
   buildTubeBlueprint,
   chunkGeometry,
+  chunkGeometrySide,
   chunkMatrices,
 } from './decoration.js';
 import type { FlakeUniforms } from './flake.js';
@@ -124,6 +125,8 @@ export class Word {
             tintMaterialOf(spec) === 'decoration' ? tint : undefined,
           );
           decorMaterial.transparent = true;
+          if (decoration.kind === 'chunks')
+            decorMaterial.side = chunkGeometrySide(decoration.shape);
           this.decorMaterials.push(decorMaterial);
 
           const blueprint = this.decorCache.get(g.char, DEFAULT_GLYPH_OPTIONS.depth);

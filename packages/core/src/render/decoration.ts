@@ -318,6 +318,9 @@ export function chunkMatrices(
       }
       index = near[Math.floor(random() * near.length)] ?? index;
     }
+    // Probing rather than redrawing: an exhausted pool then degrades to a repeat instead of
+    // spinning, and the walk cannot desynchronize the seeded draw sequence.
+    for (let probe = 0; taken.has(index) && probe < pool; probe++) index = (index + 1) % pool;
     chosen.push(index);
     taken.add(index);
   }
@@ -347,4 +350,9 @@ export function chunkMatrices(
 
 export function chunkGeometry(shape: ChunkSpec['shape']): THREE.BufferGeometry {
   return shape === 'cube' ? new THREE.BoxGeometry(1, 1, 1) : new THREE.PlaneGeometry(1, 1);
+}
+
+/** A flake is one open quad, so culling its back face hides every chunk that tumbled away. */
+export function chunkGeometrySide(shape: ChunkSpec['shape']): THREE.Side {
+  return shape === 'cube' ? THREE.FrontSide : THREE.DoubleSide;
 }

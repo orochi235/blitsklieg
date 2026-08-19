@@ -5,14 +5,14 @@ decision is.
 
 ## State
 
-PR https://github.com/orochi235/blitsklieg/pull/1 — `decoration-layer` → `main`, 28 commits, open
-and unreviewed. Branch is pushed and the tree is clean. `main` is at `9b3b673` (v0.3.1).
+PR https://github.com/orochi235/blitsklieg/pull/1 — `decoration-layer` → `main`. Reviewed as one
+diff; two findings fixed on the branch. `main` is at `9b3b673` (v0.3.1).
 
 Worktree: `/Users/mike/src/blitsklieg/.claude/worktrees/core-v0`. The shared checkout at
 `/Users/mike/src/blitsklieg` has `main` checked out — git operations from the worktree cannot
 target it.
 
-Green: `npm run check` (396 tests), `npm run test:visual` (22 baselines).
+Green: `npm run check` (400 tests), `npm run test:visual` (22 baselines).
 
 Ships `@blitsklieg/core` 0.4.0: `tubing`, `piping`, `sequin`, `pyrite`, and per-letter materials.
 What it does and why is in the spec and the CHANGELOG; do not re-read it from here.
@@ -30,15 +30,38 @@ conversation and are worth not losing:
 - The levers wanted are **which edges get piped, how continuous each run is, and how many colors**.
   Those are selection and splitting over whatever paths the generator produces, and they are
   independent of how the paths are computed.
+- Tube resolution is currently **accidental**, and the respec should not carry it forward.
+  `CONTOUR_SEGMENTS = 48` reaches `Shape.getPoints()`, which in three means divisions *per curve*,
+  with straight lines fixed at 1 — so `S` yields 1253 contour points and `L` yields 7. Straight-sided
+  glyphs round into blobs, curved ones over-tessellate ~175×. Resample to fixed arc-length spacing.
 - The path computation should be a **signed distance field over the flattened silhouette**, not
   polygon offsetting. One field yields every path shape involved, and a level set cannot
   self-intersect.
+- Tubing needs an **off-axis debug view** — head-on hides the tube's cross-section, and idle yaw is
+  only ~0.1 rad. Wanted eventually: a contact sheet of several viewpoints around the word, not one
+  fixed angle. Build it by rotating the model between captures rather than by placing N cameras:
+  `viewportBudget()` treats `camera.position.z` as the distance to the word plane, so any off-axis
+  camera drifts the fit until that is reworked, while `word.group` takes a yaw directly. Deferred.
 
 **`sequin` and `piping` are landed untuned, by decision.** Both have starting values, not chosen
-ones. `sequin`'s flakes go near-black (metalness 1 at roughness 0.08 facing away from the key
-light) so 90 chunks read as far fewer; `piping`'s cord is largely occluded front-on at radius
-0.03. Every decoration parameter has a lab slider — `npm run dev -w @blitsklieg/lab`, then
+ones. `sequin`'s flakes still go near-black (metalness 1 at roughness 0.08 facing away from the key
+light); `piping`'s cord is largely occluded front-on at radius 0.03. Every decoration parameter has a lab slider — `npm run dev -w @blitsklieg/lab`, then
 re-record baselines. No code change needed.
+
+## Open review findings
+
+The whole-branch review landed seven. Fixed on the branch: flake chunks were `FrontSide` so ~half
+were culled (and popped in and out under rotation), and the non-clustered draw ignored `taken` so
+5–7 of 90 sequins stacked. The rest are still open, all low:
+
+- ~30% of the chunk sample pool sits on the back cap, so `sequin` builds ~1.4× the instances it
+  shows front-on (`decoration.ts:227`).
+- `decorMaterial` never gets the per-letter flake seed that body materials get, so a decoration
+  `flake` spec would sparkle in lockstep. Latent — no built-in look hits it (`word.ts:127`).
+- `insetContour` discards the **whole contour** when a single vertex's bisector degenerates, and the
+  result is indistinguishable from the deliberate too-thin rejection (`decoration.ts:74`).
+- The lab's bloom checkbox is one-way for `neon` and `tubing`: unchecking it no longer removes
+  bloom, and nothing in the UI says so (`apps/lab/src/main.ts:228`).
 
 ## Traps
 
