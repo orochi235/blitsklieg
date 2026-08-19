@@ -17,41 +17,17 @@ function closedLength(line: Point2[]): number {
   return total;
 }
 
-function maxSegment(line: Point2[]): number {
-  let max = 0;
-  for (let i = 0; i < line.length; i++) {
-    max = Math.max(max, dist(line[i] as Point2, line[(i + 1) % line.length] as Point2));
-  }
-  return max;
-}
-
-/** One round of Chaikin corner-cutting on a closed loop: each edge becomes two points at 1/4 and 3/4. */
-function chaikin(line: Point2[]): Point2[] {
-  const out: Point2[] = [];
-  for (let i = 0; i < line.length; i++) {
-    const a = line[i] as Point2;
-    const b = line[(i + 1) % line.length] as Point2;
-    out.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
-    out.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
-  }
-  return out;
-}
-
 /**
  * Even arc-length spacing on a closed contour, so point count tracks length rather than how a
- * curve was authored. Point count is fixed by the input's own edge length before any refining, so
- * it stays stable across input resolutions; corner-cutting first keeps the walk from inheriting
- * sharp elbows where input vertices are spaced coarser than `spacing`.
+ * curve was authored. Point count is fixed by the input's own edge length, so it stays stable
+ * across input resolutions. This walks the input polyline as-is: corners survive exactly, because
+ * a later stage detects them to decide where tube runs split.
  */
 export function resample(line: Point2[], spacing: number): Point2[] {
   if (line.length < 2) return line.slice();
   const n = Math.max(8, Math.round(closedLength(line) / spacing));
 
-  let refined = line;
-  // Each round halves the worst segment; 10 rounds covers any spacing mismatch this pipeline sees.
-  for (let i = 0; i < 10 && maxSegment(refined) > spacing; i++) refined = chaikin(refined);
-
-  const pts = refined.concat([refined[0] as Point2]);
+  const pts = line.concat([line[0] as Point2]);
   const seg: number[] = [];
   let total = 0;
   for (let i = 1; i < pts.length; i++) {
@@ -79,14 +55,21 @@ export function resample(line: Point2[], spacing: number): Point2[] {
   return out;
 }
 
-/** Closed three-tap smoothing. Marching squares emits staircase noise at grid scale. */
-export function smooth(line: Point2[], passes: number): Point2[] {
+/**
+ * Three-tap smoothing; marching squares emits staircase noise at grid scale. `mode: 'closed'`
+ * wraps around the loop; `'open'` holds both endpoints fixed instead of dragging them toward
+ * each other, for a run that has already been cut at its corners.
+ */
+export function smooth(line: Point2[], passes: number, mode: 'open' | 'closed'): Point2[] {
   let cur = line;
   for (let p = 0; p < passes; p++) {
     cur = cur.map((_, i) => {
-      const a = cur[(i - 1 + cur.length) % cur.length] as Point2;
       const b = cur[i] as Point2;
-      const c = cur[(i + 1) % cur.length] as Point2;
+      if (mode === 'open' && (i === 0 || i === cur.length - 1)) return b;
+      const prevIdx = mode === 'closed' ? (i - 1 + cur.length) % cur.length : i - 1;
+      const nextIdx = mode === 'closed' ? (i + 1) % cur.length : i + 1;
+      const a = cur[prevIdx] as Point2;
+      const c = cur[nextIdx] as Point2;
       return { x: a.x * 0.25 + b.x * 0.5 + c.x * 0.25, y: a.y * 0.25 + b.y * 0.5 + c.y * 0.25 };
     });
   }
