@@ -25,8 +25,9 @@ removed and yaw/pitch/roll sliders added.
 ## Not done on this branch
 
 - **The visual baseline has never been re-recorded.** `look-tubing-darwin.png` and
-  `look-piping-darwin.png` still show the pre-rewrite look. Do not re-record until the sweep is
-  fixed, or the baseline captures the defect below.
+  `look-piping-darwin.png` still show the pre-rewrite look. The sweep is fixed now (see below), so
+  re-recording is unblocked — but do it after the thin-radius occlusion finding below is settled,
+  or the baseline locks in whatever radius dodges it today.
 - **Lab diagnostics**, all requested and none built: a depth colour ramp, a per-run arc-length
   colour ramp (both should share one mechanism — a per-vertex scalar through one ramp, with a
   switchable source), and white letterform outlines drawn from `surfacesOf()`'s contour rings at
@@ -44,28 +45,28 @@ Test string is `NSR` — straight, curved, and mixed-with-counter. `E` spot-chec
 Captures at yaw 30 / pitch 13 degrees so they stay comparable. Judge by looking at the image, not
 by a green test run: the geometry has been correct while the render was visibly torn.
 
-## Blocking: three's tube sweep breaks on curved 3D paths
+## Fixed: three's tube sweep breaking on curved 3D paths
 
-**The tube cannot get thinner, and its depth variation cannot grow, until the sweep stops using
-Frenet frames.** `THREE.TubeGeometry` calls `path.computeFrenetFrames()`
-(`node_modules/three/src/geometries/TubeGeometry.js:66`), which is unstable along a curve that
-bends in three dimensions — the frame flips and the swept surface tears.
+`sweep.ts` no longer calls `THREE.TubeGeometry`. It builds the tube's `BufferGeometry` itself from
+a rotation-minimizing frame per point (`frames.ts`, double-reflection method, Wang/Jüttler/Zheng/Liu
+2008), which stays stable through inflections and low curvature instead of flipping there. The
+`CatmullRomCurve3` re-resample is gone too — the run's points are already arc-length spaced and
+corner-cut, so sweeping them directly is both simpler and one less parameterization to reason about.
 
-Failure signature: long, continuously curved, cornerless runs degrade first; straight and short
-runs survive. `S` is the worst case in the alphabet and fails visibly. Thinner radius and larger
-depth amplitude each independently make it worse.
+`sweepRadius`'s curvature taper is now 3D (`minCurvatureRadius3` in `resample.ts`), so it sees a
+face run's depth wander instead of only its flattened x/y projection.
 
-`radius: 0.045` and depth `amplitude: 0.006` are the values that currently survive. **They are a
-floor imposed by this bug, not a chosen look** — the owner asked for a markedly thinner tube and
-could not have it.
+`radius` came down from 0.045 to 0.04 and `amplitude` went up from 0.006 to 0.02 in `looks.ts`.
+Verified with a synthetic S-curve test (`frames.test.ts`): the old Frenet frame's worst
+consecutive-normal dot product goes negative (a flip past 90°) at high depth amplitude on this
+font's actual `S` glyph, where the new RMF frame stays above 0.5 on the same run.
 
-The fix is to sweep the geometry ourselves using parallel-transport (rotation-minimising) frames,
-which `THREE.TubeGeometry` does not expose. That is a bounded, well-documented algorithm and it
-unblocks both the thin tube and any larger depth wander.
-
-Second, related defect: `sweepRadius` in `sweep.ts` measures curvature on the flat x/y projection
-only, so it cannot see z-curvature at all. Now that runs vary in depth, the radius taper is reading
-the wrong curve.
+**New finding, not fixed:** thinning `tubing.radius` much past ~0.04 (e.g. toward the originally
+requested 0.022) makes most of the sign vanish at the standard yaw 30° / pitch 13° capture — proven
+present under both the old Frenet sweep and the new RMF one, so it is not a frame-stability issue.
+It looks like the same occlusion this file already notes for `piping` ("cord is largely occluded
+front-on at radius 0.03") — a thin `level: 0` tube sitting flush with the glyph's own side wall gets
+hidden behind it from an oblique angle. Fixing it is a separate task from the frame sweep.
 
 ## The lab panel needs a layout pass
 
