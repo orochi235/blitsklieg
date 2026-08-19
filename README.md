@@ -321,7 +321,7 @@ Under `prefers-reduced-motion: reduce` the word holds the pose its enter settles
 
 - `npm run dev -w @blitsklieg/lab` — the lab page: every motion, look and policy behind
   pickers, plus canned sequences.
-- `npm run check` — biome, tsc and the unit suite (550 tests).
+- `npm run check` — biome, tsc and the unit suite (562 tests).
 - `npm run test:visual` — Playwright specs asserting the overlay composites over a live page
   without tinting or blocking it.
 - `npm run build:pages -w @blitsklieg/lab && npm run preview:pages -w @blitsklieg/lab` — the

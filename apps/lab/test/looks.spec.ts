@@ -39,17 +39,25 @@ async function still(page: Page): Promise<void> {
   await page.selectOption('#lighting', 'static');
 }
 
+/**
+ * Hides the page and its controls so a baseline is a function of the look and nothing else.
+ * Injected here rather than shipped as a lab class: with the chrome in frame, moving one slider
+ * put 11 of 15 baselines over tolerance while the type itself had not moved at all.
+ */
+async function hideChrome(page: Page): Promise<void> {
+  await page.addStyleTag({ content: 'main, .dock { display: none; }' });
+}
+
 async function shoot(page: Page, name: string): Promise<void> {
   await page.click('#fire');
   // The first frame draws on the next rAF after the font resolves; a beat covers both.
   await page.waitForTimeout(600);
+  await hideChrome(page);
   await expect(page).toHaveScreenshot(`${name}.png`, {
-    // The log stamps wall-clock times, which would differ on every run.
-    mask: [page.locator('#log')],
-    // The environment map is generated at runtime rather than shipped, so no two runs light the
-    // type identically and a tight threshold fails on a different look each time. This is a
-    // did-the-look-break guard — flat grey, a mosaic, sparkle gone — not a pixel diff.
-    maxDiffPixelRatio: 0.15,
+    // Bloom is a wide, low-amplitude halo: at Playwright's default threshold of 0.2 not one pixel
+    // moves far enough to be counted, so a green run proved nothing however tight the ratio was.
+    threshold: 0.02,
+    maxDiffPixelRatio: 0.001,
     // A bloomed look at DPR 2 renders slowly enough that the default 5s budget can expire before
     // the stability loop gets two consecutive frames.
     timeout: 20000,
@@ -62,6 +70,23 @@ test.describe('looks', () => {
       await still(page);
       await page.selectOption('#look', look);
       await shoot(page, `look-${look}`);
+    });
+  }
+});
+
+/**
+ * A tube run varies in depth, which is invisible head-on: front-on, the `piping` baseline is
+ * byte-identical to `leather`, so it guards the body and nothing the decoration adds. The word
+ * group is yawed rather than the camera — `viewportBudget` reads `camera.position.z` as the
+ * distance to the word plane, so moving the camera off axis drifts the fit instead.
+ */
+test.describe('off axis', () => {
+  for (const look of ['tubing', 'piping'] as const) {
+    test(look, async ({ page }) => {
+      await still(page);
+      await page.selectOption('#look', look);
+      await page.locator('#yaw').fill('30');
+      await shoot(page, `offaxis-${look}`);
     });
   }
 });

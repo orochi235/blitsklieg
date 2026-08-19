@@ -61,7 +61,7 @@ async function fire(page: Page, options: { bloom: boolean }): Promise<void> {
   await page.goto('/');
   // Long enough that the sampler, slowed by a full-buffer readPixels per frame, stays inside it.
   await page.locator('#hold').fill('4000');
-  if (options.bloom) await page.locator('#bloom').check();
+  if (options.bloom) await page.locator('#bloom').selectOption('on');
   await page.getByRole('button', { name: 'FIRE', exact: true }).click();
   await expect(page.locator('canvas')).toBeAttached();
 }

@@ -48,7 +48,7 @@ const lighting = choice('lighting', LIGHTING_NAMES);
 const policy = choice('policy', POLICY_NAMES);
 
 const textInput = el<HTMLTextAreaElement>('text');
-const bloomInput = el<HTMLInputElement>('bloom');
+const bloomInput = el<HTMLSelectElement>('bloom');
 const wrapInput = el<HTMLInputElement>('wrap');
 const tintInput = el<HTMLInputElement>('tint');
 const tintOnInput = el<HTMLInputElement>('tintOn');
@@ -322,9 +322,9 @@ function fire(text: string): void {
     transform: fromEuler(number('pitch') * DEG, number('yaw') * DEG, number('roll') * DEG),
     hold: holdClickInput.checked ? 'click' : number('hold'),
     blendMs: number('blend'),
-    // Unchecked has to mean "unset", not "off": FireOptions.bloom wins over a look's own
-    // request, so passing false would keep neon and tubing from ever blooming here.
-    bloom: bloomInput.checked || undefined,
+    // Three-way rather than a checkbox: FireOptions.bloom wins over a look's own request, so an
+    // unchecked box could only mean "unset" — leaving no way to switch neon's own bloom off.
+    bloom: bloomInput.value === 'auto' ? undefined : bloomInput.value === 'on',
     wrap: wrapInput.checked,
     modal: modalInput.checked,
     placement: { kind: 'fullscreen' },
@@ -492,8 +492,32 @@ function syncDisabled(): void {
 
 look.select.addEventListener('change', seedSliders);
 
+/**
+ * A restored hash can carry `enter: none` / `active: none`, which renders as a live effect holding
+ * one pose — indistinguishable from a lab that has stopped animating. A plain reload does not
+ * clear it, so the state has to be visible rather than inferred, and reachable to undo.
+ */
+function announceRestored(): void {
+  const still = ['enter', 'active', 'exit'].filter(
+    (id) => el<HTMLSelectElement>(id).value === 'none',
+  );
+  const banner = el('restored');
+  banner.textContent = still.length
+    ? `restored from the URL, with ${still.join('/')} at none — the type will hold a pose. `
+    : 'restored from the URL. ';
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.textContent = 'reset';
+  reset.addEventListener('click', () => {
+    history.replaceState(null, '', location.pathname + location.search);
+    location.reload();
+  });
+  banner.append(reset);
+}
+
 // A hash carries the sliders the viewer left them at; without one they start at the look's own.
-if (!loadHash()) seedSliders();
+if (loadHash()) announceRestored();
+else seedSliders();
 syncDisabled();
 for (const input of controls()) {
   input.addEventListener('change', () => {
@@ -509,8 +533,8 @@ holdClickInput.addEventListener('change', () => {
 });
 addEventListener('keydown', (e) => {
   // Space must not swallow typing, nor double-fire the button it already activated.
-  const inPanel = e.target instanceof HTMLElement && e.target.closest('.panel') !== null;
-  if (e.code !== 'Space' || inPanel) return;
+  const inDock = e.target instanceof HTMLElement && e.target.closest('.dock') !== null;
+  if (e.code !== 'Space' || inDock) return;
   e.preventDefault();
   fireCurrent();
 });
