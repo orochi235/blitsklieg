@@ -169,7 +169,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     tintTo: 'decoration',
     decoration: {
       kind: 'tube',
-      radius: 0.04,
+      radius: 0.022,
       segments: 10,
       spacing: 0.02,
       surfaces: ['front'],

@@ -126,6 +126,9 @@ export class Word {
         applyLook(material, look, tintMaterialOf(spec) === 'body' ? tint : undefined);
         // Enters and exits animate opacity, and flipping this mid-run would recompile the shader.
         material.transparent = true;
+        // A near-transparent backing still writes depth by default, which culls the tube drawn
+        // behind it — the sign vanishes as the tube thins rather than being occluded by anything visible.
+        material.depthWrite = (spec.opacity ?? 1) >= 1;
         (material.userData.flake as FlakeUniforms).uFlakeSeed.value = this.letters.length * 17.13;
         this.bodyMaterials.push(material);
 
