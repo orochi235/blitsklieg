@@ -47,6 +47,17 @@ describe('wallPointAt', () => {
     expect(before.distanceTo(after)).toBeLessThan(0.1);
   });
 
+  it('wraps arc length past the perimeter rather than clamping', () => {
+    const wall = surfacesOf([square()], 0.3).find((s) => s.kind === 'wall');
+    if (!wall || wall.kind !== 'wall') throw new Error('no wall');
+
+    // A generator walking a running arc-length counter overshoots the perimeter; clamping there
+    // would pile every subsequent point onto the seam instead of continuing around.
+    const base = wallPointAt(wall, 0.02, 0.5);
+    expect(wallPointAt(wall, wall.perimeter + 0.02, 0.5).distanceTo(base)).toBeLessThan(1e-9);
+    expect(wallPointAt(wall, -wall.perimeter + 0.02, 0.5).distanceTo(base)).toBeLessThan(1e-9);
+  });
+
   it('places depth between the back and front planes', () => {
     const wall = surfacesOf([square()], 0.3).find((s) => s.kind === 'wall');
     if (wall?.kind !== 'wall') throw new Error('no wall');
