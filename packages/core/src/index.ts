@@ -154,16 +154,19 @@ export interface FireOptions {
    * Stages played after the enter, each regrouping what survives it. Advanced by the viewer when
    * a stage holds on `'click'`. Ignored under reduced motion, which never travels.
    */
-  then?: Stage[];
+  stages?: Stage[];
 }
 
 /** Timing for the move into a new layout. `scale` addresses the viewport fit, not letter size. */
 export interface TweenSpec {
+  /** Milliseconds for the move. Defaults to 700. */
   duration?: number;
+  /** Defaults to `easeOutCubic`. */
   ease?: Easing;
   /**
    * Fraction of a span a channel waits before starting. `position` is a fraction of the move;
-   * `scale` is a fraction of the whole stage, so the fit can wait for an exit that outlasts it.
+   * `scale` is a fraction of the move or this stage's exit, whichever is longer, so the fit can
+   * wait for an exit that outlasts the move.
    */
   delayBy?: { position?: number; scale?: number };
 }
@@ -254,10 +257,14 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
 
     // Reduced motion never travels, so a regroup has nothing to play — and a stage held on
     // 'click' would never advance from a clock this path pins to the settled pose.
-    const stages = still ? [] : (opts.then ?? []);
+    const stages = still ? [] : (opts.stages ?? []);
+    // A stage that holds on 'click' waits for the same press the top-level hold does, and gets no
+    // listener of its own — so the whole effect stalls unless this covers both.
+    const awaitsClick = untilClick || stages.some((s) => s.hold === 'click');
     const sequence = stages.length
       ? new Sequence({
           enter,
+          active,
           stages: stages.map((s) => ({
             keep: s.keep,
             exit: resolveSlot(s.exit ?? 'fade', EXIT),
@@ -293,7 +300,7 @@ export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
       };
       const finish = () => settle(resolve);
 
-      if (untilClick) {
+      if (awaitsClick) {
         // Not one-shot with stages: each dismissal advances one stage, and only the last ends it.
         const dismiss = () => {
           if (released) return;

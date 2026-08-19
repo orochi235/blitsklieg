@@ -18,7 +18,7 @@ The shape: survivors of a partial exit leave their old group and become a **new 
 layout is the existing layout code re-run over their own glyphs. That makes the readable-word
 version no more expensive than a cheap collapse, and it rules out the natural first move — a
 `gather` motion piece can neither see the other survivors nor change what the layout says. Stages
-are data on `FireOptions` (`then: Stage[]`), advanced by the viewer's click, which `hold: 'click'`
+are data on `FireOptions` (`stages: Stage[]`), advanced by the viewer's click, which `hold: 'click'`
 already supports. Spans are deliberately second, in their own plan afterwards.
 
 ### Progress
@@ -28,7 +28,7 @@ unmerged and unpushed. The acrostic plays in the lab under the `acrostic` sequen
 
 What landed, in order: layout arithmetic extracted to a pure `text/placement.ts`; `LetterInfo`
 carrying `x`/`y`/`leaving`; a per-channel `delayBy` on `transition()`; `Word.regroup()` with the
-fit tween; a `partition()` combinator; the `Sequence` stage runner; `FireOptions.then`; `tint` as
+fit tween; a `partition()` combinator; the `Sequence` stage runner; `FireOptions.stages`; `tint` as
 a per-letter rule; the lab demo and README docs.
 
 ### Still open

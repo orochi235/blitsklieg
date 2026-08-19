@@ -62,6 +62,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: { duration: 100, offset: () => ({}) },
+      active: NONE,
       stages: [stage()],
       exit: NONE,
       hold: 50,
@@ -78,6 +79,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage()],
       exit: NONE,
       hold: 0,
@@ -93,6 +95,7 @@ describe('Sequence', () => {
     const t = target(TWO_OF_THREE);
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage({ exit: FLAG })],
       exit: NONE,
       hold: 0,
@@ -112,6 +115,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage({ exit: { duration: 800, offset: () => ({}) }, tween: { duration: 200 } })],
       exit: NONE,
       hold: 0,
@@ -128,6 +132,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage()],
       exit: NONE,
       hold: 0,
@@ -144,6 +149,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage({ tween: { duration: 200, delayBy: { scale: 0.5 } } })],
       exit: NONE,
       hold: 0,
@@ -161,6 +167,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage({ tween: { duration: 0 } })],
       exit: NONE,
       hold: 0,
@@ -176,6 +183,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage({ exit: { duration: 800, offset: () => ({}) }, tween: { duration: 0 } })],
       exit: NONE,
       hold: 0,
@@ -191,6 +199,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage({ exit: { duration: 800, offset: () => ({}) }, tween: { duration: 200 } })],
       exit: NONE,
       hold: 0,
@@ -210,6 +219,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [
         stage({
           exit: { duration: 800, offset: () => ({}) },
@@ -234,6 +244,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage()],
       exit: { duration: 100, offset: () => ({}) },
       hold: 0,
@@ -253,6 +264,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage(), stage(), stage()],
       exit: NONE,
       hold: 0,
@@ -269,6 +281,7 @@ describe('Sequence', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage({ hold: 'click' }), stage({ hold: 'click' })],
       exit: NONE,
       hold: 0,
@@ -282,10 +295,26 @@ describe('Sequence', () => {
     expect(t.regroups).toBe(2);
   });
 
+  it('plays the opening active through the opening hold', () => {
+    const t = target();
+    const seq = new Sequence({
+      enter: NONE,
+      active: FLAG,
+      stages: [stage()],
+      exit: NONE,
+      hold: 200,
+      blendMs: 0,
+      target: t,
+    });
+    seq.tick(0);
+    expect(seq.poseAt(100, letter).position[0]).toBeCloseTo(100);
+  });
+
   it('finishes after the last stage and the exit', () => {
     const t = target();
     const seq = new Sequence({
       enter: NONE,
+      active: NONE,
       stages: [stage()],
       exit: { duration: 100, offset: () => ({}) },
       hold: 0,

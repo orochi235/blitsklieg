@@ -44,6 +44,8 @@ export interface StagePlan {
 
 export interface SequenceOptions {
   enter: Slot;
+  /** The opening phase's active slot; each stage carries its own. */
+  active: Slot;
   stages: StagePlan[];
   exit: Slot;
   hold: number | 'click';
@@ -83,7 +85,7 @@ export class Sequence {
     const last = this.opts.stages.length === 0;
     return new Timeline({
       enter: this.opts.enter,
-      active: NONE,
+      active: this.opts.active,
       exit: last ? this.opts.exit : NONE,
       hold: this.opts.hold === 'click' ? 'until-release' : this.opts.hold,
       blendMs: this.opts.blendMs,
