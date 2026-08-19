@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { DecorationSpec } from './decoration.js';
 import {
   createFlakeUniforms,
   type FlakeSpec,
@@ -16,9 +17,15 @@ export type LookName =
   | 'neon'
   | 'flake'
   | 'glitter'
-  | 'leather';
+  | 'leather'
+  | 'tubing'
+  | 'piping'
+  | 'sequin'
+  | 'pyrite';
 
 /** Extract silently drops a name that is not a real material property, so a typo fails DEFAULTS. */
+// Never add 'opacity' here, tempting as it looks: Word rewrites material.opacity every frame from
+// the pose, so a value applied through this list is gone by the first tick.
 type LookKey = Extract<
   keyof THREE.MeshPhysicalMaterial,
   | 'color'
@@ -151,6 +158,81 @@ export const LOOKS: Record<LookName, LookSpec> = {
     sheenColor: 0xd8a071,
     flake: { density: 1, size: 1 / 7, spread: 0.5, bump: true },
   },
+  tubing: {
+    // A backing, not a body: what reads as the sign is the tube in front of it.
+    color: 0x0a0010,
+    metalness: 0,
+    roughness: 0.5,
+    clearcoat: 0,
+    opacity: 0.08,
+    bloom: true,
+    tintTo: 'decoration',
+    decoration: {
+      kind: 'tube',
+      radius: 0.045,
+      at: [1],
+      segments: 10,
+      look: {
+        color: 0x1a0010,
+        emissive: 0xff2d95,
+        emissiveIntensity: 3.4,
+        clearcoat: 0,
+        roughness: 0.35,
+      },
+    },
+  },
+  piping: {
+    color: 0x5a2f1d,
+    metalness: 0,
+    roughness: 0.72,
+    clearcoat: 0.25,
+    clearcoatRoughness: 0.5,
+    sheen: 0.35,
+    sheenColor: 0xd8a071,
+    flake: { density: 1, size: 1 / 7, spread: 0.5, bump: true },
+    decoration: {
+      kind: 'tube',
+      radius: 0.03,
+      at: [1],
+      segments: 8,
+      look: { color: 0xe8c9a0, roughness: 0.55, clearcoat: 0.4, sheen: 0.5 },
+    },
+  },
+  sequin: {
+    color: 0x2a0f1c,
+    metalness: 0.6,
+    roughness: 0.45,
+    clearcoat: 0.4,
+    tintTo: 'decoration',
+    decoration: {
+      kind: 'chunks',
+      count: 90,
+      size: 0.055,
+      shape: 'flake',
+      align: 0.1,
+      cluster: 0.2,
+      proud: 0.35,
+      look: { color: 0xffd9c0, metalness: 1, roughness: 0.08, clearcoat: 1 },
+    },
+  },
+  pyrite: {
+    color: 0x30302c,
+    metalness: 0.2,
+    roughness: 0.85,
+    clearcoat: 0,
+    tintTo: 'decoration',
+    decoration: {
+      kind: 'chunks',
+      count: 55,
+      size: 0.075,
+      shape: 'cube',
+      align: 0.85,
+      cluster: 0.6,
+      proud: 0.45,
+      // Brassier and greener than gold's 0xffc44d — fool's gold is what this is imitating.
+      look: { color: 0xd8b246, metalness: 1, roughness: 0.22, clearcoatRoughness: 0.1 },
+    },
+  },
 };
 
 export const COLOR_KEYS = new Set<LookKey>(['color', 'attenuationColor', 'sheenColor', 'emissive']);
@@ -172,6 +254,14 @@ export function tintTargetOf(params: LookParams, declared?: TintTarget): TintTar
 }
 
 /**
+ * `tintTo` only means anything when there is a second material to route to; a look without
+ * decoration silently keeps its tint on the body rather than dropping it.
+ */
+export function tintMaterialOf(spec: LookSpec): 'body' | 'decoration' {
+  return spec.decoration && spec.tintTo === 'decoration' ? 'decoration' : 'body';
+}
+
+/**
  * A material of your own, in plain numbers. No THREE type appears here: three is a peer
  * dependency and an implementation detail, and accepting a MeshPhysicalMaterial instead would
  * put its types in every consumer's signatures and its churn in this package's compatibility
@@ -182,6 +272,11 @@ export interface LookSpec extends Partial<LookParams> {
   /** Turns the bloom pass on for this look unless the caller says otherwise. */
   bloom?: boolean;
   flake?: FlakeSpec;
+  /** Base opacity of the body, 0..1. Pose opacity multiplies it. */
+  opacity?: number;
+  /** Which material `tint` recolors. Default 'body'. */
+  tintTo?: 'body' | 'decoration';
+  decoration?: DecorationSpec;
 }
 
 export type Look = LookName | LookSpec;

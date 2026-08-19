@@ -89,6 +89,10 @@ crossfading `blendMs` across each boundary. Enter and exit run at a fixed length
 | `flake` | dark body shot through with catching flecks |
 | `glitter` | fine metallic sparkle, close to car paint |
 | `leather` | upholstery panels, creased at the seams |
+| `tubing` | glowing tube piped around a near-invisible volume; turns bloom on by itself |
+| `piping` | corded seam running the edge of a hide |
+| `sequin` | chunky glitter that breaks the silhouette |
+| `pyrite` | intergrown cubic crystals on a dull matrix |
 
 ### lighting
 

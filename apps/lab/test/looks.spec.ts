@@ -21,6 +21,10 @@ const LOOKS = [
   'flake',
   'glitter',
   'leather',
+  'tubing',
+  'piping',
+  'sequin',
+  'pyrite',
 ] as const;
 
 /** Every source of frame-to-frame variation off, so a screenshot is a function of the look. */
@@ -46,6 +50,9 @@ async function shoot(page: Page, name: string): Promise<void> {
     // type identically and a tight threshold fails on a different look each time. This is a
     // did-the-look-break guard — flat grey, a mosaic, sparkle gone — not a pixel diff.
     maxDiffPixelRatio: 0.15,
+    // A bloomed look at DPR 2 renders slowly enough that the default 5s budget can expire before
+    // the stability loop gets two consecutive frames.
+    timeout: 20000,
   });
 }
 

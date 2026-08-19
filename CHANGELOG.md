@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.4.0
+
+### Looks
+
+Four looks that add a second geometry and material per letter, from two generators.
+
+| look | reads as |
+|---|---|
+| `tubing` | glowing tube piped around a near-invisible volume; turns bloom on by itself |
+| `piping` | corded seam running the edge of a hide |
+| `sequin` | chunky glitter that breaks the silhouette |
+| `pyrite` | intergrown cubic crystals on a dull matrix |
+
+`neon`, `glitter` and `leather` are unchanged, and stay the cheap solid variants.
+
+`LookSpec` gains three optional fields: `decoration` describes the second geometry and its own
+material, `opacity` sets the body's base opacity, and `tintTo` chooses whether `tint` recolors the
+body or the decoration. `DecorationSpec` and `MaterialSpec` are exported.
+
+### Changed
+
+Each letter now carries its own material rather than sharing one across the word. A staggered
+enter therefore fades each letter on its own schedule; previously every letter wore the most
+visible letter's opacity, because one material cannot hold thirteen values. Measured cost is
++0.066 ms/frame inside `render()` at 50 letters, against a 16.7 ms budget, with the compiled
+program count unchanged.
+
+Flake looks no longer clone a glyph geometry per letter. The per-letter seed rides a uniform now
+that materials are per-letter, which is a straight memory saving for `flake`, `glitter` and
+`leather`.
+
+### Fixed
+
+The lab passed `bloom` unconditionally, so an unchecked box sent `false` — which wins over a
+look's own request. No look could bloom there, and `neon` has advertised that it blooms by itself
+since 0.3.0 without ever doing so in the lab or in its baseline. Consumers passing no `bloom` were
+never affected.
+
 ## 0.3.1
 
 ### Fixed

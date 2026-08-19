@@ -12,6 +12,7 @@ import {
   type LookSpec,
   specOf,
   type TintTarget,
+  tintMaterialOf,
   tintTargetOf,
 } from '../../src/render/looks.js';
 
@@ -49,6 +50,10 @@ const NAMES: LookName[] = [
   'flake',
   'glitter',
   'leather',
+  'tubing',
+  'piping',
+  'sequin',
+  'pyrite',
 ];
 
 function snapshot(material: THREE.MeshPhysicalMaterial): Record<string, unknown> {
@@ -199,6 +204,14 @@ describe('applyLook', () => {
     applyLook(material, 'gem');
     expect(material.version).toBeGreaterThan(before);
   });
+
+  it('leaves opacity off the material, because Word owns it per frame', () => {
+    const material = createMaterial();
+
+    applyLook(material, { opacity: 0.2 });
+
+    expect(material.opacity).toBe(1);
+  });
 });
 
 describe('flake looks', () => {
@@ -238,6 +251,61 @@ describe('flake looks', () => {
 
     applyLook(material, 'gold');
     expect(material.userData.flake.uFlakeDensity.value).toBe(0);
+  });
+});
+
+describe('decorated looks', () => {
+  it('orders every look name', () => {
+    expect(Object.keys(LOOKS)).toEqual([
+      'gold',
+      'chrome',
+      'oil',
+      'gem',
+      'velvet',
+      'neon',
+      'flake',
+      'glitter',
+      'leather',
+      'tubing',
+      'piping',
+      'sequin',
+      'pyrite',
+    ]);
+  });
+
+  it('builds tubing and piping from the tube generator', () => {
+    for (const name of ['tubing', 'piping'] as const) {
+      expect(specOf(name).decoration?.kind).toBe('tube');
+    }
+  });
+
+  it('builds sequin and pyrite from the chunks generator', () => {
+    for (const name of ['sequin', 'pyrite'] as const) {
+      expect(specOf(name).decoration?.kind).toBe('chunks');
+    }
+  });
+
+  it('makes tubing a glowing tube over a near-invisible body', () => {
+    const spec = specOf('tubing');
+
+    expect(spec.opacity).toBeLessThan(0.2);
+    expect(spec.bloom).toBe(true);
+    expect(spec.tintTo).toBe('decoration');
+  });
+
+  it('keeps piping tinting the hide, not the cord', () => {
+    expect(tintMaterialOf(specOf('piping'))).toBe('body');
+  });
+
+  it('gives pyrite crystal habit and sequin free tumble', () => {
+    const pyrite = specOf('pyrite').decoration;
+    const sequin = specOf('sequin').decoration;
+
+    expect(pyrite?.kind === 'chunks' && pyrite.shape).toBe('cube');
+    expect(sequin?.kind === 'chunks' && sequin.shape).toBe('flake');
+    expect(pyrite?.kind === 'chunks' && pyrite.align).toBeGreaterThan(
+      (sequin?.kind === 'chunks' && sequin.align) as number,
+    );
   });
 });
 
@@ -305,6 +373,34 @@ describe('tintTargetOf', () => {
   it('lets a declared target win over every inference', () => {
     const declared: TintTarget = 'sheenColor';
     expect(tintTargetOf({ ...DEFAULT_PARAMS, transmission: 1 }, declared)).toBe('sheenColor');
+  });
+});
+
+describe('tintMaterialOf', () => {
+  it('routes a tint to the body by default', () => {
+    expect(tintMaterialOf({ color: 0x112233 })).toBe('body');
+  });
+
+  it('routes a tint to the decoration when the look says so', () => {
+    const spec: LookSpec = {
+      tintTo: 'decoration',
+      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+    };
+
+    expect(tintMaterialOf(spec)).toBe('decoration');
+  });
+
+  it('ignores tintTo on a look with no decoration', () => {
+    expect(tintMaterialOf({ tintTo: 'decoration' })).toBe('body');
+  });
+
+  it('keeps a decorated look on the body when it says so outright', () => {
+    const spec: LookSpec = {
+      tintTo: 'body',
+      decoration: { kind: 'tube', radius: 0.04, at: [1], segments: 8, look: {} },
+    };
+
+    expect(tintMaterialOf(spec)).toBe('body');
   });
 });
 

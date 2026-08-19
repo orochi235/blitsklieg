@@ -117,9 +117,14 @@ function words(): THREE.Object3D[] {
   return stage().scene.children;
 }
 
-function firstMesh(): THREE.Mesh {
+/** The first letter's cell — the group a pose is written onto. */
+function firstCell(): THREE.Group {
   const group = words()[0] as THREE.Group;
-  return group.children[0] as THREE.Mesh;
+  return group.children[0] as THREE.Group;
+}
+
+function firstMesh(): THREE.Mesh {
+  return firstCell().children[0] as THREE.Mesh;
 }
 
 beforeEach(() => {
@@ -339,13 +344,13 @@ describe('createBlitsklieg', () => {
 
     await flush();
     clock.advance(16);
-    const mesh = firstMesh();
-    const material = mesh.material as THREE.MeshPhysicalMaterial;
+    const cell = firstCell();
+    const material = firstMesh().material as THREE.MeshPhysicalMaterial;
 
     // The end of the exit would leave a faded-out word on screen for the whole hold.
     expect(material.opacity).toBeCloseTo(1, 6);
-    expect(mesh.position.z).toBeCloseTo(0, 6);
-    expect(mesh.scale.x).toBeCloseTo(1, 6);
+    expect(cell.position.z).toBeCloseTo(0, 6);
+    expect(cell.scale.x).toBeCloseTo(1, 6);
 
     clock.advance(100);
     await done;
@@ -652,6 +657,10 @@ describe('published name lists', () => {
       'flake',
       'glitter',
       'leather',
+      'tubing',
+      'piping',
+      'sequin',
+      'pyrite',
     ]);
     expect(POLICY_NAMES).toEqual(['queue', 'replace', 'concurrent']);
   });
@@ -728,10 +737,10 @@ describe('caller-supplied motion', () => {
     await flush();
     clock.advance(50);
 
-    const mesh = firstMesh();
-    expect(mesh.position.y).toBeCloseTo(1, 6);
-    // Layout x is baked into the mesh, so the layer's contribution is the delta from rest.
-    expect(mesh.position.x).toBeGreaterThan(0);
+    const cell = firstCell();
+    expect(cell.position.y).toBeCloseTo(1, 6);
+    // Layout x is baked into the cell, so the layer's contribution is the delta from rest.
+    expect(cell.position.x).toBeGreaterThan(0);
   });
 
   it('lets a caller-supplied active piece rake the highlight', async () => {
@@ -796,7 +805,7 @@ describe('mixed name and piece slots', () => {
     clock.advance(500);
 
     // A bare string left unresolved makes duration NaN, which collapses the pose to rest.
-    expect(firstMesh().position.y).toBeCloseTo(1, 6);
+    expect(firstCell().position.y).toBeCloseTo(1, 6);
   });
 
   it('keeps a layered slot of names alone working', async () => {
@@ -811,6 +820,6 @@ describe('mixed name and piece slots', () => {
     await flush();
     clock.advance(500);
 
-    expect(Number.isNaN(firstMesh().position.y)).toBe(false);
+    expect(Number.isNaN(firstCell().position.y)).toBe(false);
   });
 });
