@@ -90,6 +90,29 @@ expensive one about geometry. "The transparent thing in front is hiding it" cost
 keeping — Frenet genuinely does tear at higher amplitude — but it was dispatched as a fix for a
 blocker that was somewhere else entirely.
 
+## Defect to fix: the lab reaches past the public surface
+
+`packages/core/src/debug.ts` re-exports `Word`, `Stage`, `Timeline`, `NONE`, `loadFont` and
+`surfacesOf`, and `apps/lab/src/diagnostics.ts` imports them through a deep relative path. The lab
+is consumer code, so this is the reach-past-the-public-surface pattern this project does not allow,
+even though `debug.ts` is absent from the package's `exports` and `files` and so cannot be reached
+from the published npm package.
+
+The concrete cost is not packaging, it is that **the lab now has two render paths**. Its diagnostic
+mode hand-rolls a `fire()` — mount a `Stage`, construct a `Word`, apply a rest pose, render once —
+bypassing the queue, the timeline and the bloom chain. It will drift from the real path, and it
+already produced one bug that way: materials sat at three's default opacity of 1 because nothing
+called `apply()`, so tubing's 0.08 backing rendered fully opaque.
+
+The other half of the same change is fine and should be kept: `WordDebugHooks`, an optional seventh
+constructor parameter on `Word` offering `tubeMaterial(which)` and `onLetter(cell, shapes, depth)`,
+inert when omitted. That is a real narrow surface.
+
+The fix is to route diagnostics through the public API so there is one render path — most likely a
+debug field on `FireOptions` or `BlitskliegOptions` that carries the same hooks — and then delete
+`debug.ts`. That is a public API shape decision, so it wants the owner's call rather than a
+unilateral one.
+
 ## The lab panel needs a layout pass
 
 It has grown into a single tall column of controls covering roughly a third of the canvas, so every
