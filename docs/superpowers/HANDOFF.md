@@ -1,91 +1,69 @@
-# Handoff — regroup and stages, 2026-08-19
+# Handoff — lab layout and visual suite, 2026-08-19
 
 **For:** the next session picking this up. **Answers:** where the work sits, and what the next
 decision is.
 
 ## State
 
-Neon tubing **merged into `main`** (`3897483`) — locally only, not pushed. `main` deploys the lab,
-so pushing is a deliberate act, not a formality. 488 tests green at the merge.
+Regroup and stages **merged into `main`** (`885368d`) and pushed. `main` deploys the lab, so a push
+is a deliberate act; this one was asked for.
 
-Current work is **regroup and stages** on branch `regroup-and-stages`, cut off `main`.
+Since the merge, one pass of lab and visual-suite work has landed on top — see **What just
+landed**. Everything else below is what is left.
 
-- Spec: `docs/superpowers/specs/2026-08-19-text-runs-design.md` — settled with the owner.
-- Plan: `docs/superpowers/plans/2026-08-19-regroup-and-stages.md` — nine tasks, executing
-  subagent-driven, one commit per task.
+### What just landed
 
-The shape: survivors of a partial exit leave their old group and become a **new group** whose
-layout is the existing layout code re-run over their own glyphs. That makes the readable-word
-version no more expensive than a cheap collapse, and it rules out the natural first move — a
-`gather` motion piece can neither see the other survivors nor change what the layout says. Stages
-are data on `FireOptions` (`stages: Stage[]`), advanced by the viewer's click, which `hold: 'click'`
-already supports. Spans are deliberately second, in their own plan afterwards.
+The lab's four corner panels are gone, replaced by two full-width docks. The word occupies the
+middle 62% of the width but only 30% of the height, so the bands above and below it are the
+largest region controls can hold without ever sitting under the type; the corners could not be
+made to work at 800x600, where the top and bottom panel in a column overlapped by 32px because
+`max-height` was being applied content-box. Four groups per dock, controls that shrink instead of
+overflowing their column.
 
-### Progress
+Also closed, all with `npm run check` and the 24 Playwright specs green:
 
-**All nine tasks are done, plus a whole-branch review and its fixes.** 561 tests green,
-`npm run check` clean, 27 commits ahead of `main`, unmerged and unpushed. The acrostic plays in the
-lab under the `acrostic` sequence button.
+- **`visual.spec.ts` could not click `#wrap`** — it sat under the overlapping tube panel. Fixed by
+  the dock layout; the spec passes untouched.
+- **The bloom checkbox was one-way.** It is now a three-way `auto`/`on`/`off` select: unchecked
+  could only ever mean "unset", because `FireOptions.bloom` wins over a look's own request, so
+  there was no way to switch neon's bloom off. `auto` and `on` render identically for neon; `off`
+  is a different image.
+- **A restored hash is now announced.** A saved `enter: none` / `active: none` survives reload and
+  reads as a lab that stopped animating, and only editing the address bar cleared it. The session
+  group now names what was restored and offers a reset.
+- **`decorMaterial` never got the per-letter flake seed.** Every material a letter owns now takes
+  it, body and decoration alike, via one `seedFlake` helper. Covered by a test proven to die when
+  the call is removed.
+- **The chunk count slider stopped at 300**, below the real `POOL = 512` ceiling. The probe loop in
+  `chunkMatrices` places exactly `POOL` distinct chunks and stacks only past it, so 512 is the
+  slider's correct maximum.
 
-The public field is `FireOptions.stages`, not `then` — renamed after review, which also restored
-biome's `noThenProperty` rule repo-wide.
+### The visual suite now guards the type, not the page
 
-What landed, in order: layout arithmetic extracted to a pure `text/placement.ts`; `LetterInfo`
-carrying `x`/`y`/`leaving`; a per-channel `delayBy` on `transition()`; `Word.regroup()` with the
-fit tween; a `partition()` combinator; the `Sequence` stage runner; `FireOptions.stages`; `tint` as
-a per-letter rule; the lab demo and README docs.
+`shoot()` injects `main, .dock { display: none; }` before capturing, so a baseline is a function of
+the look alone and no control-panel edit can invalidate one again. All 15 were re-recorded, which
+also retires the stale pre-rewrite `tubing` and `piping` baselines.
 
-### What the whole-branch review found
+**Pointing the capture at the canvas locator — the fix this doc used to propose — would not have
+worked.** The canvas is transparent everywhere the letters do not draw, so an element screenshot
+still composites the page and panels through it.
 
-Three reviewers ran over `3897483..b994919` — integration, API surface, and test adequacy by
-mutation. Everything they raised at Critical or Important is fixed. Worth keeping:
+**The tolerance that mattered was `threshold`, not `maxDiffPixelRatio`.** Bloom is a wide,
+low-amplitude halo: turning it off moves 8.3% of pixels but by a median of 8/255 and a maximum of
+54/255, so at Playwright's default per-pixel `threshold: 0.2` nothing was counted and no ratio,
+however tight, could have caught it. Now at `threshold: 0.02` / `maxDiffPixelRatio: 0.001`, which
+fails on bloom-off at ratio 0.04 and passes on repeated clean runs.
 
-- **A numeric top-level `hold` with a click-holding stage hung forever** — no listener was ever
-  attached, so there was no way to dismiss it and the queue was poisoned for the life of the page.
-  Listener attachment is now derived from any phase that can wait for a press.
-- **A stage's exit sits in a `Timeline`'s enter slot**, and the blend machinery assumes an enter
-  slot relaxes to rest — so a dropped letter was partly *un-exited* over the last half-blend.
-  Retire now happens before the blend can reach it, with the slot padded so a long exit still
-  finishes. Complementary blend weights hold an additive channel but not a multiplicative one, so
-  holding the final pose does not fix it.
-- **Compatibility is proven, not asserted:** 3,240 configurations × 41 frames against the
-  pre-branch tree, zero mismatches, including the per-letter seed indices no test can observe.
-- **Mutation testing found every gap at a module seam**, never in the core. The worst was that the
-  line giving each stage its own clock could be deleted with the suite green, because every test
-  used a near-zero opening phase. All eleven are closed with tests proven to die under mutation.
+### `piping` ships a decoration that barely renders
 
-### Still open
-- **The lab's corner panels render over the type.** The grown word reaches into the `tube` panel's
-  column and the panel is opaque at `z-index: 10`, so it eats part of the first `N`. Same effect
-  clips the poem's first line against the `scene` panel. This is the lab layout pass, already
-  queued below, now with a second reason.
-- **`readme.test.ts` does not compile the README's examples.** It hand-mirrors them and asserts
-  export names; nothing extracts from the markdown. The new `Stages` section is type-checked only
-  indirectly, via `tsc -b` over the lab, which uses `then`/`keep`/`as`/`tween`.
-- **`packages/core/README.md` is a build artifact** — gitignored, written by `prepack` copying the
-  root `README.md`. Edit the root one.
+Front-on, `look-piping-darwin.png` was **byte-identical** to `look-leather-darwin.png` — the cord
+contributed not one pixel, so that baseline guarded the body and nothing the decoration adds. A new
+`off axis` describe yaws the word group 30 degrees, matching the standing convention below, and
+records `tubing` and `piping` there. `tubing` shows its tube plainly; `piping` differs from a yawed
+`leather` only slightly. Tuning it is the untuned-by-decision item under **Open review findings**.
 
-### The `then` name costs a lint rule
-
-`FireOptions.then` trips biome's `lint/suspicious/noThenProperty` on every object literal that sets
-it — the API surface, every test, the lab, and the README examples. The rule is now **off
-repo-wide** (`df95d15`) rather than suppressed at each call site, which is a real relaxation bought
-by the field's name.
-
-The hazard the rule guards against does not apply: promise resolution only treats an object as a
-thenable when `then` is *callable*, and this one is an array. But if the name is ever regretted,
-`stages` would cost nothing and give the rule back.
-
-### The lab's URL hash makes it look broken
-
-`apps/lab/src/main.ts` saves every control into `location.hash` and restores it on load, so a
-once-chosen `enter: none` / `active: none` survives reload, HMR and a browser restart. The effect
-still runs — hundreds of `apply()` calls — but every frame holds the same pose, which reads as
-"the lab stopped animating." A plain reload does not clear it; the fragment has to be deleted from
-the address bar.
-
-Worth a fix: either drop `none/none` from what gets persisted, or show the restored state in the
-panel header so it is visible rather than inferred.
+The word group is yawed rather than the camera: `viewportBudget()` reads `camera.position.z` as the
+distance to the word plane, so an off-axis camera drifts the fit instead.
 
 ### Traps this work has already hit
 
@@ -105,24 +83,6 @@ panel header so it is visible rather than inferred.
 
 ## Not done, carried over from tubing
 
-- **The visual suite guards the lab's page, not the type.** `shoot()` in
-  `apps/lab/test/looks.spec.ts` screenshots the whole page rather than the canvas, so any control-
-  panel edit invalidates every look baseline at once — the panel split and the removed filler text
-  put 11 of them over tolerance while the word itself barely moved. Point it at the canvas locator
-  and re-record all 15 once; then `maxDiffPixelRatio` can come down from 0.15 and start catching
-  render changes. Merged as-is by decision, with only `tubing` and `piping` re-recorded.
-- **`visual.spec.ts:162` cannot click `#wrap`** — the tube panel's heading overlaps the checkbox
-  since the control-panel split. That is the lab layout pass, now with a test failing over it.
-- **The visual baseline has never been re-recorded.** `look-tubing-darwin.png` and
-  `look-piping-darwin.png` still show the pre-rewrite look. The sweep is fixed now (see below), so
-  re-recording is unblocked — but do it after the thin-radius occlusion finding below is settled,
-  or the baseline locks in whatever radius dodges it today.
-- **Lab diagnostics**, all requested and none built: a depth colour ramp, a per-run arc-length
-  colour ramp (both should share one mechanism — a per-vertex scalar through one ramp, with a
-  switchable source), and white letterform outlines drawn from `surfacesOf()`'s contour rings at
-  both the front and back planes.
-- **Lab parameter sliders** for `level`, `runs`, `minRun`, lit fraction, wall depth, wall rise and
-  a surfaces picker. The old `tubeAt` and `inset` sliders are still in the DOM as dead controls.
 - **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon.
   This is the last unbuilt look item and the owner rated it a bonus, not the point.
 
@@ -155,12 +115,6 @@ debug field on `FireOptions` or `BlitskliegOptions` that carries the same hooks 
 `debug.ts`. That is a public API shape decision, so it wants the owner's call rather than a
 unilateral one.
 
-## The lab panel needs a layout pass
-
-It has grown into a single tall column of controls covering roughly a third of the canvas, so every
-screenshot loses part of the word and there is nowhere to put the diagnostics still to come. Split
-it into groups and use the available width.
-
 ## Queued
 
 **`pyrite` is built on the wrong model and should be respecced before it is tuned.** The chunk
@@ -191,22 +145,21 @@ clustering draw scans the whole pool per chunk so raising it makes placement qua
 
 ## Open review findings
 
-From the 0.4.0 whole-branch review. Two were fixed before the merge; these are the rest, all low:
+From the 0.4.0 whole-branch review. The flake-seed and bloom-checkbox findings are now fixed; one
+is left, and it wants a decision rather than a patch:
 
-- ~30% of the chunk sample pool sits on the back cap, so `sequin` builds ~1.4× the instances it
-  shows front-on (`decoration.ts:227`).
-- `decorMaterial` never gets the per-letter flake seed that body materials get, so a decoration
-  `flake` spec would sparkle in lockstep. Latent — no built-in look hits it (`word.ts:127`).
-- The lab's bloom checkbox is one-way for `neon` and `tubing`: unchecking it no longer removes
-  bloom, and nothing in the UI says so (`apps/lab/src/main.ts:228`).
+- **~30% of the chunk sample pool sits on the back cap**, so `sequin` builds ~1.4x the instances it
+  shows front-on (`decoration.ts:227`). Rejecting back-facing samples would fix the waste, but it
+  changes which pool indices exist and so **changes how both chunk looks render** — a visible
+  change to looks published since 0.4.0, in the same code a `pyrite` respec would rewrite.
 
 `insetContour`'s all-or-nothing contour rejection was the fourth. The tubing plan deletes that
 function, so it closes with the rewrite.
 
 **`sequin` and `piping` are landed untuned, by decision.** `sequin`'s flakes still go near-black
-(metalness 1 at roughness 0.08 facing away from the key light); `piping`'s cord is largely
-occluded front-on at radius 0.03. Every decoration parameter has a lab slider —
-`npm run dev -w @blitsklieg/lab`, then re-record baselines. No code change needed.
+(metalness 1 at roughness 0.08 facing away from the key light); `piping`'s cord draws nothing at
+all front-on at radius 0.03, and little enough at 30 degrees of yaw. Every decoration parameter has
+a lab slider — `npm run dev -w @blitsklieg/lab`, then re-record baselines. No code change needed.
 
 ## Traps
 
@@ -220,12 +173,10 @@ stability loop waits for two consecutive frames. That is what it looks like when
 baseline; it is not instability, and eight back-to-back captures hash identically. `shoot()` now
 passes `timeout: 20000`.
 
-**`maxDiffPixelRatio: 0.15` is too loose to catch a real render change**, so a green visual run is
-not evidence that nothing moved. It is set that wide because the environment map is generated at
-runtime. Bloom turning on did not fail the `neon` baseline, and neither did roughly doubling the
-visible sequins; both had to be forced with `--update-snapshots=all`. That flag rewrites **every**
-baseline, including looks the change cannot touch — re-record, then revert the ones that only
-moved by environment-map noise.
+**A per-pixel `threshold` is what decides whether a visual baseline can see a change at all**, and
+the pixel-count ratio cannot substitute for it. Playwright's default 0.2 hid bloom entirely; see
+the visual-suite section above for the measured numbers. `--update-snapshots=all` rewrites **every**
+baseline, including looks the change cannot touch, so re-record deliberately.
 
 **Never add `opacity` to `LookKey`.** There is a comment at the declaration saying so. `Word`
 rewrites `material.opacity` every frame, so a value applied through `PARAM_KEYS` is gone by the
