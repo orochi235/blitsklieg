@@ -12,6 +12,11 @@ export interface LetterInfo {
   lineCount?: number;
   /** The widest line's length, so a short line's columns do not stretch to fill it. */
   columnCount?: number;
+  /** Layout position in em, relative to the block centre. Negate it to travel to the centre. */
+  x?: number;
+  y?: number;
+  /** True once a regroup has dropped this letter: it is playing its exit and will not be back. */
+  leaving?: boolean;
 }
 
 export interface MotionPiece {

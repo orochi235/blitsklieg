@@ -70,8 +70,10 @@ export class Word {
   private readonly idxOf: number[] = [];
   /** Set on a letter a regroup dropped; its info stops tracking the live group. */
   private readonly frozenInfo: (LetterInfo | null)[] = [];
-  readonly lineCount: number;
-  private readonly columnCount: number;
+  lineCount: number;
+  private columnCount: number;
+  /** Letters still in the group — not `letters.length`, which counts the retired ones too. */
+  private liveCount = 0;
   /** Indexed by letter slot, null where the glyph drew no outline. */
   private readonly bodyMaterials: (THREE.MeshPhysicalMaterial | null)[] = [];
   /** A debug hook may swap in a non-physical material, so these are typed to the material base. */
@@ -147,6 +149,7 @@ export class Word {
       this.geoMinY.push(drawn ? drawn.min.y : null);
       this.geoMaxY.push(drawn ? drawn.max.y : null);
     }
+    this.liveCount = placed.x.length;
     this.fit = fitOf(placed, this.geoMinY, this.geoMaxY, budget);
     this.applyFit(this.fit);
 
@@ -289,6 +292,22 @@ export class Word {
       .decompose(this.inner.position, this.inner.quaternion, this.inner.scale);
   }
 
+  /** Fresh each call: a caller-supplied piece receives this, and a reused object would alias. */
+  private letterInfo(i: number): LetterInfo {
+    const frozen = this.frozenInfo[i];
+    if (frozen) return { ...frozen, leaving: true };
+    return {
+      index: this.idxOf[i] as number,
+      count: this.liveCount,
+      line: this.lineOf[i] as number,
+      column: this.columnOf[i] as number,
+      lineCount: this.lineCount,
+      columnCount: this.columnCount,
+      x: this.baseX[i] as number,
+      y: (this.baseY[i] as number) - this.fit.midY,
+    };
+  }
+
   apply(timeline: Timeline, elapsed: number): void {
     if (this.disposed) return;
 
@@ -296,21 +315,8 @@ export class Word {
       const cell = this.letters[i];
       if (!cell) continue;
 
-      // One scratch pose for the whole word; this loop runs per letter per frame. LetterInfo is
-      // still fresh each time — a caller-supplied piece receives it, and a reused one would be
-      // an aliasing trap with nothing in the signature to warn about it.
-      const pose = timeline.poseAt(
-        elapsed,
-        {
-          index: i,
-          count: this.letters.length,
-          line: this.lineOf[i] as number,
-          column: this.columnOf[i] as number,
-          lineCount: this.lineCount,
-          columnCount: this.columnCount,
-        },
-        this.pose,
-      );
+      // One scratch pose for the whole word; this loop runs per letter per frame.
+      const pose = timeline.poseAt(elapsed, this.letterInfo(i), this.pose);
       cell.position.x = (this.baseX[i] as number) + pose.position[0];
       cell.position.y = (this.baseY[i] as number) + pose.position[1];
       cell.position.z = pose.position[2];

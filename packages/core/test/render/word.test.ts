@@ -714,3 +714,47 @@ describe('flake seeding', () => {
     expect((a as THREE.Mesh).geometry).toBe((b as THREE.Mesh).geometry);
   });
 });
+
+describe('LetterInfo position', () => {
+  it('hands each letter its laid-out position in em', () => {
+    const seen: LetterInfo[] = [];
+    const word = new Word('AB', stubFont(), 'gold', ROOMY);
+    word.apply(
+      timelineOf((_t, letter) => {
+        seen.push({ ...letter });
+        return {};
+      }),
+      0,
+    );
+    // Glyph origins, centred on the advance span: 'AB' puts A at -STEP and B at 0.
+    expect(seen[0]?.x).toBeCloseTo(-STEP);
+    expect(seen[1]?.x).toBeCloseTo(0);
+  });
+
+  it('measures y from the block centre, so a single line sits at zero', () => {
+    const seen: LetterInfo[] = [];
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+    word.apply(
+      timelineOf((_t, letter) => {
+        seen.push({ ...letter });
+        return {};
+      }),
+      0,
+    );
+    // The stub's 'A' spans 0..0.7em, so its centre is 0.35 below the glyph origin.
+    expect(seen[0]?.y).toBeCloseTo(-0.35);
+  });
+
+  it('separates two lines by one line height', () => {
+    const seen: LetterInfo[] = [];
+    const word = new Word('A\nB', stubFont(), 'gold', ROOMY);
+    word.apply(
+      timelineOf((_t, letter) => {
+        seen.push({ ...letter });
+        return {};
+      }),
+      0,
+    );
+    expect((seen[0]?.y as number) - (seen[1]?.y as number)).toBeCloseTo(1.1);
+  });
+});
