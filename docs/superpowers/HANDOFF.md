@@ -22,6 +22,24 @@ removed and yaw/pitch/roll sliders added.
 - Spec: `docs/superpowers/specs/2026-08-18-neon-tubing-design.md`
 - Plan: `docs/superpowers/plans/2026-08-18-neon-tubing.md` — tasks 1-9 done, 10 partial, 11 not started
 
+## Next, after tubing lands
+
+**Text runs, for an acrostic.** The target is a poem with each line's first letter in its own
+colour; on command everything else exits, and the first letters travel to the centre and combine
+into a word.
+
+A draft spec is at `docs/superpowers/specs/2026-08-19-text-runs-design.md`, written without the
+owner. It carries four decisions marked **[OPEN]** that want confirming before code. The one that
+matters most: letters gathering to a single point overlap, so "combine into a word" means laying
+them out as a new word — a second layout pass over a subset, where each letter's destination
+depends on the widths of the other survivors. A `MotionPiece` returns an offset and cannot see
+that, so this decides whether gather is a piece or a new concept.
+
+The spec also finds that less is missing than it looked: per-letter materials already exist, and
+`LetterInfo` already reaches every motion piece, so a piece can already select letters. The real
+hole is that a letter does not know its own laid-out position, so nothing can compute travel to an
+absolute destination. `Word` has those numbers as `baseX`/`baseY` and simply never passes them on.
+
 ## Not done on this branch
 
 - **The visual baseline has never been re-recorded.** `look-tubing-darwin.png` and
