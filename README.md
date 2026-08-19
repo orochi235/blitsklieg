@@ -129,6 +129,53 @@ Every field is a number, so nothing about three appears in your types. Out-of-ra
 rather than throw. `tintTarget` overrides which channel `tint` writes to when the default
 routing guesses wrong.
 
+## Stages
+
+An effect can exit part of its word and lay the survivors out again as a word of their own — a
+poem whose first letters are their own color, then everything else leaves and those letters
+gather into a word. `then` is the list of stages, played after the enter:
+
+```ts
+await bk.fire(poem, {
+  hold: 'click',
+  then: [
+    { keep: (l) => l.column === 0, exit: 'fade', as: 'stack', hold: 'click' },
+    { as: 'line', hold: 'click' },
+  ],
+});
+```
+
+Each stage:
+
+| field | default | |
+|---|---|---|
+| `keep` | keeps all | the letters that continue; the rest play this stage's `exit` |
+| `exit` | `'fade'` | how the letters that do not continue leave |
+| `as` | `'line'` | the survivors' new layout — one line, or `'stack'` for one letter per line |
+| `active` | `'none'` | what the new word does while it holds |
+| `hold` | `1200` | milliseconds, or `'click'` to wait for the viewer |
+| `tween` | none | timing for the move into the new layout |
+
+Survivors keep their own material, so a letter's color travels with it. Everything a motion
+piece reads off the letter — `index`, `count`, `line`, `column`, `x`, `y` — describes the new
+word, not the old one.
+
+`tint` takes a rule as well as a color, which is how the letters that survive get their own one:
+
+```ts
+tint: (l) => (l.column === 0 ? 0xff2d6f : undefined)
+```
+
+Returning `undefined` leaves that letter the look's own color.
+
+`tween` is `{ duration, ease, delayBy }`. `delayBy` holds one channel back: `position` by a
+fraction of the move, `scale` — the viewport refit — by a fraction of the whole stage, so it can
+wait out an exit that outlasts the move. `delayBy: { scale: 0.45 }` lands the word before it
+grows to fill the screen.
+
+Under `prefers-reduced-motion: reduce` the stages do not play — that path holds a pose and never
+travels, so there is nothing to regroup.
+
 ## Writing your own motion
 
 Every slot also takes a piece you built, or several layered together:
@@ -196,8 +243,9 @@ const bounce = transition(700, { from: { scale: 0 }, ease: easeElasticOut });
 | `exit` | `'fade'` | how it leaves |
 | `look` | `'gold'` | the material — a name, or a spec of your own |
 | `lighting` | `'sweep'` | how the environment lights it |
-| `tint` | none | recolors the look, as `0xff2d6f` |
+| `tint` | none | recolors the look, as `0xff2d6f`, or a rule consulted per letter |
 | `hold` | `1200` | milliseconds in the active phase, or `'click'` to hold until dismissed |
+| `then` | none | stages played after the enter, each regrouping what survives it |
 | `blendMs` | `120` | crossfade window straddling each phase boundary |
 | `bloom` | look's choice | adds a glow pass, at the cost of three render targets while the effect runs |
 | `wrap` | `false` | break long text into the arrangement that renders largest |
@@ -255,7 +303,7 @@ Under `prefers-reduced-motion: reduce` the word holds the pose its enter settles
 
 - `npm run dev -w @blitsklieg/lab` — the lab page: every motion, look and policy behind
   pickers, plus canned sequences.
-- `npm run check` — biome, tsc and the unit suite (202 tests).
+- `npm run check` — biome, tsc and the unit suite (547 tests).
 - `npm run test:visual` — Playwright specs asserting the overlay composites over a live page
   without tinting or blocking it.
 - `npm run build:pages -w @blitsklieg/lab && npm run preview:pages -w @blitsklieg/lab` — the
