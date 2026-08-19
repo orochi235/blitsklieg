@@ -5,6 +5,7 @@ import {
   ENTER_NAMES,
   EXIT_NAMES,
   type FireOptions,
+  fromEuler,
   LIGHTING_NAMES,
   LOOK_NAMES,
   type Look,
@@ -12,6 +13,8 @@ import {
   POLICY_NAMES,
   specOf,
 } from 'blitsklieg';
+
+const DEG = Math.PI / 180;
 
 function el<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -67,6 +70,9 @@ const CONTROL_IDS = [
   'policy',
   'hold',
   'blend',
+  'yaw',
+  'pitch',
+  'roll',
   'grain',
   'density',
   'radius',
@@ -219,6 +225,8 @@ function fire(text: string): void {
     look: chosenLook(),
     lighting: lighting.get(),
     tint: tintOnInput.checked ? Number.parseInt(tintInput.value.slice(1), 16) : undefined,
+    // Sliders are degrees for a human; fromEuler wants radians, three's XYZ order.
+    transform: fromEuler(number('pitch') * DEG, number('yaw') * DEG, number('roll') * DEG),
     hold: holdClickInput.checked ? 'click' : number('hold'),
     blendMs: number('blend'),
     // Unchecked has to mean "unset", not "off": FireOptions.bloom wins over a look's own
@@ -387,5 +395,3 @@ addEventListener('error', (e) => log(`error: ${e.message}`));
 if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
   log('prefers-reduced-motion is on — the type holds a pose instead of travelling');
 }
-
-el('filler').textContent = 'Filler copy so the page scrolls. '.repeat(60);

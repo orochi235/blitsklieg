@@ -87,6 +87,20 @@ describe('buildTubeBlueprint', () => {
     uncut.dispose();
   });
 
+  it('leaves runs flat by default, and bends them once amplitude is set', () => {
+    const flat = buildTubeBlueprint([square()], SPEC, 0.3, 0);
+    const wandered = buildTubeBlueprint([square()], { ...SPEC, amplitude: 0.02 }, 0.3, 0);
+
+    expect(
+      flat.runs.every((r) => r.points.every((p) => p.z === (r.points[0] as THREE.Vector3).z)),
+    ).toBe(true);
+    expect(
+      wandered.runs.some((r) => r.points.some((p) => p.z !== (r.points[0] as THREE.Vector3).z)),
+    ).toBe(true);
+    flat.dispose();
+    wandered.dispose();
+  });
+
   it('emits connectors between front and back when both faces are enabled', () => {
     const spec: TubeSpec = {
       ...SPEC,

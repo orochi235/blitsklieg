@@ -6,6 +6,7 @@ import { cutIntoRuns, type Run } from './runs.js';
 import type { SurfaceKind } from './surfaces.js';
 import { surfacesOf } from './surfaces.js';
 import { sweepRun } from './sweep.js';
+import { wanderFaceRuns } from './wander.js';
 
 export type { SelectSpec } from './assign.js';
 export type { Run } from './runs.js';
@@ -31,6 +32,12 @@ export interface TubeSpec {
   wallDepth?: number;
   /** Peak-to-peak depth swing along a wall path, as a fraction of depth. */
   wallRise?: number;
+  /**
+   * How far a front/back run wanders off its flat plane, in em. Zero (the default) keeps today's
+   * flat behavior exactly. One or two slow undulations along the run's length, pinned to zero at
+   * both ends so adjacent runs still meet cleanly.
+   */
+  amplitude?: number;
   select: SelectSpec;
   colors: number[];
   look: MaterialSpec;
@@ -86,6 +93,9 @@ export function buildTubeBlueprint(
     spec.colors,
     seed,
   );
+  // After cutting and assigning: a run's final index, which seeds its wander, only exists once
+  // the run list is settled.
+  wanderFaceRuns(runs, spec.amplitude ?? 0, seed);
 
   const lit: THREE.BufferGeometry[] = [];
   const dark: THREE.BufferGeometry[] = [];

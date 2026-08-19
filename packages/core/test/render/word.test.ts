@@ -10,6 +10,7 @@ import type { LookSpec } from '../../src/render/looks.js';
 import { Word } from '../../src/render/word.js';
 import type { LoadedFont } from '../../src/text/font.js';
 import type { Budget } from '../../src/text/layout.js';
+import { fromEuler } from '../../src/transform.js';
 
 const UPEM = 1000;
 const ADVANCE = 600;
@@ -63,8 +64,9 @@ function timelineOf(offset: MotionPiece['offset']): Timeline {
   });
 }
 
+/** Letter cells sit under an inner group between the fit and the caller transform. */
 function groups(word: Word): THREE.Group[] {
-  return word.group.children as THREE.Group[];
+  return (word.group.children[0] as THREE.Group).children as THREE.Group[];
 }
 
 function meshes(word: Word): THREE.Mesh[] {
@@ -317,6 +319,50 @@ describe('Word', () => {
     );
 
     expect(materialOf(word).opacity).toBeCloseTo(0.4, 10);
+  });
+
+  it('exposes transform as a settable rigid turn between the fit and the letters', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+    const fitScale = word.group.scale.x;
+    const fitPosition = word.group.position.clone();
+
+    word.transform = fromEuler(0.1, 0.5, -0.2);
+
+    const m = new THREE.Matrix4().fromArray(word.transform as number[]);
+    const rotation = new THREE.Euler().setFromRotationMatrix(m, 'XYZ');
+    expect(rotation.x).toBeCloseTo(0.1, 10);
+    expect(rotation.y).toBeCloseTo(0.5, 10);
+    expect(rotation.z).toBeCloseTo(-0.2, 10);
+    // The fit lives on the outer group and must survive a caller transform untouched.
+    expect(word.group.scale.x).toBeCloseTo(fitScale, 10);
+    expect(word.group.position.x).toBeCloseTo(fitPosition.x, 10);
+    expect(word.group.position.y).toBeCloseTo(fitPosition.y, 10);
+  });
+
+  it('applies transform to the word as one rigid object, not per letter', () => {
+    const word = new Word('AA', stubFont(), 'gold', ROOMY);
+    const [a, b] = groups(word);
+    const restA = (a as THREE.Group).rotation.y;
+    const restB = (b as THREE.Group).rotation.y;
+
+    word.transform = fromEuler(0, 0.5, 0);
+
+    // The turn lands on the shared parent; individual letter cells stay at rest.
+    expect((groups(word)[0] as THREE.Group).rotation.y).toBeCloseTo(restA, 10);
+    expect((groups(word)[1] as THREE.Group).rotation.y).toBeCloseTo(restB, 10);
+  });
+
+  it('leaves transform alone when apply() runs, since apply only poses per-letter cells', () => {
+    const word = new Word('A', stubFont(), 'gold', ROOMY);
+    word.transform = fromEuler(0.1, 0.5, -0.2);
+    const before = word.transform;
+
+    word.apply(
+      timelineOf(() => ({ position: [1, 2, 3], rotation: [0.4, 0.4, 0.4] })),
+      50,
+    );
+
+    expect(word.transform).toEqual(before);
   });
 
   it('goes inert after dispose rather than posing into a disposed material', () => {

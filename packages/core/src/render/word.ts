@@ -9,6 +9,7 @@ import {
 } from '../text/glyphs.js';
 import type { Budget, Line } from '../text/layout.js';
 import { fitScale, LINE_HEIGHT_EM, layoutBlock, wrapBlock } from '../text/layout.js';
+import type { Transform } from '../transform.js';
 import {
   type Blueprint,
   buildChunkBlueprint,
@@ -26,6 +27,8 @@ const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 /** One group per letter — per-letter motion (spin, flip, shatter) needs independent transforms. */
 export class Word {
   readonly group = new THREE.Group();
+  /** Sits between `group` (the viewport fit) and the letters — see the `transform` accessor. */
+  private readonly inner = new THREE.Group();
   /** null where the glyph drew no outline (space, U+00A0, ZWJ); the slot still holds its index. */
   private readonly letters: (THREE.Group | null)[] = [];
   /** Layout x per letter. Pose x is an OFFSET onto this — overwriting it collapses the word. */
@@ -61,6 +64,8 @@ export class Word {
     wrap = false,
     tint?: number,
   ) {
+    this.group.add(this.inner);
+
     const spec = specOf(look);
     this.bodyOpacity = spec.opacity ?? 1;
 
@@ -135,11 +140,15 @@ export class Word {
             tintMaterialOf(spec) === 'decoration' ? tint : undefined,
           );
           decorMaterial.transparent = true;
+          // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
+          // would cull that invisible.
+          decorMaterial.side = THREE.DoubleSide;
           this.decorMaterials.push(decorMaterial);
 
           const darkMaterial = createMaterial();
           applyLook(darkMaterial, decoration.dark);
           darkMaterial.transparent = true;
+          darkMaterial.side = THREE.DoubleSide;
           this.darkMaterials.push(darkMaterial);
 
           const blueprint = buildTubeBlueprint(
@@ -184,7 +193,7 @@ export class Word {
         }
 
         this.letters.push(cell);
-        this.group.add(cell);
+        this.inner.add(cell);
 
         const bounds = geo.boundingBox;
         if (bounds) {
@@ -222,6 +231,23 @@ export class Word {
 
   get letterCount(): number {
     return this.letters.length;
+  }
+
+  /**
+   * Turns the whole word as one rigid object — never per letter, and never the camera, so the
+   * viewport fit stays put. Applied on a group between the fit and the letters, so it composes
+   * with the fit instead of overwriting it.
+   */
+  get transform(): Transform {
+    return new THREE.Matrix4()
+      .compose(this.inner.position, this.inner.quaternion, this.inner.scale)
+      .toArray();
+  }
+
+  set transform(matrix: Transform) {
+    new THREE.Matrix4()
+      .fromArray(matrix as number[])
+      .decompose(this.inner.position, this.inner.quaternion, this.inner.scale);
   }
 
   apply(timeline: Timeline, elapsed: number): void {

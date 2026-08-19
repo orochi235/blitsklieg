@@ -32,6 +32,7 @@ function smoothedPoints(run: Run): THREE.Vector3[] {
  */
 export function sweepRadius(run: Run, requested: number): number {
   const points = smoothedPoints(run);
+  // x/y only: a wandering z (wander.ts) adds real 3D curvature this taper never sees.
   const tightest = minCurvatureRadius(points.map((p) => ({ x: p.x, y: p.y })));
   if (!Number.isFinite(tightest)) return requested;
   return Math.min(requested, tightest * CLEARANCE);
