@@ -56,6 +56,17 @@ The hazard the rule guards against does not apply: promise resolution only treat
 thenable when `then` is *callable*, and this one is an array. But if the name is ever regretted,
 `stages` would cost nothing and give the rule back.
 
+### The lab's URL hash makes it look broken
+
+`apps/lab/src/main.ts` saves every control into `location.hash` and restores it on load, so a
+once-chosen `enter: none` / `active: none` survives reload, HMR and a browser restart. The effect
+still runs — hundreds of `apply()` calls — but every frame holds the same pose, which reads as
+"the lab stopped animating." A plain reload does not clear it; the fragment has to be deleted from
+the address bar.
+
+Worth a fix: either drop `none/none` from what gets persisted, or show the restored state in the
+panel header so it is visible rather than inferred.
+
 ### Traps this work has already hit
 
 - **The plan's placement assertions were wrong twice over.** Positions are glyph *origins* centred
