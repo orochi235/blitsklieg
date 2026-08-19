@@ -1,46 +1,51 @@
-# Handoff — neon tubing, 2026-08-18
+# Handoff — regroup and stages, 2026-08-19
 
 **For:** the next session picking this up. **Answers:** where the work sits, and what the next
 decision is.
 
 ## State
 
-The decoration layer merged as 0.4.0 (PR #1, `43729c6`). Neon tubing is **built and unmerged** on
-branch `neon-tubing`: 470 tests green, `npm run check` clean.
+Neon tubing **merged into `main`** (`3897483`) — locally only, not pushed. `main` deploys the lab,
+so pushing is a deliberate act, not a formality. 488 tests green at the merge.
 
-The pipeline is complete and working — `packages/core/src/render/tube/` holds `field.ts` (signed
-distance field, marching-squares isocontours), `resample.ts`, `surfaces.ts`, `generators.ts`,
-`runs.ts`, `assign.ts`, `sweep.ts`, `wander.ts`, `index.ts`. `tubing` and `piping` both build from
-it; `insetContour` and `CONTOUR_SEGMENTS` are gone.
+Current work is **regroup and stages** on branch `regroup-and-stages`, cut off `main`.
 
-Also landed, beyond the original plan: a rigid `transform` surface on `Word` and `FireOptions`
-(column-major matrix as plain numbers, with `fromEuler`/`fromAxisAngle`/`compose` helpers in
-`packages/core/src/transform.ts`), applied to an inner group so it composes with the viewport fit;
-depth-varying face runs via `TubeSpec.amplitude`; `TubeSpec.cornerAngle`; the lab's filler text
-removed and yaw/pitch/roll sliders added.
+- Spec: `docs/superpowers/specs/2026-08-19-text-runs-design.md` — settled with the owner.
+- Plan: `docs/superpowers/plans/2026-08-19-regroup-and-stages.md` — nine tasks, executing
+  subagent-driven, one commit per task.
 
-- Spec: `docs/superpowers/specs/2026-08-18-neon-tubing-design.md`
-- Plan: `docs/superpowers/plans/2026-08-18-neon-tubing.md` — tasks 1-9 done, 10 partial, 11 not started
-
-## Next, after tubing lands
-
-**Text runs, for an acrostic.** A poem with each line's first letter in its own colour; the viewer
-clicks, everything else exits, and the first letters gather into a word.
-
-The spec at `docs/superpowers/specs/2026-08-19-text-runs-design.md` is settled with the owner. The
-shape it landed on is **regrouping**: survivors leave their old group and become a new group whose
+The shape: survivors of a partial exit leave their old group and become a **new group** whose
 layout is the existing layout code re-run over their own glyphs. That makes the readable-word
 version no more expensive than a cheap collapse, and it rules out the natural first move — a
-`gather` motion piece cannot see the other survivors or change what the layout says.
+`gather` motion piece can neither see the other survivors nor change what the layout says. Stages
+are data on `FireOptions` (`then: Stage[]`), advanced by the viewer's click, which `hold: 'click'`
+already supports. Spans are deliberately second, in their own plan afterwards.
 
-Stages are data on `FireOptions` (`then: Stage[]`), advanced by the viewer's click, which
-`hold: 'click'` already supports. Colour is a `tint` function cascading into span tint. Spans are
-deliberately second, immediately after.
+### Progress
 
-Work splits in two: regroup + stages + tween timing, then spans. Both off a fresh branch from
-`main`.
+Task 1 landed (`918076c`, review fixes in `8072695`): layout arithmetic moved out of `Word`'s
+constructor into a pure `packages/core/src/text/placement.ts`, which is testable without a GL
+context. `Placement` carries `char` and `inkWidth`; `fitOf` takes `(placed, geoMinY, geoMaxY,
+budget)`. **The plan's Task 1 code blocks are stale against this** — the module as it stands is
+authoritative, and the plan says so inline.
 
-## Not done on this branch
+### Traps this work has already hit
+
+- **The plan's placement assertions were wrong twice over.** Positions are glyph *origins* centred
+  on the advance span, so a two-letter line is `[-STEP, 0]`, not `[∓STEP/2]`. Corrected throughout,
+  but check any new assertion against `word.test.ts`'s own `inkCenter` helper.
+- **Biome rejects a write-only private field** (`noUnusedPrivateClassMembers`), so a field cannot
+  be declared in an earlier task than the one that reads it. This is why the fit tween is folded
+  into the regroup task rather than standing alone.
+- **`word.test.ts` cannot see per-letter seeding.** Task 1's review proved it: injecting `i + 1`
+  into the flake/tube/chunk seed sites diverges the render by 36k lines of fingerprint while all 48
+  tests stay green. A refactor near `buildCell` needs a differential check, not a test run.
+- **Two independent sources of "does this glyph draw"** now exist — `placeBlock`'s `drawsInk`
+  predicate, and the null entries in the `geoMinY`/`geoMaxY` arrays handed to `fitOf`. They agree
+  inside `Word`. A caller that lets them disagree gets width and height measured over different
+  glyph sets.
+
+## Not done, carried over from tubing
 
 - **The visual suite guards the lab's page, not the type.** `shoot()` in
   `apps/lab/test/looks.spec.ts` screenshots the whole page rather than the canvas, so any control-
@@ -63,70 +68,11 @@ Work splits in two: regroup + stages + tween timing, then spans. Both off a fres
 - **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon.
   This is the last unbuilt look item and the owner rated it a bonus, not the point.
 
-## Corner strategies are in
-
-`break`, `connect` and `loop`, drawn per corner from a seeded weight distribution, biased by the
-corner's turn angle and the room around it. `cornerAngle` is gone — `piping` now sets
-`corners: ALL_CONNECT`, which says what it means. `tubing` ships a placeholder mix of
-55/30/15, tunable from three lab sliders.
-
-Loop radius is 4x the tube radius, clear of the 1.25x floor the curvature taper needs to keep full
-width through the turn.
-
-**All-loop is a stress test, not a setting.** Every corner getting a flourish buries a word, and on
-`E`, whose corners are close together, the loops overlap until the letter is barely legible. The
-mixed distribution is the point.
-
 ## Standing conventions for this work
 
 Test string is `NSR` — straight, curved, and mixed-with-counter. `E` spot-checks corner behavior.
 Captures at yaw 30 / pitch 13 degrees so they stay comparable. Judge by looking at the image, not
 by a green test run: the geometry has been correct while the render was visibly torn.
-
-## Fixed: three's tube sweep breaking on curved 3D paths
-
-`sweep.ts` no longer calls `THREE.TubeGeometry`. It builds the tube's `BufferGeometry` itself from
-a rotation-minimizing frame per point (`frames.ts`, double-reflection method, Wang/Jüttler/Zheng/Liu
-2008), which stays stable through inflections and low curvature instead of flipping there. The
-`CatmullRomCurve3` re-resample is gone too — the run's points are already arc-length spaced and
-corner-cut, so sweeping them directly is both simpler and one less parameterization to reason about.
-
-`sweepRadius`'s curvature taper is now 3D (`minCurvatureRadius3` in `resample.ts`), so it sees a
-face run's depth wander instead of only its flattened x/y projection.
-
-`radius` came down from 0.045 to 0.04 and `amplitude` went up from 0.006 to 0.02 in `looks.ts`.
-Verified with a synthetic S-curve test (`frames.test.ts`): the old Frenet frame's worst
-consecutive-normal dot product goes negative (a flip past 90°) at high depth amplitude on this
-font's actual `S` glyph, where the new RMF frame stays above 0.5 on the same run.
-
-`radius` is now 0.022 and `amplitude` 0.02 in `looks.ts`. Verified with a synthetic S-curve test
-(`frames.test.ts`): the old Frenet frame's worst consecutive-normal dot product goes negative — a
-flip past 90 degrees — at high depth amplitude on this font's actual `S`, where the RMF frame stays
-above 0.5 on the same run.
-
-## Fixed: a transparent backing was depth-culling its own tube
-
-This one is worth reading, because it was misdiagnosed twice and the misdiagnosis cost real work.
-
-Thinning `tubing.radius` used to make most of the sign vanish. That was attributed first to Frenet
-instability and then to the tube being occluded by the glyph's own extrusion wall. Neither. A
-`transparent` material still writes depth by default, and tubing's backing sits at `opacity: 0.08`
-— 92% see-through, and writing depth the whole time. It was culling the tube drawn behind it.
-Thinning the radius put more of the tube inside the silhouette, so more of it disappeared, which
-read convincingly as a sweep bug getting worse.
-
-The fix is one line in `word.ts`: do not write depth when the body is not opaque. The tube then
-renders correctly at 0.022, and the unlit dark-glass runs became visible for the first time — they
-had been hidden by the same mechanism.
-
-This is also the "piping's cord is largely occluded front-on at radius 0.03" note from 0.4.0,
-recorded then as something to tune rather than as a defect.
-
-**The lesson worth keeping:** a cheap hypothesis about render state should be eliminated before an
-expensive one about geometry. "The transparent thing in front is hiding it" costs one line to test;
-"the frame algorithm is unstable" cost two agents' budget. The RMF work was still correct and worth
-keeping — Frenet genuinely does tear at higher amplitude — but it was dispatched as a fix for a
-blocker that was somewhere else entirely.
 
 ## Defect to fix: the lab reaches past the public surface
 
@@ -157,7 +103,7 @@ It has grown into a single tall column of controls covering roughly a third of t
 screenshot loses part of the word and there is nowhere to put the diagnostics still to come. Split
 it into groups and use the available width.
 
-## Queued behind tubing
+## Queued
 
 **`pyrite` is built on the wrong model and should be respecced before it is tuned.** The chunk
 generator samples surface points and sticks a chunk on each — dip it in glue and roll it in
@@ -205,6 +151,11 @@ occluded front-on at radius 0.03. Every decoration parameter has a lab slider �
 `npm run dev -w @blitsklieg/lab`, then re-record baselines. No code change needed.
 
 ## Traps
+
+**Eliminate a cheap hypothesis about render state before an expensive one about geometry.** The
+tube vanishing when thinned was diagnosed twice as a geometry bug and was one line of render
+state: a `transparent` material still writes depth by default, so tubing's 0.08 backing was
+culling its own tube. `519ae45` has the detail.
 
 **A bloomed look at DPR 2 can exhaust Playwright's default 5s screenshot budget** while the
 stability loop waits for two consecutive frames. That is what it looks like when `tubing` fails to
