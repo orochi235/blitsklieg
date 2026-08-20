@@ -42,7 +42,7 @@ export function wanderFaceRuns(runs: Run[], amplitude: number, seed: number, rho
     const random = rng((Math.round(seed * 2654435761) ^ 0x9e3779b1 ^ run.index) >>> 0);
     // One or two slow undulations, never per-point noise — the run is swept with a Catmull-Rom
     // curve, and it has to read as gently bent tube.
-    const lobes = 1 + (random() < 0.5 ? 0 : 1);
+    const wanted = 1 + (random() < 0.5 ? 0 : 1);
     const sign = random() < 0.5 ? -1 : 1;
     const scale = 0.7 + random() * 0.3;
 
@@ -51,11 +51,14 @@ export function wanderFaceRuns(runs: Run[], amplitude: number, seed: number, rho
     // where the slope term vanishes. Spend half the margin: curvature does not add linearly, so a
     // run already near rhoMin after a fillet would otherwise dip below it once wandered.
     const budget = rhoMin * 2;
-    const ceiling =
+    const reachAt = (lobes: number) =>
       budget > 0
         ? total ** 2 / (budget * Math.PI ** 2 * lobes ** 2 * scale)
         : Number.POSITIVE_INFINITY;
-    const reach = Math.min(amplitude, ceiling);
+    // Lobe count is the other term in that bend radius, and unlike amplitude it is free: a run too
+    // short to carry two undulations gets one at full reach rather than two flattened ones.
+    const lobes = reachAt(wanted) >= amplitude ? wanted : 1;
+    const reach = Math.min(amplitude, reachAt(lobes));
 
     for (let i = 0; i < points.length; i++) {
       const s = (cum[i] as number) / total;
