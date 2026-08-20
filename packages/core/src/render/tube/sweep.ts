@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { isAuthored } from './bend.js';
 import type { Point2 } from './field.js';
-import { rotationMinimizingFrames } from './frames.js';
+import { type Frame, rotationMinimizingFrames } from './frames.js';
 import { minCurvatureRadius3, smooth } from './resample.js';
 import type { Run } from './runs.js';
 
@@ -40,30 +40,82 @@ export function tightestBend(run: Run): number {
  * THREE.TubeGeometry's Frenet frames — Frenet is undefined at inflection points and flips sign
  * wherever curvature is small, tearing the swept surface on any run that bends in 3D.
  */
+/**
+ * Quarter-turns of hemisphere at each end. A run end is a sealed tube, not an open one: glass is
+ * tipped off into a dome, and the sweep used to emit its wall and nothing else, so every run
+ * terminated in a hole the backing's transparency drew as a cut edge.
+ */
+const CAP_RINGS = 4;
+
+interface Ring {
+  centre: THREE.Vector3;
+  frame: Frame;
+  radius: number;
+  /** Outward tilt of the ring's normals, for a cap; zero along the tube's own wall. */
+  tilt: number;
+}
+
+/** The tube's own rings, domed at both ends. */
+function ringsOf(points: THREE.Vector3[], radius: number): Ring[] {
+  const frames = rotationMinimizingFrames(points);
+  const wall: Ring[] = points.map((centre, i) => ({
+    centre,
+    frame: frames[i] as Frame,
+    radius,
+    tilt: 0,
+  }));
+
+  const cap = (at: number, sign: 1 | -1): Ring[] => {
+    const base = wall[at] as Ring;
+    const out: Ring[] = [];
+    for (let k = 1; k <= CAP_RINGS; k++) {
+      const theta = (k / CAP_RINGS) * (Math.PI / 2);
+      out.push({
+        centre: base.centre
+          .clone()
+          .addScaledVector(base.frame.tangent, sign * radius * Math.sin(theta)),
+        frame: base.frame,
+        radius: radius * Math.cos(theta),
+        tilt: sign * theta,
+      });
+    }
+    return out;
+  };
+
+  return [...cap(0, -1).reverse(), ...wall, ...cap(wall.length - 1, 1)];
+}
+
 function buildTubeGeometry(
   points: THREE.Vector3[],
   radius: number,
   segments: number,
 ): THREE.BufferGeometry {
-  const frames = rotationMinimizingFrames(points);
-  const ringCount = points.length;
+  const rings = ringsOf(points, radius);
+  const ringCount = rings.length;
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
 
   for (let i = 0; i < ringCount; i++) {
-    const frame = frames[i] as (typeof frames)[number];
-    const p = points[i] as THREE.Vector3;
+    const ring = rings[i] as Ring;
+    const frame = ring.frame;
+    const p = ring.centre;
+    const radial = Math.cos(ring.tilt);
+    const axial = Math.sin(ring.tilt);
     for (let j = 0; j <= segments; j++) {
       const v = (j / segments) * Math.PI * 2;
       const sin = Math.sin(v);
       const cos = -Math.cos(v);
-      const nx = cos * frame.normal.x + sin * frame.binormal.x;
-      const ny = cos * frame.normal.y + sin * frame.binormal.y;
-      const nz = cos * frame.normal.z + sin * frame.binormal.z;
+      const nx = radial * (cos * frame.normal.x + sin * frame.binormal.x) + axial * frame.tangent.x;
+      const ny = radial * (cos * frame.normal.y + sin * frame.binormal.y) + axial * frame.tangent.y;
+      const nz = radial * (cos * frame.normal.z + sin * frame.binormal.z) + axial * frame.tangent.z;
       normals.push(nx, ny, nz);
-      positions.push(p.x + radius * nx, p.y + radius * ny, p.z + radius * nz);
+      positions.push(
+        p.x + ring.radius * (cos * frame.normal.x + sin * frame.binormal.x),
+        p.y + ring.radius * (cos * frame.normal.y + sin * frame.binormal.y),
+        p.z + ring.radius * (cos * frame.normal.z + sin * frame.binormal.z),
+      );
       uvs.push(i / (ringCount - 1), j / segments);
     }
   }
