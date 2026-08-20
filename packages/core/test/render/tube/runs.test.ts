@@ -373,3 +373,34 @@ describe('the blockout return', () => {
     expect(runs.some((r) => r.dark)).toBe(true);
   });
 });
+
+describe('a closed contour with no break anywhere', () => {
+  it('fillets the corner its own seam falls on', () => {
+    const { runs } = cutIntoRuns([PATH(squarePath())], {
+      runs: 1,
+      minRun: 0,
+      corners: ALL_CONNECT,
+      radius: 0.03,
+      bend: 2,
+      spacing: 0.02,
+      seed: 0,
+    });
+    const rhoMin = minBendRadius(0.03, 2);
+    expect(runs).toHaveLength(1);
+    const points = (runs[0] as { points: THREE.Vector3[] }).points;
+
+    // The walk has to start somewhere, and starting it on a corner starts and ends it on the same
+    // one — which no merge then covers, leaving the raw vertex at the seam. `tightestBend` cannot
+    // see it, because it measures a run's interior and the seam is its two ends.
+    const n = points.length;
+    const last = points[n - 1] as THREE.Vector3;
+    const closed = last.distanceTo(points[0] as THREE.Vector3) < 1e-9;
+    const a = points[n - 2] as THREE.Vector3;
+    const b = (closed ? points[0] : last) as THREE.Vector3;
+    const c = points[closed ? 1 : 0] as THREE.Vector3;
+    const turn = b.clone().sub(a).normalize().angleTo(c.clone().sub(b).normalize());
+    const step = (b.distanceTo(a) + c.distanceTo(b)) / 2;
+    const rho = turn < 1e-9 ? Number.POSITIVE_INFINITY : step / (2 * Math.sin(turn / 2));
+    expect(rho).toBeGreaterThanOrEqual(rhoMin * 0.95);
+  });
+});

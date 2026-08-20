@@ -1,7 +1,7 @@
 /**
  * Dump one run's vertices, to see what a bend diagnostic is pointing at.
  *
- *   node spikes/run-vertices.mjs W 1 [around] [strategy]
+ *   node spikes/run-vertices.mjs W 1 [around] [look]
  *
  * Step is the segment leaving the vertex, turn is the direction change at it, and `A` marks a point
  * built analytically rather than extracted — so a stretch of equal steps and equal turns is a
@@ -16,10 +16,10 @@ import { cutIntoRuns } from '../packages/core/dist/render/tube/runs.js';
 import { surfacesOf } from '../packages/core/dist/render/tube/surfaces.js';
 import { glyphToShapes } from '../packages/core/dist/text/glyphs.js';
 
-const [ch = 'W', runIndex = '1', around, strategy = 'connect'] = process.argv.slice(2);
+const [ch = 'W', runIndex = '1', around, look = 'tubing'] = process.argv.slice(2);
 const buf = readFileSync(new URL('../apps/lab/public/font.ttf', import.meta.url));
 const font = opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-const spec = specOf('tubing').decoration;
+const spec = specOf(look).decoration;
 const rhoMin = minBendRadius(spec.radius, spec.bend);
 
 const paths = generatePaths(surfacesOf(glyphToShapes(font, ch, 1), 0.3), spec.surfaces, {
@@ -32,7 +32,8 @@ const paths = generatePaths(surfacesOf(glyphToShapes(font, ch, 1), 0.3), spec.su
 const { runs } = cutIntoRuns(paths, {
   runs: spec.runs,
   minRun: spec.minRun,
-  corners: { break: 0, connect: 0, loop: 0, [strategy]: 1 },
+  corners: spec.corners,
+  blockout: spec.blockout,
   radius: spec.radius,
   bend: spec.bend,
   spacing: spec.spacing,

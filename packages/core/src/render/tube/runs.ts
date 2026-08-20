@@ -547,19 +547,25 @@ function stitchPath(
   const breakIdx = decisions.findIndex((d) => d.strategy === 'break');
 
   if (breakIdx === -1) {
-    // No break anywhere: the whole contour is one closed span, cut only where a return goes dark.
+    // No break anywhere: one closed span, cut only where a return goes dark. The walk starts in the
+    // *middle* of the first leg rather than on corner 0 — starting on a corner is starting and
+    // ending on the same one, and it would be the only corner in the glyph never merged, keeping
+    // its raw vertex.
     const closedSpans: Span[] = [];
-    let current = (arcs[0] as THREE.Vector3[]).slice();
-    for (let k = 1; k < n; k++) {
-      const decision = decisions[k] as CornerDecision;
-      mergeArc(current, arcs[k] as THREE.Vector3[], decision, decision.fillet ?? null, spacing);
+    const first = arcs[0] as THREE.Vector3[];
+    const mid = Math.max(1, Math.min(first.length - 2, first.length >> 1));
+    let current = first.slice(mid);
+    const walk = (decision: CornerDecision, arc: THREE.Vector3[]) => {
+      mergeArc(current, arc, decision, decision.fillet ?? null, spacing);
       if (decision.strategy === 'return' && decision.fillet) {
         const [head, dark, tail] = splitReturn(current, decision.fillet, spacing);
         closedSpans.push(head, dark);
         current = tail.points;
       }
-    }
-    const start = (arcs[0] as THREE.Vector3[])[0] as THREE.Vector3;
+    };
+    for (let k = 1; k < n; k++) walk(decisions[k] as CornerDecision, arcs[k] as THREE.Vector3[]);
+    walk(decisions[0] as CornerDecision, first.slice(0, mid + 1));
+    const start = first[mid] as THREE.Vector3;
     if ((current[current.length - 1] as THREE.Vector3).distanceTo(start) > EPS) current.push(start);
     closedSpans.push({ points: current });
     return { spans: closedSpans, decisions };
