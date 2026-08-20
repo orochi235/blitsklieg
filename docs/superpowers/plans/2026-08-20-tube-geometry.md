@@ -1156,6 +1156,24 @@ explicitly — **zero unresolved corners on the direct-contour column too**, not
 one. The rasterization blur currently masks the defect, so a model that only holds through the blur
 will break the moment path fidelity lands.
 
+- [ ] **Step 2: Hold the fallback rate to a stated number**
+
+Every hard corner whose fillet is refused becomes a break instead. That is correct behaviour, and it
+is also the change's most plausible silent failure: a clearance query slightly too eager rejects
+fillets across the whole alphabet, nothing errors, every letter still renders, and the tube simply
+has more cuts in it than it should.
+
+The room test alone refuses **8 of 228 on `tubing` (3.5%) and 7 of 244 on `piping` (2.9%)**. The
+clearance query adds to that.
+
+**Acceptance: combined fallback stays at or under 6% per look.** Above that, the query is too eager
+and the thing to check first is that it is comparing *relative* clearance — rejecting only a fillet
+that reduces the clearance the unfilleted path already had — rather than an absolute `2r`, since runs
+already pass within `2r` in tight counters at the shipped radius.
+
+Report the rate from the sweep rather than eyeballing it: extend `alphabet-sweep.mjs` to count
+clearance rejections alongside the room rejections it already counts.
+
 - [ ] **Step 2: Run the unit suite**
 
 ```bash
@@ -1179,12 +1197,17 @@ than reasoning around it.**
 
 - [ ] **Step 4: Leave the re-record for the owner**
 
-Two effects move these images and both should be named when presenting them, because the second is
-easy to mistake for a regression:
+**These four images will move more than the spec's "piping's cord roughly doubles" prepares a reviewer
+for.** At the corrected detection threshold every letter in both looks fillets — 228 hard corners on
+`tubing`, 244 on `piping` — so the capture string's glyphs change shape at every corner, not only in
+thickness. Present all three effects, because the second and third read as regressions if unnamed:
 
 1. `piping`'s cord roughly doubles in thickness — it was drawn at 26–69% of its requested 0.03 on
    every letter, and now draws at 0.03.
-2. **Short runs' wander visibly flattens.** Task 5's cap binds at `tubing`'s shipped `amplitude: 0.02`
+2. **Every corner is rounded.** A hard corner that used to kink now carries a fillet arc at `ρmin`,
+   cutting the corner back by up to 0.112 em. Letters read softer at the joins; that is the model
+   working, not the SDF blur getting worse.
+3. **Short runs' wander visibly flattens.** Task 5's cap binds at `tubing`'s shipped `amplitude: 0.02`
    for any run near its `minRun: 0.15`, so amplitude becomes a request rather than a guarantee there
    — the same language `runs` already carries.
 
