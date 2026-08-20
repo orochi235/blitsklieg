@@ -290,22 +290,28 @@ they fillet, and the requested `runs` count fills in the rest by arc length as i
 
 ## Baselines
 
-`tubing` and `piping` are published looks since 0.4.0. Four images move:
-`look-tubing`, `look-piping`, `offaxis-tubing`, `offaxis-piping` in
-`apps/lab/test/looks.spec.ts-snapshots/`. Expect them to move a lot — `piping`'s cord roughly
-doubles in thickness.
+**Two images moved, not four.** `look-tubing` and `offaxis-tubing` are re-recorded; `look-piping` and
+`offaxis-piping` pass unchanged, because piping traces inset at `level: -0.015` and its cord is
+inside the letter body in both framings. **The visual suite cannot see piping's cord at all**, so
+piping's acceptance is `spikes/bend-acceptance.mjs`, not an image.
 
-Re-record deliberately. The suite runs tight — `threshold: 0.02`, `maxDiffPixelRatio: 0.001` — and
-is deterministic across clean runs, so a moved image means a real change. The trap is that
-`--update-snapshots=all` is indiscriminate: it re-encodes **every** baseline, including looks this
-change cannot touch, which buries the four that matter in fifteen. Re-record everything, revert the
-directory wholesale, then re-record only the four:
+The re-record was done with the suite green at 24 and exactly those two failing first, so nothing
+leaked. `--update-snapshots=all` rewrites every baseline; grep to the two that move.
 
-```bash
-npx playwright test --update-snapshots=all
-git checkout -- apps/lab/test/looks.spec.ts-snapshots/
-npx playwright test --update-snapshots=all --grep 'tubing|piping'
-```
+## Acceptance, as measured
 
-Then confirm `git status --short apps/lab/test/looks.spec.ts-snapshots/` lists exactly those four.
-Any fifth file means the change leaked.
+`node spikes/bend-acceptance.mjs`, whole pipeline, all 26 letters:
+
+| | runs under `ρmin` | worst |
+| --- | --- | --- |
+| `tubing` | 2 of 231 | 1.94r |
+| `tubing`, no wander | 1 of 207 | 1.91r |
+| `piping` | 3 of 47 | 1.43r |
+
+Against 33 of 42 when filleting was wired but only the tightest vertex of each corner was cut back.
+The five that remain are within 5% of the invariant except `piping`'s `S`, and none is the kind of
+gross violation the clamp and the loop splice produced.
+
+What closed the gap, in order of what each was worth: filleting the corner's whole stretch rather
+than one vertex of it, moving wander ahead of the cut so its bends are the corner stage's problem
+(109 of 204 runs to 5), and dropping the loop.

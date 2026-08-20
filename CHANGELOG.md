@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Tube geometry
+
+The tube is one diameter. `sweepRun` used to shrink a whole run to 0.8 of its tightest curvature, so
+one sharp corner set the thickness of everything it sat in — `piping`'s cord drew at 26–69% of the
+0.03 it asked for, on every letter of the alphabet. Diameter is now held exactly and the *path* is
+what bends: `bend`, a new per-look field, states the minimum bend radius as a multiple of `radius`,
+corners are classified against it rather than by turn angle, and a corner the glass cannot take is
+filleted with a tangent arc or cut. Across all 26 letters, 2 of 231 runs on `tubing` and 3 of 47 on
+`piping` still bend tighter than that minimum, against 26 of 26 clamped before.
+
+Run ends are sealed. The sweep emitted its wall and no cap, so every run terminated in an open hole.
+
+**A corner can now carry the tube past the light instead of cutting it.** A working neon unit has no
+free ends — every end is an electrode or a seal — and a bender who needs a stroke to stop bends the
+tube out of the plane and paints the return with blockout. `blockout` weights that against a real
+cut, which is still right at a letter's terminus. `tubing` asks for 0.7.
+
+### Breaking
+
+`loop` is gone from `CornerStrategy` and `CornerWeights`. Bridging a corner with a full turn of tube
+cannot be built to hold the bend minimum inside the advance any run in a glyph has, and it is not a
+move an outlined solid volume wants. A spec still setting `corners: { break, connect, loop }` will
+fail to typecheck; drop the field and the weight redistributes over the other two.
+
+`amplitude`'s depth wander now runs before the cut rather than after, so it wanders a contour as one
+piece rather than each run separately. Its own curvature cap is gone — the corner stage sees the bend
+and handles it — and a wandered word will not reproduce a previous seed's exact geometry.
+
 ## 0.4.0
 
 ### Looks

@@ -1042,7 +1042,14 @@ git commit -m "fillet a corner the glass cannot turn, and break the ones that wi
 
 ---
 
-### Task 8: The pigtail advances
+### Task 8: The pigtail advances — **cancelled, the loop is gone**
+
+> Both constructions were built and measured; neither closes inside the advance any run in a glyph
+> has, and the winding radius they can reach is half what this task assumed. The owner's call was to
+> stop bridging a corner with a loop at all for an outlined solid volume, so `CornerStrategy` and
+> `CornerWeights` lost it instead. The spec's `## Loops` section carries the numbers. The steps below
+> are kept only because they say what was tried.
+
 
 `buildLoop` splices a full turn and lands **exactly** back on the corner, where the incoming and
 outgoing tube also pass — measured self-distance 0.002–0.007 em against a 0.044 diameter. Its plane
@@ -1144,7 +1151,11 @@ git commit -m "wind a loop into a pigtail that advances along the path"
 
 ---
 
-### Task 9: Acceptance, and the four baselines
+### Task 9: Acceptance, and the baselines — **done**
+
+> Two images moved, not four: piping's are blind to its cord. Results are in the spec's
+> `## Acceptance, as measured`.
+
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-08-19-tube-geometry-design.md` (acceptance results only)

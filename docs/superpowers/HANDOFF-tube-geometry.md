@@ -1,7 +1,7 @@
 # Handoff — tube geometry, 2026-08-20
 
-**For:** the next session picking up the tube geometry work. **Answers:** what landed overnight,
-what is left, and the two defects standing between here and acceptance.
+**For:** the next session picking up the tube geometry work. **Answers:** what landed, what is
+left, and what a reader would not guess from the plan.
 
 The spikes are the fast way back in: `bend-acceptance.mjs` is the invariant across the alphabet,
 `why-under-bend.mjs` separates the corner strategies, `where-under-bend.mjs` says whether a bad bend
@@ -16,57 +16,34 @@ plus what they cannot carry.
 ## Where the work is
 
 Branch `tube-geometry`, unpushed, in the worktree `.claude/worktrees/tube-geometry`. Based on
-`tube-lab` at `6bb0994` — the tube lab is finished and was built by a second session in the main
-checkout; both branches are clean and disjoint.
+`tube-lab` at `6bb0994`.
 
-`npm run check` green at **636 tests**, nothing half-built in the tree.
+`npm run check` green at 637 tests; `npx playwright test` green at 24, with `look-tubing` and
+`offaxis-tubing` re-recorded. **All nine tasks are closed.** Task 8 closed by removing the loop
+rather than building the pigtail — see the spec — and task 9's results are in the spec's
+`## Acceptance, as measured`.
 
-**Tasks 1–7 of the nine are committed and task 7 now meets its acceptance criterion.** Task 8 was
-attempted and reverted; what it cost is written into the spec rather than left in the code.
+Three changes landed beyond the plan, and the last two are the ones a reader will not expect:
 
-| | |
-| --- | --- |
-| 1 | `bend` as a per-look material property, floored at 1.25 |
-| 2 | corners classified by bend radius, not turn angle |
-| 3 | `filletAt` — a tangent arc at `ρmin` |
-| 4 | `ClearanceGrid` — the spatial hash |
-| 5 | wander capped so it cannot out-bend the tube |
-| 6 | **the invariant**: `sweepRun` holds the requested radius; `sweepRadius` → `tightestBend` |
-| 7 | fillets wired into the cut — **1 run of 168 under rho_min across the alphabet** |
-| 8 | the pigtail — **attempted, reverted; see the spec's `## Loops` section** |
-| 9 | acceptance and the baselines — **blocked on 8, and on the two decisions below** |
+- **Run ends are sealed.** The sweep emitted its wall and no cap, so every run ended in an open hole.
+- **A corner can carry the tube past the light instead of cutting it.** `blockout` weights a return —
+  the same fillet a connect draws, with the corner stretch marked unlit — against a real cut. A
+  working neon unit has no free ends, and a bender paints the return rather than ending the glass.
+- **Wander runs before the cut.** Its curvature cap is gone: a bend wander makes is a bend the corner
+  stage sees and handles. That alone took tubing from 109 of 204 runs under `ρmin` to 5.
 
 ## Where the bend invariant stands
 
-`node spikes/bend-acceptance.mjs` is the check — the whole pipeline, not just the cut, so wander is
-included. A fillet is built at exactly `rhoMin`, so it tests "not below", not "strictly above".
+`node spikes/bend-acceptance.mjs` — whole pipeline, all 26 letters, both looks:
 
 ```
-tubing                       11/171 runs under rho_min   worst 0.88r
-tubing no loop               25/168                      worst 1.52r
-tubing no loop no wander      1/168                      worst 1.52r
-piping                        3/47                       worst 1.43r
+tubing              2/231 runs under rho_min   worst 1.94r
+tubing no wander    1/207                      worst 1.91r
+piping              3/47                       worst 1.43r
 ```
 
-The corner stage is done. What is left splits cleanly: **wander owns 24** and **the loop splice owns
-the rest, including every severe number**.
-
-## Two decisions, both the owner's
-
-**1. Wander and fillets collide, and the spec's model does not resolve it.** Wander bends in z while
-the path bends in x/y, so they are perpendicular and combine as a hypotenuse. Enforce that exactly
-and *any* wander on a run holding a fillet is illegal, because a fillet sits at exactly `rhoMin` with
-nothing left to spend. That was built, it flattened every filleted run, and it was reverted; the
-`budget = rhoMin * 2` heuristic is back and those 24 runs are what it costs. Three ways out: accept
-it and lose wander on filleted runs; build fillets *above* `rhoMin` so wander has headroom, since
-`rhoMin` is a floor rather than a target; or move wander ahead of cutting so the fillets absorb the
-combined curvature — which the plan flagged as a choice to make rather than discover. The third is
-the one to take.
-
-**2. Is the loop worth its geometry?** The spec now carries what both pigtail constructions cost and
-why neither closes. Wiring `loop` to fall back to `break` takes tubing from 46/171 under-bend to
-**11/171** — already far better than the `buildLoop` that ships, at the cost of the flourish only.
-Decide that before building the pigtail, not after.
+Five runs of 278. All but `piping`'s `S` are within 5% of the invariant. Chasing them is optional
+work, not a blocker.
 
 ## What was learned that is not in the plan
 
@@ -135,16 +112,11 @@ highest-yield instruction was "verify this by mutation". It held here too, and i
 
 ## The baselines: two images, not four
 
-**`look-piping` and `offaxis-piping` do not move.** The suite has been run against the current
-branch and both pass. Piping's baseline is solid extruded letters with no cord visible anywhere — it
-traces inset at `level: -0.015`, so the cord sits inside the letter body in both framings. **The
-visual suite is blind to piping's cord**, which means it cannot see the change that matters most for
-that look; piping's acceptance has to be `spikes/bend-acceptance.mjs` or a lab capture.
+**Done, and re-recorded.** `look-piping` and `offaxis-piping` do not move: piping traces inset at
+`level: -0.015`, so its cord sits inside the letter body in both framings and **the visual suite is
+blind to the change that matters most for that look**. Piping's acceptance is the spike, not an
+image.
 
-`look-tubing` and `offaxis-tubing` move, by 4047 pixels: corners visibly rounder, and nothing else.
-**Do not pass `--update-snapshots`** — it rewrites all fifteen. Run the suite, expect exactly two
-failures, and let `test-results/` be the evidence. A third moved image means the change leaked.
-
-One effect reads as a regression if unnamed: every corner is rounded, cut back by up to 0.112 em.
-Short-run wander no longer flattens — lobe count is now chosen by what the run carries, so that
-prediction is off the list. The re-record is the owner's call.
+If you re-record again: run the suite first and expect exactly the two tubing images to fail, then
+`--update-snapshots=all --grep tubing`. Passing `--update-snapshots` without a grep rewrites all
+fifteen.
