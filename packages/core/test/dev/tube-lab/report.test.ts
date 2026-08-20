@@ -18,22 +18,28 @@ function blueprint(runs: Run[]) {
 }
 
 describe('reportOf', () => {
-  it('reports the radius a run actually got, and flags the clamp', () => {
-    const report = reportOf(blueprint([arcRun(0.1, 0)]), 0.05);
+  it("reports a run's own bend radius against the minimum its material allows", () => {
+    const report = reportOf(blueprint([arcRun(0.2, 0)]), 0.05, 2);
 
     const run = report.runs[0];
-    expect(run?.requested).toBe(0.05);
-    expect(run?.actual).toBe(0.05);
-    expect(run?.clamped).toBe(false);
+    expect(run?.tightest).toBeCloseTo(0.2, 2);
+    expect(run?.minimum).toBeCloseTo(0.1, 6);
+    expect(run?.unresolved).toBe(false);
   });
 
-  it('flags a run whose corner cannot carry the requested radius', () => {
-    const report = reportOf(blueprint([arcRun(0.02, 0)]), 0.05);
+  /**
+   * The discriminating case, and the reason the field was renamed. This arc bends at 0.07: wider
+   * than the 0.05 tube radius, yet tighter than the 0.1 that radius is permitted to bend to. The
+   * predicate must compare against `minimum`, not against the requested radius — comparing the
+   * wrong pair returns `false` here, which is plausible and wrong, on the very panel used to decide
+   * whether the corner stage worked.
+   */
+  it('flags a run the corner stage failed to make bendable', () => {
+    const report = reportOf(blueprint([arcRun(0.07, 0)]), 0.05, 2);
 
-    expect(report.runs[0]?.clamped).toBe(true);
-    // sweepRadius allows 80% of the tightest curvature radius, measured after smoothing.
-    expect(report.runs[0]?.actual).toBeCloseTo(0.016, 3);
-    expect(report.clamped).toBe(1);
+    expect(report.runs[0]?.tightest).toBeCloseTo(0.07, 2);
+    expect(report.runs[0]?.unresolved).toBe(true);
+    expect(report.unresolved).toBe(1);
   });
 
   it('counts a run that vanished rather than leaving it silently absent', () => {
@@ -45,23 +51,23 @@ describe('reportOf', () => {
       lit: true,
       color: 0,
     };
-    const report = reportOf(blueprint([dot]), 0.05);
+    const report = reportOf(blueprint([dot]), 0.05, 2);
 
     expect(report.runs[0]?.dropped).toBe(true);
     expect(report.dropped).toBe(1);
-    expect(report.clamped).toBe(0);
+    expect(report.unresolved).toBe(0);
   });
 
-  it('drops every run at a zero radius without calling any of them clamped', () => {
-    const report = reportOf(blueprint([arcRun(0.1, 0), arcRun(0.02, 1)]), 0);
+  it('drops every run at a zero radius without calling any of them unresolved', () => {
+    const report = reportOf(blueprint([arcRun(0.2, 0), arcRun(0.02, 1)]), 0, 2);
 
     expect(report.dropped).toBe(2);
-    expect(report.clamped).toBe(0);
+    expect(report.unresolved).toBe(0);
   });
 
   it('summarises as the panel reads it', () => {
-    const report = reportOf(blueprint([arcRun(0.1, 0), arcRun(0.02, 1)]), 0.05);
+    const report = reportOf(blueprint([arcRun(0.2, 0), arcRun(0.02, 1)]), 0.05, 2);
 
-    expect(report.summary).toBe('2 runs · 1 clamped · 0 dropped');
+    expect(report.summary).toBe('2 runs · 1 unresolved · 0 dropped');
   });
 });

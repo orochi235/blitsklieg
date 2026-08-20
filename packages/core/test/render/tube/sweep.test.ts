@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { Run } from '../../../src/render/tube/runs.js';
-import { sweepRadius, sweepRun } from '../../../src/render/tube/sweep.js';
+import { sweepRun, tightestBend } from '../../../src/render/tube/sweep.js';
 
 function arcRun(radius: number, sweep: number): Run {
   const points = Array.from({ length: 40 }, (_, i) => {
@@ -28,24 +28,34 @@ function depthArcRun(radius: number, sweep: number): Run {
   return { points, surface: 'front', length, index: 0, lit: true, color: 0xffffff };
 }
 
-describe('sweepRadius', () => {
-  it('keeps the requested radius on a gentle path', () => {
-    expect(sweepRadius(arcRun(1, Math.PI / 2), 0.05)).toBeCloseTo(0.05, 3);
+describe('tightestBend', () => {
+  it("reports an arc's own radius, not a radius to draw at", () => {
+    expect(tightestBend(arcRun(1, Math.PI / 2))).toBeCloseTo(1, 2);
+    expect(tightestBend(arcRun(0.02, Math.PI / 2))).toBeCloseTo(0.02, 3);
   });
 
-  it('tapers below the local curvature radius on a tight path', () => {
-    // A 0.02 radius arc cannot carry a 0.05 tube; the sweep would turn inside out.
-    const r = sweepRadius(arcRun(0.02, Math.PI / 2), 0.05);
-    expect(r).toBeLessThan(0.02);
-    expect(r).toBeGreaterThan(0);
-  });
-
-  it('tapers for curvature that lives entirely in depth', () => {
+  it('measures curvature that lives entirely in depth', () => {
     // Flattened to x/y this run is collinear (y is always 0) and would read as straight; the
     // curve only bends in z. A 2D-only curvature measurement misses this entirely.
-    const r = sweepRadius(depthArcRun(0.02, Math.PI / 2), 0.05);
-    expect(r).toBeLessThan(0.02);
-    expect(r).toBeGreaterThan(0);
+    expect(tightestBend(depthArcRun(0.02, Math.PI / 2))).toBeCloseTo(0.02, 3);
+  });
+
+  /**
+   * The invariant the whole geometry model buys. A 0.02 arc cannot carry a 0.05 tube, and the old
+   * behaviour was to thin the tube until it could; now the corner stage is responsible for making
+   * the path bendable and the sweep holds its diameter regardless.
+   */
+  it('sweeps at the requested radius even where the path bends tighter', () => {
+    const run = arcRun(0.02, Math.PI / 2);
+    const geo = sweepRun(run, 0.05, 8);
+    expect(geo).not.toBeNull();
+    const pos = (geo as THREE.BufferGeometry).getAttribute('position');
+    const centre = (run.points[0] as THREE.Vector3).clone();
+    // Ring 0's vertices all sit exactly `requested` from the first path point. Smoothing is
+    // 'open', so it pins the endpoints and the first ring's centre is the original vertex.
+    const first = new THREE.Vector3(pos.getX(0), pos.getY(0), pos.getZ(0));
+    expect(first.distanceTo(centre)).toBeCloseTo(0.05, 6);
+    geo?.dispose();
   });
 });
 

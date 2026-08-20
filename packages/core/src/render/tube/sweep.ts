@@ -4,8 +4,6 @@ import { rotationMinimizingFrames } from './frames.js';
 import { minCurvatureRadius3, smooth } from './resample.js';
 import type { Run } from './runs.js';
 
-/** How much of the local curvature radius a tube may occupy before it self-intersects. */
-const CLEARANCE = 0.8;
 /** Smoothing happens here rather than upstream: a run ends at a corner, so it never crosses one. */
 const SMOOTH_PASSES = 3;
 
@@ -27,15 +25,12 @@ export function smoothedPoints(run: Run): THREE.Vector3[] {
 }
 
 /**
- * A sweep whose radius exceeds the path's local radius of curvature turns inside out. Measured
- * on the lab font this is common rather than exotic, and the run floor does not catch it — a run
- * can be long and still contain one tight corner.
+ * The run's tightest bend radius, in em. A diagnostic: nothing scales geometry by it any more.
+ * The corner stage is what makes a path bendable, and a run it could not fix is broken rather than
+ * thinned, so diameter is an invariant of the blueprint rather than an outcome of it.
  */
-export function sweepRadius(run: Run, requested: number): number {
-  const points = smoothedPoints(run);
-  const tightest = minCurvatureRadius3(points);
-  if (!Number.isFinite(tightest)) return requested;
-  return Math.min(requested, tightest * CLEARANCE);
+export function tightestBend(run: Run): number {
+  return minCurvatureRadius3(smoothedPoints(run));
 }
 
 /**
@@ -96,11 +91,8 @@ export function sweepRun(
   requested: number,
   segments: number,
 ): THREE.BufferGeometry | null {
-  if (run.points.length < 2) return null;
-  const radius = sweepRadius(run, requested);
-  if (radius <= 0) return null;
+  if (run.points.length < 2 || requested <= 0) return null;
   // Points are already arc-length spaced (resample.ts) and corner-cut (runs.ts), so a
   // Catmull-Rom re-resample bought nothing but a second parameterization to reason about.
-  const points = smoothedPoints(run);
-  return buildTubeGeometry(points, radius, segments);
+  return buildTubeGeometry(smoothedPoints(run), requested, segments);
 }

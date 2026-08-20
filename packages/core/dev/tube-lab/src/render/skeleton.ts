@@ -8,7 +8,7 @@ import { type Report, reportOf } from '../report.js';
 const CONTOUR = 0x39415a;
 const LIT = 0xff2d95;
 const DARK = 0xa86a90;
-const CLAMPED = 0xffb020;
+const UNRESOLVED = 0xffb020;
 const DROPPED = 0x00e5ff;
 const ENDPOINT = 0xe6e9f0;
 
@@ -54,7 +54,7 @@ function contours(shapes: THREE.Shape[], depth: number): THREE.Object3D[] {
 
 export function buildSkeleton(shapes: THREE.Shape[], spec: TubeSpec, depth: number): Skeleton {
   const blueprint = buildTubeBlueprint(shapes, spec, depth, 0);
-  const report = reportOf(blueprint, spec.radius);
+  const report = reportOf(blueprint, spec.radius, spec.bend);
   const group = new THREE.Group();
 
   for (const child of contours(shapes, depth)) group.add(child);
@@ -62,8 +62,8 @@ export function buildSkeleton(shapes: THREE.Shape[], spec: TubeSpec, depth: numb
   const ends: THREE.Vector3[] = [];
   blueprint.runs.forEach((run, i) => {
     const state = report.runs[i];
-    const color = state?.dropped ? DROPPED : state?.clamped ? CLAMPED : run.lit ? LIT : DARK;
-    // The swept path, not the one the run was handed: the curvature clamp is measured on this,
+    const color = state?.dropped ? DROPPED : state?.unresolved ? UNRESOLVED : run.lit ? LIT : DARK;
+    // The swept path, not the one the run was handed: bend radius is measured on this,
     // so drawing the raw points would flag a run against geometry the panel never shows.
     if (run.points.length >= 2) group.add(line(smoothedPoints(run), color));
     const first = run.points[0];
