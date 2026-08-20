@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { RampSource } from '../panels.js';
 
-/** Comfortably brackets the glyph extrude depth (0.3 em) plus wander and amplitude margin. */
+/** Only what an unmeasured cell falls back to: the glyph extrude depth (0.3 em) plus margin. */
 const DEPTH_RANGE: [number, number] = [-0.1, 0.4];
 
 const VERTEX_SHADER = `
@@ -42,7 +42,7 @@ const FRAGMENT_SHADER = `
 `;
 
 /** One shader, one ramp; `source` only picks which baked scalar (uv.x or position.z) it reads. */
-export function rampMaterial(source: RampSource): THREE.ShaderMaterial {
+function rampMaterial(source: RampSource): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
@@ -52,4 +52,50 @@ export function rampMaterial(source: RampSource): THREE.ShaderMaterial {
       uDepthMax: { value: DEPTH_RANGE[1] },
     },
   });
+}
+
+export interface RampOverride {
+  /** The tube material override, one instance per `which`, both on the same depth axis. */
+  material(which: 'lit' | 'dark'): THREE.ShaderMaterial;
+  /** Rescales the depth axis to the tube geometry `root` ended up with. */
+  fit(root: THREE.Object3D): void;
+}
+
+/**
+ * A depth ramp over a fixed z range says nothing about where the runs actually are: a spec whose
+ * amplitude pushes past the range saturates to flat yellow, which reads as "every run is at one
+ * frontmost depth" — the opposite of the truth. So the range is measured, not assumed.
+ *
+ * Measured on the geometry's own boxes rather than the pivot's, because the shader reads
+ * `position.z`, which the Word's fit scale never touches.
+ */
+export function rampOverride(source: RampSource): RampOverride {
+  const materials = new Map<'lit' | 'dark', THREE.ShaderMaterial>();
+  return {
+    material(which) {
+      let material = materials.get(which);
+      if (!material) {
+        material = rampMaterial(source);
+        materials.set(which, material);
+      }
+      return material;
+    },
+    fit(root) {
+      const span = new THREE.Box3().makeEmpty();
+      const mine = new Set<THREE.Material>(materials.values());
+      root.traverse((object) => {
+        const mesh = object as Partial<THREE.Mesh>;
+        const geometry = mesh.geometry;
+        const material = mesh.material;
+        if (!geometry || Array.isArray(material) || !material || !mine.has(material)) return;
+        geometry.computeBoundingBox();
+        if (geometry.boundingBox) span.union(geometry.boundingBox);
+      });
+      if (span.isEmpty()) return;
+      for (const material of materials.values()) {
+        material.uniforms.uDepthMin = { value: span.min.z };
+        material.uniforms.uDepthMax = { value: span.max.z };
+      }
+    },
+  };
 }

@@ -131,3 +131,34 @@ body {
   flex: 0 1 108px;
   min-width: 0;
 }
+.rail label > input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.rail label > input[type="color"] {
+  flex: 0 0 44px;
+  height: 18px;
+  padding: 0;
+  background: none;
+  border: 1px solid #2a3142;
+}
+.rail input:disabled {
+  opacity: 0.35;
+}
+.rail__note {
+  margin: 0;
+  color: #9aa3b8;
+}
+.rail button {
+  justify-self: start;
+  padding: 2px 8px;
+  color: inherit;
+  font: inherit;
+  background: #161b26;
+  border: 1px solid #2a3142;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.rail button:hover {
+  border-color: #d8b25f;
+}

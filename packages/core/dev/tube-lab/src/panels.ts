@@ -8,8 +8,12 @@ export type Pose = (typeof POSES)[number];
 export const RAMP_SOURCES = ['depth', 'arc'] as const;
 export type RampSource = (typeof RAMP_SOURCES)[number];
 
-/** Straight, curved, mixed-with-counter, and one corner spot-check — the standing test string. */
-export const DEFAULT_LETTERS = 'NSRE';
+/**
+ * The extremes, not the representative set: a 26-letter sweep puts M at 0.32r and W at 0.38r
+ * against N's 0.44r, so `NSRE` cannot show the worst case. S is the pure-curve case with the
+ * fewest corners and no counter; B has two.
+ */
+export const DEFAULT_LETTERS = 'MWSB';
 
 /** What a panel node carries in windease `meta`. A panel is this pair, not a cell in a grid. */
 export interface PanelMeta {

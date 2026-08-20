@@ -97,6 +97,8 @@ export interface CellInput {
   environment: THREE.Texture;
   /** Whatever the mode wants drawn instead of a Word; `beauty` passes nothing. */
   content?: THREE.Object3D;
+  /** The rail's own switch, overriding what the look asked for. Only a beauty cell reads it. */
+  bloom: boolean;
   /** Replaces both tube materials, for the ramp mode. */
   tubeMaterial?: (which: 'lit' | 'dark') => THREE.Material | undefined;
 }
@@ -142,7 +144,7 @@ export function buildCell(input: CellInput): Cell {
     camera,
     pivot,
     fit: fitter(pivot),
-    bloom: input.tubeMaterial ? false : (input.look.bloom ?? false),
+    bloom: input.tubeMaterial ? false : input.bloom,
     dispose() {
       pivot.remove(word.group);
       word.dispose();

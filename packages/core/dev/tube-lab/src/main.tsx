@@ -2,19 +2,12 @@ import { createRoot } from 'react-dom/client';
 import { asNodeId, createPanel, createZone, type NodeId, Store, splitStrategy } from 'windease';
 import { DragProvider, Provider, StrategyRegistryProvider } from 'windease/react';
 import 'windease/styles.css';
-import { specOf } from '../../../src/render/looks.js';
-import type { TubeSpec } from '../../../src/render/tube/index.js';
 import { App, ZONE } from './App.js';
 import { DEFAULT_LETTERS, seedPanels } from './panels.js';
 import { restore } from './persist.js';
+import { tubeSpecOf } from './spec.js';
 import './styles.css';
 import { balancedTree } from './tree.js';
-
-function tubeSpecOf(name: 'tubing' | 'piping'): TubeSpec {
-  const decoration = specOf(name).decoration;
-  if (decoration?.kind !== 'tube') throw new Error(`tube lab: ${name} has no tube decoration`);
-  return decoration;
-}
 
 function seed(store: Store): void {
   store.registerNode(
@@ -47,6 +40,7 @@ createRoot(host).render(
         <App
           letters={saved?.letters ?? DEFAULT_LETTERS}
           spec={saved?.spec ?? tubeSpecOf('tubing')}
+          look={saved?.look ?? 'tubing'}
         />
       </DragProvider>
     </StrategyRegistryProvider>

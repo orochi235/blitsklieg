@@ -29,7 +29,7 @@ describe('seedPanels', () => {
     const seeded = seedPanels(DEFAULT_LETTERS);
 
     expect(seeded).toHaveLength(4 * 4);
-    expect(seeded.filter((p) => p.letter === 'N').map((p) => `${p.mode}:${p.pose}`)).toEqual([
+    expect(seeded.filter((p) => p.letter === 'M').map((p) => `${p.mode}:${p.pose}`)).toEqual([
       'beauty:head-on',
       'beauty:turned',
       'skeleton:head-on',

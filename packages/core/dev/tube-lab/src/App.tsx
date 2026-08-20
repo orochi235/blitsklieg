@@ -24,16 +24,19 @@ import {
   isPose,
   isRampSource,
   type PanelMeta,
+  type PanelMode,
   type PanelRecord,
   type Pose,
   RAMP_SOURCES,
   reconcileLetters,
 } from './panels.js';
 import { clear, save } from './persist.js';
+import { Rail } from './Rail.js';
 import { buildCell, type Cell } from './render/cell.js';
 import { LabRenderer, type PanelDraw } from './render/lab.js';
-import { rampMaterial } from './render/ramp.js';
+import { rampOverride } from './render/ramp.js';
 import { buildSkeleton } from './render/skeleton.js';
+import { type TubeLook, tubeSpecOf } from './spec.js';
 import { balancedTree, withLeaf, withoutLeaf } from './tree.js';
 
 export const ZONE = asNodeId('zone');
@@ -46,18 +49,21 @@ export function metaOf(raw: Record<string, unknown> | undefined): PanelMeta {
   return { letter, mode, pose, source };
 }
 
-function createPanelNode(id: NodeId, meta: PanelMeta) {
-  return createPanel({ id, parentId: ZONE, meta: { ...meta } });
-}
+let nextPanel = 0;
 
+/**
+ * Registers the panel and returns its id; the caller grafts it into the tree. The id is never
+ * recycled: a view is held against it, and a fresh panel inheriting a dead one's turn and zoom is
+ * indistinguishable from a bug in the pose.
+ */
 function addPanel(store: Store, meta: PanelMeta): NodeId {
   const taken = new Set<string>(store.getChildren(ZONE).map((node) => node.id));
-  let n = 0;
-  while (taken.has(`p${n}`)) n++;
-  const id = asNodeId(`p${n}`);
-  store.registerNode(createPanelNode(id, meta));
-  store.showNode(id);
-  return id;
+  let id = `n${nextPanel++}`;
+  while (taken.has(id)) id = `n${nextPanel++}`;
+  const node = asNodeId(id);
+  store.registerNode(createPanel({ id: node, parentId: ZONE, meta: { ...meta } }));
+  store.showNode(node);
+  return node;
 }
 
 /** How a panel is being looked at. In memory only, unlike the layout. */
@@ -158,14 +164,23 @@ function chromeFor(
 export interface AppProps {
   letters: string;
   spec: TubeSpec;
+  look: TubeLook;
 }
 
-export function App({ letters: initialLetters, spec }: AppProps) {
+export function App({ letters: initialLetters, spec: initialSpec, look: initialLook }: AppProps) {
   const store = useStore();
   const [letters, setLetters] = useState(initialLetters);
-  const [lookName] = useState<'tubing' | 'piping'>('tubing');
+  const [spec, setSpec] = useState(initialSpec);
+  const [lookName, setLookName] = useState(initialLook);
+  const [bloom, setBloom] = useState(true);
   const look = useMemo(() => specOf(lookName), [lookName]);
-  const specKey = JSON.stringify(spec) + lookName;
+  const specKey = `${JSON.stringify(spec)}|${lookName}|${bloom}`;
+
+  /** Changing look reseeds the rail, so the controls keep reading as that look's own tuning. */
+  const changeLook = useCallback((next: TubeLook) => {
+    setLookName(next);
+    setSpec(tubeSpecOf(next));
+  }, []);
 
   const panels = useCallback((): PanelRecord[] => {
     return store.getChildren(ZONE).map((node) => ({ id: node.id, ...metaOf(node.meta) }));
@@ -193,11 +208,22 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     [panels, store],
   );
 
+  /** The rail's own add: one panel, outside the letters reconcile, grafted into the largest pane. */
+  const addPanelAndGraft = useCallback(
+    (letter: string, mode: PanelMode) => {
+      const refilling = store.getChildren(ZONE).length === 0;
+      const id = addPanel(store, { letter, mode, pose: 'head-on', source: 'depth' });
+      const tree = store.getContainerState(ZONE) as SplitNode | undefined;
+      store.setContainerState(ZONE, refilling || !tree ? balancedTree([id]) : withLeaf(tree, id));
+    },
+    [store],
+  );
+
   useEffect(() => {
     let timer = 0;
     const flush = () => {
       timer = 0;
-      save(store, letters, spec);
+      save(store, letters, spec, lookName);
     };
     // Clear before flushing, or the armed timer fires later and writes this closure's stale values.
     const flushPending = () => {
@@ -205,7 +231,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
       clearTimeout(timer);
       flush();
     };
-    save(store, letters, spec);
+    save(store, letters, spec, lookName);
     // A gutter drag never changes `letters` or `spec`, so the store itself has to say when to save.
     const unsubscribe = store.subscribe(() => {
       if (timer) clearTimeout(timer);
@@ -218,7 +244,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
       window.removeEventListener('pagehide', flushPending);
       flushPending();
     };
-  }, [store, letters, spec]);
+  }, [store, letters, spec, lookName]);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -389,6 +415,9 @@ export function App({ letters: initialLetters, spec }: AppProps) {
         const meta = metaOf(node.meta);
         const key = `${id}|${meta.mode}|${meta.letter}|${meta.source}|${specKey}`;
         live.add(id);
+        // Against the id, not the cell: a cell is rebuilt on every spec change, and a slider drag
+        // must not walk every panel back to head-on. Ids are never recycled, so this is safe.
+        if (!views.current.has(id)) views.current.set(id, initialView(meta.pose));
         let cell = cellsRef.current.get(id);
         if (!cell || cell.key !== key) {
           cell?.dispose();
@@ -400,6 +429,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
               look: { ...look, decoration: spec },
               font,
               environment: lab.environmentTexture,
+              bloom,
               content: skeleton.object,
             });
             const inner = cell.dispose;
@@ -409,20 +439,20 @@ export function App({ letters: initialLetters, spec }: AppProps) {
             };
             setReport(id, skeleton.report.summary);
           } else {
+            const ramp = meta.mode === 'ramp' ? rampOverride(meta.source) : null;
             cell = buildCell({
               meta,
               look: { ...look, decoration: spec },
               font,
               environment: lab.environmentTexture,
-              ...(meta.mode === 'ramp' ? { tubeMaterial: () => rampMaterial(meta.source) } : null),
+              bloom,
+              ...(ramp ? { tubeMaterial: ramp.material } : null),
             });
+            ramp?.fit(cell.pivot);
             setReport(id, '');
           }
           cell.key = key;
           cellsRef.current.set(id, cell);
-          // `addPanel` recycles the lowest free id, so a fresh panel inherits a dead one's view
-          // unless the seed rides the cell: the key, not the id, is what says this panel is new.
-          views.current.set(id, initialView(meta.pose));
         }
         pose(cell, id, rect.w / rect.h);
         draws.push({ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom });
@@ -437,7 +467,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
       lab.draw(draws);
     };
     drawAll();
-  }, [drawAll, font, placements, spec, specKey, look, store, setReport, pose]);
+  }, [drawAll, font, placements, spec, specKey, look, bloom, store, setReport, pose]);
 
   return (
     <div className="lab">
@@ -445,24 +475,21 @@ export function App({ letters: initialLetters, spec }: AppProps) {
         <canvas ref={canvasRef} />
         <Container className="zone" parentId={ZONE} chrome={chromeWithReports} affordances />
       </div>
-      <div className="rail">
-        <section className="rail__group">
-          <h2>zone</h2>
-          <label>
-            letters
-            <input value={letters} onChange={(e) => applyLetters(e.target.value)} />
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              clear();
-              location.reload();
-            }}
-          >
-            reset layout
-          </button>
-        </section>
-      </div>
+      <Rail
+        spec={spec}
+        onSpec={setSpec}
+        look={lookName}
+        onLook={changeLook}
+        bloom={bloom}
+        onBloom={setBloom}
+        letters={letters}
+        onLetters={applyLetters}
+        onAddPanel={addPanelAndGraft}
+        onReset={() => {
+          clear();
+          location.reload();
+        }}
+      />
     </div>
   );
 }
