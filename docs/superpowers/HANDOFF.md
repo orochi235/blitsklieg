@@ -5,52 +5,61 @@ next.
 
 ## State
 
-Branch `tube-lab`, unpushed. The plan is
-`docs/superpowers/plans/2026-08-19-tube-lab.md` and its steps are checkboxed as they land — **tasks
-1 through 5 are done**, 6 through 10 remain. The spec it implements is
-`docs/superpowers/specs/2026-08-19-tube-lab-design.md`; read that rather than this file for what the
-lab is.
+**The tube lab is done — all ten tasks plus an 8b, every step ticked** in
+`docs/superpowers/plans/2026-08-19-tube-lab.md`. Branch `tube-lab`, unpushed. `npm run check` green
+at 609 tests; `npm run test:visual` at 24 with no baseline moved by any of it.
 
-`npm run check` is green at 594 tests; `npm run test:visual` at 24. The lab runs with
-`npm run dev:tube-lab -w blitsklieg` and currently draws sixteen letters of `tubing`, one per panel,
-on one WebGL context. Every mode renders the same beauty view — `skeleton`, `ramp` and `orbit` are
-tasks 6, 7 and 8.
+Run it with `npm run dev:tube-lab -w blitsklieg`. Sixteen panels on one WebGL context, one letter
+each, three modes — `beauty`, `skeleton`, `ramp` — with pose orthogonal to mode: every panel drags
+to turn, wheel-zooms 0.5x–4x, and has a hover-revealed reset. A rail tunes the whole `TubeSpec` at
+once, including the `front`/`back`/`wall` checkboxes and `connectors` that let it trace an extruded
+letter rather than a flat contour.
 
-**Execution is subagent-driven** (`superpowers:subagent-driven-development`): one implementer per
-task, then a spec-compliance review, then a code-quality review, fixing between. That loop has
-found a defect in the plan on **every** task so far, so keep it rather than trusting the plan text.
-The single highest-yield instruction has been "verify this by mutation" — it has found a hole in
-every task's tests, including ones already tightened once.
+**Task 10 deleted `packages/core/src/debug.ts` and `apps/lab/src/diagnostics.ts`.** `apps/lab` now
+imports only from `blitsklieg`, and the second render path that once shipped a real bug — materials
+at three's default opacity because nothing called `apply()` — is gone. `WordDebugHooks` stays; it is
+a genuine narrow surface and the tube lab uses it.
 
-## Blocked on windease, worked around
+## What the lab found, and what happens next
 
-`splitStrategy` in windease 0.8 cannot tile: `initialState` builds a right-leaning spine, and at
-sixteen panels nine land at zero-or-negative width and seven outside the container. It also silently
-drops a panel its tree does not know about — no error, no `unplaced` entry.
+It was built to make two geometry defects observable. It did, on day one, and the fix is specced:
 
-The lab therefore owns its own `SplitNode` in `packages/core/dev/tube-lab/src/tree.ts` (build, graft
-a leaf, collapse a leaf) and seeds it via `setContainerState`. That is **throwaway by design**:
-windease has recorded a decision to delete `SplitNode` and replace `splitStrategy` with a
-`split(zoneId, …)` store operation, at which point `tree.ts` goes and the lab uses the verb. The
-consumer report is in windease's own `TODO.md` under "Replace `splitStrategy` with a split
-*operation*". Panel drag-to-rearrange is deferred until that lands; gutter resize works.
+- **`docs/superpowers/specs/2026-08-19-tube-geometry-design.md`** — replace the per-run radius clamp
+  with a minimum-bend-radius model, and make loops real pigtails. All three of its open decisions are
+  settled: `bend` defaults to 2, the pigtail winds in the depth plane, the clearance query ships in
+  v1.
+- A second session is executing that from `docs/superpowers/plans/2026-08-20-tube-geometry.md` on
+  branch `tube-geometry`, in a worktree. It also owns a `pyrite` respec.
+- `spikes/clamp-vs-blur.mjs` re-derives the finding that ordered the work: **sharpening the tube's
+  path makes the clamp worse**, because the distance field's rasterisation blur rounds corners and
+  the clamp measures curvature. The blur is masking the defect, so the clamp model has to land before
+  path fidelity.
 
-## Traps this work has hit
+Two measurements worth not rediscovering:
 
-- **A rAF guard that returns early drops the newest state.** `if (frame) return` discards the later
-  call while the queued closure holds the older one, so the canvas stays permanently wrong. Keep the
-  newest body in a ref and have the frame call that.
-- **Gutter strips lie outside every panel's scissor**, so under `preserveDrawingBuffer` nothing
-  wipes them and a re-tile leaves slivers of the old frame. A full-canvas clear per redraw, kept out
-  of the per-panel `draw()`.
-- **A scissor survives into three's multisample resolve.** `blitFramebuffer` is scissor-clipped, so
-  scissoring a scene pass into an MSAA target strands the previous panel in the margins for the blur
-  to read back. Viewport-only there.
-- **`fitScale` caps enlargement at 2.2x**, so one glyph fills ~30% of a panel; the lab scales its own
-  pivot, and that scale has to solve at the **tube's** front plane, not the word's, or it overshoots
-  ~35% through perspective.
-- **A reload does not unmount**, so a debounced save needs a `pagehide` flush or a drag made inside
-  the window is lost.
+- **`NSRE` hides the worst cases.** A 26-letter sweep ranks tightest bend as M 0.32r, W 0.38r,
+  B 0.40r, V 0.40r, N 0.44r. The N is fifth. The lab's default letters are now `MWSB` for that
+  reason; `piping`'s extremes are a different set (Q, X, Y) because it traces inset at `level:
+  -0.015`.
+- **`piping`'s cord is clamped, not untuned** — all 5 runs, at 44–87% of its requested 0.03.
+
+## Known limitation
+
+A spec change rebuilds all sixteen cells, ~1.45s front-only and ~2.85s with `back`/`wall`/
+`connectors`. Sliders commit on release rather than per input, so a drag costs one rebuild instead of
+twenty — but a single step still waits. The honest fix is not rebuilding a whole `Word` per cell for
+a spec change; it was out of scope.
+
+## windease: the workaround has an expiry date
+
+`packages/core/dev/tube-lab/src/tree.ts` exists because `splitStrategy` in windease 0.8 cannot tile —
+`initialState` builds a right-leaning spine, and at sixteen panels nine panes land at zero-or-negative
+width. It also silently drops a panel its tree does not know about.
+
+**Upstream has since replaced `splitStrategy` entirely**: `stripStrategy` plus a `store.split(id,
+input)` verb, with resize writing to `membership.placement.size` rather than separate strategy state.
+That fixes both bugs and the missing drag-to-rearrange. We are pinned at `windease@^0.8.0`, so
+nothing breaks today, but upgrading deletes `tree.ts` and rewrites the seeding — do it deliberately.
 
 ## Not done, carried over from tubing
 

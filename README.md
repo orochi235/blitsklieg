@@ -323,7 +323,7 @@ Under `prefers-reduced-motion: reduce` the word holds the pose its enter settles
   pickers, plus canned sequences.
 - `npm run dev:tube-lab -w blitsklieg` — the tube lab: several letters at several angles at once
   with the tube pipeline's own numbers beside the render. Dev-only tooling, never published.
-- `npm run check` — biome, tsc and the unit suite (562 tests).
+- `npm run check` — biome, tsc and the unit suite (609 tests).
 - `npm run test:visual` — Playwright specs asserting the overlay composites over a live page
   without tinting or blocking it.
 - `npm run build:pages -w @blitsklieg/lab && npm run preview:pages -w @blitsklieg/lab` — the
