@@ -1,17 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { asNodeId, createPanel, type NodeId, type SplitNode, type Store } from 'windease';
 import { type ChromeArgs, Container, DragHandle, useStore } from 'windease/react';
-import { specOf } from '../../../src/render/looks.js';
 import type { TubeSpec } from '../../../src/render/tube/index.js';
 import {
-  DEFAULT_LETTERS,
   isPanelMode,
   isRampSource,
   type PanelMeta,
   type PanelRecord,
   reconcileLetters,
 } from './panels.js';
-import { clear, restore, save } from './persist.js';
+import { clear, save } from './persist.js';
 import { balancedTree, withLeaf, withoutLeaf } from './tree.js';
 
 export const ZONE = asNodeId('zone');
@@ -37,12 +35,6 @@ function addPanel(store: Store, meta: PanelMeta): NodeId {
   return id;
 }
 
-function tubeSpecOf(name: 'tubing' | 'piping'): TubeSpec {
-  const decoration = specOf(name).decoration;
-  if (decoration?.kind !== 'tube') throw new Error(`tube lab: ${name} has no tube decoration`);
-  return decoration;
-}
-
 function chrome({ node }: ChromeArgs) {
   const meta = metaOf(node.meta);
   return (
@@ -58,20 +50,14 @@ function chrome({ node }: ChromeArgs) {
   );
 }
 
-export function App() {
-  const store = useStore();
-  const restored = useRef(false);
-  const [letters, setLetters] = useState(DEFAULT_LETTERS);
-  const [spec, setSpec] = useState<TubeSpec>(() => tubeSpecOf('tubing'));
+export interface AppProps {
+  letters: string;
+  spec: TubeSpec;
+}
 
-  if (!restored.current) {
-    restored.current = true;
-    const saved = restore(store);
-    if (saved) {
-      setLetters(saved.letters);
-      setSpec(saved.spec);
-    }
-  }
+export function App({ letters: initialLetters, spec }: AppProps) {
+  const store = useStore();
+  const [letters, setLetters] = useState(initialLetters);
 
   const panels = useCallback((): PanelRecord[] => {
     return store.getChildren(ZONE).map((node) => ({ id: node.id, ...metaOf(node.meta) }));
@@ -98,9 +84,20 @@ export function App() {
   );
 
   useEffect(() => {
+    let frame = 0;
+    const flush = () => {
+      frame = 0;
+      save(store, letters, spec);
+    };
     save(store, letters, spec);
     // A gutter drag never changes `letters` or `spec`, so the store itself has to say when to save.
-    return store.subscribe(() => save(store, letters, spec));
+    const unsubscribe = store.subscribe(() => {
+      if (!frame) frame = requestAnimationFrame(flush);
+    });
+    return () => {
+      unsubscribe();
+      cancelAnimationFrame(frame);
+    };
   }, [store, letters, spec]);
 
   return (
