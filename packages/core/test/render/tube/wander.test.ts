@@ -1,129 +1,106 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { minCurvatureRadius3 } from '../../../src/render/tube/resample.js';
-import type { Run } from '../../../src/render/tube/runs.js';
-import { wanderFaceRuns } from '../../../src/render/tube/wander.js';
+import type { GeneratedPath } from '../../../src/render/tube/generators.js';
+import { wanderPaths } from '../../../src/render/tube/wander.js';
 
-/** The shipped tubing rho_min. These runs are 8 units long, so the cap never binds on them. */
-const RHO_MIN = 0.044;
-
-function straightRun(surface: Run['surface'], n = 9): Run {
-  const points = Array.from({ length: n }, (_, i) => new THREE.Vector3(i, 0, 0.5));
-  return { points, surface, length: n - 1, index: 0, lit: true, color: 0 };
+function straightPath(surface: GeneratedPath['surface'], n = 9): GeneratedPath {
+  return {
+    points: Array.from({ length: n }, (_, i) => new THREE.Vector3(i, 0, 0.5)),
+    surface,
+    closed: false,
+  };
 }
 
-/** A front run of `length` em sampled at the pipeline's own spacing. */
-function shortRun(length: number, index: number): Run {
-  const n = Math.max(3, Math.round(length / 0.02) + 1);
-  const points = Array.from(
-    { length: n },
-    (_, i) => new THREE.Vector3((i / (n - 1)) * length, 0, 0),
-  );
-  return { points, surface: 'front', length, index, lit: true, color: 0 };
+/** A closed square, whose first and last points are a step apart across the seam. */
+function closedPath(): GeneratedPath {
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < 40; i++) {
+    const t = (i / 40) * Math.PI * 2;
+    pts.push(new THREE.Vector3(Math.cos(t), Math.sin(t), 0.5));
+  }
+  return { points: pts, surface: 'front', closed: true };
 }
 
-const bendOf = (run: Run) =>
-  minCurvatureRadius3(run.points.map((p) => ({ x: p.x, y: p.y, z: p.z })));
-
-describe('wanderFaceRuns', () => {
+describe('wanderPaths', () => {
   it('leaves points untouched at amplitude 0', () => {
-    const run = straightRun('front');
-    const z = run.points.map((p) => p.z);
+    const path = straightPath('front');
+    const z = path.points.map((p) => p.z);
 
-    wanderFaceRuns([run], 0, 1, RHO_MIN);
+    wanderPaths([path], 0, 1);
 
-    expect(run.points.map((p) => p.z)).toEqual(z);
+    expect(path.points.map((p) => p.z)).toEqual(z);
   });
 
-  it('pins both ends to their original z', () => {
-    const run = straightRun('front');
-    const startZ = run.points[0]?.z;
-    const endZ = run.points[run.points.length - 1]?.z;
+  it('pins both ends of an open path to their original z', () => {
+    const path = straightPath('front');
 
-    wanderFaceRuns([run], 0.05, 1, RHO_MIN);
+    wanderPaths([path], 0.05, 1);
 
-    expect(run.points[0]?.z).toBeCloseTo(startZ as number, 10);
-    expect(run.points[run.points.length - 1]?.z).toBeCloseTo(endZ as number, 10);
+    expect(path.points[0]?.z).toBeCloseTo(0.5, 10);
+    expect(path.points[path.points.length - 1]?.z).toBeCloseTo(0.5, 10);
+  });
+
+  it('meets itself across a closed path’s seam', () => {
+    const path = closedPath();
+
+    wanderPaths([path], 0.05, 1);
+
+    // A whole number of periods, so the step across the seam is the step everywhere else. Anything
+    // else leaves the contour with a z discontinuity the sweep would draw as a kink.
+    const first = path.points[0] as THREE.Vector3;
+    const last = path.points[path.points.length - 1] as THREE.Vector3;
+    const second = path.points[1] as THREE.Vector3;
+    expect(Math.abs(last.z - first.z)).toBeLessThan(Math.abs(second.z - first.z) * 2 + 1e-9);
   });
 
   it('displaces interior points, and never touches x/y', () => {
-    const run = straightRun('front');
-    const xy = run.points.map((p) => [p.x, p.y]);
+    const path = straightPath('front');
+    const xy = path.points.map((p) => [p.x, p.y]);
 
-    wanderFaceRuns([run], 0.05, 1, RHO_MIN);
+    wanderPaths([path], 0.05, 1);
 
-    expect(run.points.some((p) => Math.abs(p.z - 0.5) > 1e-9)).toBe(true);
-    expect(run.points.map((p) => [p.x, p.y])).toEqual(xy);
+    expect(path.points.some((p) => Math.abs(p.z - 0.5) > 1e-9)).toBe(true);
+    expect(path.points.map((p) => [p.x, p.y])).toEqual(xy);
   });
 
-  it('never touches a wall or connector run', () => {
-    const wall = straightRun('wall');
-    const connector = straightRun('connector');
+  it('never touches a wall or connector path', () => {
+    const wall = straightPath('wall');
+    const connector = straightPath('connector');
     const wallZ = wall.points.map((p) => p.z);
     const connectorZ = connector.points.map((p) => p.z);
 
-    wanderFaceRuns([wall, connector], 0.05, 1, RHO_MIN);
+    wanderPaths([wall, connector], 0.05, 1);
 
     expect(wall.points.map((p) => p.z)).toEqual(wallZ);
     expect(connector.points.map((p) => p.z)).toEqual(connectorZ);
   });
 
-  it('is deterministic for the same seed and run index, and varies with either', () => {
-    const a = straightRun('front');
-    const b = straightRun('front');
-    wanderFaceRuns([a], 0.05, 7, RHO_MIN);
-    wanderFaceRuns([b], 0.05, 7, RHO_MIN);
+  it('is deterministic for the same seed and position, and varies with either', () => {
+    const a = straightPath('front');
+    const b = straightPath('front');
+    wanderPaths([a], 0.05, 7);
+    wanderPaths([b], 0.05, 7);
     expect(a.points.map((p) => p.z)).toEqual(b.points.map((p) => p.z));
 
-    const differentSeed = straightRun('front');
-    wanderFaceRuns([differentSeed], 0.05, 9, RHO_MIN);
+    const differentSeed = straightPath('front');
+    wanderPaths([differentSeed], 0.05, 9);
     expect(differentSeed.points.map((p) => p.z)).not.toEqual(a.points.map((p) => p.z));
 
-    const differentIndex = { ...straightRun('front'), index: 1 };
-    wanderFaceRuns([differentIndex], 0.05, 7, RHO_MIN);
-    expect(differentIndex.points.map((p) => p.z)).not.toEqual(a.points.map((p) => p.z));
+    const second = straightPath('front');
+    wanderPaths([straightPath('front'), second], 0.05, 7);
+    expect(second.points.map((p) => p.z)).not.toEqual(a.points.map((p) => p.z));
   });
 
-  it('skips a run too short to carry a wander', () => {
-    const run: Run = {
+  it('skips a path too short to carry a wander', () => {
+    const path: GeneratedPath = {
       points: [new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0)],
       surface: 'front',
-      length: 1,
-      index: 0,
-      lit: true,
-      color: 0,
+      closed: false,
     };
-    const z = run.points.map((p) => p.z);
+    const z = path.points.map((p) => p.z);
 
-    wanderFaceRuns([run], 0.05, 1, RHO_MIN);
+    wanderPaths([path], 0.05, 1);
 
-    expect(run.points.map((p) => p.z)).toEqual(z);
-  });
-
-  /**
-   * A sinusoid's tightest bend is `T^2 / (A * scale * pi^2 * lobes^2)`, at the crest where the slope
-   * term vanishes. Two lobes at the shipped amplitude of 0.02 over tubing's own minRun of 0.15 bend
-   * at 0.033 against a rho_min of 0.044 — so the shipped spec breaches its own invariant on the
-   * shortest run its floor permits. Every seed, since lobes and sign are drawn per run.
-   */
-  it('keeps a short run above rhoMin at the shipped amplitude', () => {
-    for (let index = 0; index < 12; index++) {
-      const run = shortRun(0.15, index);
-      wanderFaceRuns([run], 0.02, 0, RHO_MIN);
-      expect(bendOf(run), `seed index ${index}`).toBeGreaterThan(RHO_MIN);
-    }
-  });
-
-  it("leaves a long run's wander untouched, since it never breaches", () => {
-    const uncapped = shortRun(0.6, 3);
-    const capped = shortRun(0.6, 3);
-    wanderFaceRuns([uncapped], 0.02, 0, 0);
-    wanderFaceRuns([capped], 0.02, 0, RHO_MIN);
-    for (let i = 0; i < uncapped.points.length; i++) {
-      expect((capped.points[i] as THREE.Vector3).z).toBeCloseTo(
-        (uncapped.points[i] as THREE.Vector3).z,
-        9,
-      );
-    }
+    expect(path.points.map((p) => p.z)).toEqual(z);
   });
 });

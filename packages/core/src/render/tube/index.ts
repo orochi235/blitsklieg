@@ -7,7 +7,7 @@ import { type CornerRecord, type CornerWeights, cutIntoRuns, type Run } from './
 import type { SurfaceKind } from './surfaces.js';
 import { surfacesOf } from './surfaces.js';
 import { sweepRun } from './sweep.js';
-import { wanderFaceRuns } from './wander.js';
+import { wanderPaths } from './wander.js';
 
 export type { SelectSpec } from './assign.js';
 export type { CornerRecord, CornerStrategy, CornerWeights, Run } from './runs.js';
@@ -23,6 +23,11 @@ export interface TubeSpec {
    * own thickness. Floored at 1.25, below which the swept mesh self-intersects whatever a look asks.
    */
   bend?: number;
+  /**
+   * How often a corner that would cut instead carries through unlit, as a bender's blockout over a
+   * return bend. Defaults to zero — a cut at every one — and a look opts in.
+   */
+  blockout?: number;
   /** Ring segments around the tube. */
   segments: number;
   /** Arc length in em between resampled path points. */
@@ -92,6 +97,8 @@ export function buildTubeBlueprint(
           overshoot: spec.connectorOvershoot ?? 0.05,
         })
       : [];
+  // Before the cut: a bend wander introduces is a bend the corner stage has to see.
+  wanderPaths(paths, spec.amplitude ?? 0, seed);
   const cut = cutIntoRuns([...paths, ...links], {
     runs: spec.runs,
     minRun: spec.minRun,
@@ -99,12 +106,10 @@ export function buildTubeBlueprint(
     spacing: spec.spacing,
     bend: spec.bend,
     radius: spec.radius,
+    blockout: spec.blockout,
     seed,
   });
   const runs = assign(cut.runs, spec.select, spec.colors, seed);
-  // After cutting and assigning: a run's final index, which seeds its wander, only exists once
-  // the run list is settled.
-  wanderFaceRuns(runs, spec.amplitude ?? 0, seed, minBendRadius(spec.radius, spec.bend));
   // Cloned after wander, not before: wander moves run points in place, and every corner interior
   // to a run — every `connect` and `loop` — moves with them.
   const corners = cut.corners.map((c) => ({ ...c, point: c.point.clone() }));

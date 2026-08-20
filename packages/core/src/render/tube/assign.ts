@@ -56,6 +56,10 @@ export function assign(runs: Run[], select: SelectSpec, colors: number[], seed: 
     for (const run of runs) run.lit = chosen.has(run.index);
   }
 
+  // Blockout is paint, not a selection: a return carries the tube past a corner without lighting
+  // it whatever `select` picked.
+  for (const run of runs) if (run.dark) run.lit = false;
+
   const palette = colors.length > 0 ? colors : [0xffffff];
   let n = 0;
   for (const run of runs) {

@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { Run } from './runs.js';
+import type { GeneratedPath } from './generators.js';
 
 /** Same generator assign.ts and decoration.ts use, so seeding behaves consistently pipeline-wide. */
 function rng(seed: number): () => number {
@@ -23,46 +23,39 @@ function cumulativeLengths(points: THREE.Vector3[]): number[] {
 }
 
 /**
- * Bends a face run's z gently along its length — x/y keep hugging the level set. `sin(s * PI *
- * lobes)` is zero at s=0 and s=1 for any integer `lobes`, which pins both ends to their original
- * z for free: a run boundary stays put, so an adjacent run still meets it without a seam.
+ * Bends a face path's z gently along its length — x/y keep hugging the level set.
+ *
+ * This runs **before** the cut, not after. Wander is a bend like any other, so putting it ahead of
+ * corner detection lets that stage see it and fillet or cut whatever it makes too tight; run after
+ * the cut it had to carry a curvature cap of its own, and that cap bound hardest on exactly the
+ * short runs a return-heavy letter is full of. It also means a contour wanders as one piece of
+ * glass rather than each run guessing separately.
+ *
+ * A closed path uses a whole number of periods so its seam meets itself; an open one pins both ends.
  */
-export function wanderFaceRuns(runs: Run[], amplitude: number, seed: number, rhoMin: number): void {
+export function wanderPaths(paths: GeneratedPath[], amplitude: number, seed: number): void {
   if (amplitude === 0) return;
 
-  for (const run of runs) {
-    if (run.surface !== 'front' && run.surface !== 'back') continue;
-    const points = run.points;
-    if (points.length < 3) continue;
+  paths.forEach((path, index) => {
+    if (path.surface !== 'front' && path.surface !== 'back') return;
+    const points = path.points;
+    if (points.length < 3) return;
 
     const cum = cumulativeLengths(points);
     const total = cum[cum.length - 1] as number;
-    if (total <= 0) continue;
+    if (total <= 0) return;
 
-    const random = rng((Math.round(seed * 2654435761) ^ 0x9e3779b1 ^ run.index) >>> 0);
-    // One or two slow undulations, never per-point noise — the run is swept with a Catmull-Rom
-    // curve, and it has to read as gently bent tube.
-    const wanted = 1 + (random() < 0.5 ? 0 : 1);
+    const random = rng((Math.round(seed * 2654435761) ^ 0x9e3779b1 ^ index) >>> 0);
+    // One or two slow undulations, never per-point noise — the path is swept as tube, and it has
+    // to read as gently bent glass.
+    const lobes = 1 + (random() < 0.5 ? 0 : 1);
     const sign = random() < 0.5 ? -1 : 1;
     const scale = 0.7 + random() * 0.3;
-
-    // Wander is the last stage to touch a run's points, so nothing downstream re-checks its
-    // curvature. A sinusoid's tightest bend is `T^2 / (A * scale * pi^2 * lobes^2)`, at the crest
-    // where the slope term vanishes. Spend half the margin: curvature does not add linearly, so a
-    // run already near rhoMin after a fillet would otherwise dip below it once wandered.
-    const budget = rhoMin * 2;
-    const reachAt = (lobes: number) =>
-      budget > 0
-        ? total ** 2 / (budget * Math.PI ** 2 * lobes ** 2 * scale)
-        : Number.POSITIVE_INFINITY;
-    // Lobe count is the other term in that bend radius, and unlike amplitude it is free: a run too
-    // short to carry two undulations gets one at full reach rather than two flattened ones.
-    const lobes = reachAt(wanted) >= amplitude ? wanted : 1;
-    const reach = Math.min(amplitude, reachAt(lobes));
+    const turns = path.closed ? 2 * Math.PI * lobes : Math.PI * lobes;
 
     for (let i = 0; i < points.length; i++) {
       const s = (cum[i] as number) / total;
-      (points[i] as THREE.Vector3).z += reach * sign * scale * Math.sin(s * Math.PI * lobes);
+      (points[i] as THREE.Vector3).z += amplitude * sign * scale * Math.sin(s * turns);
     }
-  }
+  });
 }

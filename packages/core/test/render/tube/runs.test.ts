@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { assign } from '../../../src/render/tube/assign.js';
 import { minBendRadius } from '../../../src/render/tube/bend.js';
 import { ALL_BREAK, ALL_CONNECT, cutIntoRuns } from '../../../src/render/tube/runs.js';
 import { tightestBend } from '../../../src/render/tube/sweep.js';
@@ -339,5 +340,55 @@ describe('hard corners on a closed contour', () => {
     for (const run of runs) {
       expect(tightestBend(run), `run ${run.index}`).toBeGreaterThanOrEqual(rhoMin * 0.95);
     }
+  });
+});
+
+describe('the blockout return', () => {
+  const OPTS = { runs: 1, minRun: 0, radius: 0.03, bend: 2, spacing: 0.02, seed: 0 };
+
+  it('carries the tube through a corner it would otherwise cut', () => {
+    const cut = cutIntoRuns([PATH(squarePath())], { ...OPTS, corners: ALL_BREAK, blockout: 0 });
+    const returned = cutIntoRuns([PATH(squarePath())], {
+      ...OPTS,
+      corners: ALL_BREAK,
+      blockout: 1,
+    });
+
+    expect(cut.corners.every((c) => c.strategy === 'break')).toBe(true);
+    expect(returned.corners.every((c) => c.strategy === 'return')).toBe(true);
+    // Cutting leaves four ends that no other run touches; returning leaves none — every boundary
+    // is shared with the neighbouring run.
+    const ends = (runs: { points: THREE.Vector3[] }[]) =>
+      runs.flatMap((r) => [
+        r.points[0] as THREE.Vector3,
+        r.points[r.points.length - 1] as THREE.Vector3,
+      ]);
+    const orphans = (runs: { points: THREE.Vector3[] }[]) =>
+      ends(runs).filter((e) => ends(runs).filter((o) => o.distanceTo(e) < 1e-9).length < 2).length;
+    expect(orphans(cut.runs)).toBeGreaterThan(0);
+    expect(orphans(returned.runs)).toBe(0);
+  });
+
+  it('never lights the stretch it carries dark, whatever select picks', () => {
+    const { runs } = cutIntoRuns([PATH(squarePath())], {
+      ...OPTS,
+      corners: ALL_BREAK,
+      blockout: 1,
+    });
+    expect(runs.some((r) => r.dark)).toBe(true);
+    assign(runs, { by: 'seed', amount: 1 }, [0xffffff], 0);
+    expect(runs.filter((r) => r.dark).every((r) => !r.lit)).toBe(true);
+    expect(runs.filter((r) => !r.dark).every((r) => r.lit)).toBe(true);
+  });
+
+  it('keeps a dark stretch that falls under the run floor', () => {
+    const { runs } = cutIntoRuns([PATH(squarePath())], {
+      ...OPTS,
+      corners: ALL_BREAK,
+      blockout: 1,
+      minRun: 0.5,
+    });
+    // Dropping it would leave exactly the gap the return exists to avoid.
+    expect(runs.some((r) => r.dark)).toBe(true);
   });
 });

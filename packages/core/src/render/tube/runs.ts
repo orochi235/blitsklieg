@@ -13,6 +13,11 @@ import type { SurfaceKind } from './surfaces.js';
 
 export interface Run {
   points: THREE.Vector3[];
+  /**
+   * A stretch of tube that carries the run past a corner without lighting it — a bender's blockout
+   * over a return bend. Never lit, whatever `select` picks.
+   */
+  dark?: boolean;
   surface: SurfaceKind;
   length: number;
   /** Position in the run list. Stable across builds, so a post-effect can address a run by it. */
@@ -21,7 +26,7 @@ export interface Run {
   color: number;
 }
 
-export type CornerStrategy = 'break' | 'connect' | 'loop';
+export type CornerStrategy = 'break' | 'connect' | 'loop' | 'return';
 
 /** What one corner's strategy draw decided, in the path's own coordinates. */
 export interface CornerRecord {
@@ -64,6 +69,12 @@ export interface CutOptions {
   spacing?: number;
   /** Seeds the per-corner strategy draw so a word builds identically twice. */
   seed?: number;
+  /**
+   * How often a corner that would cut instead carries through unlit — a bender's blockout over a
+   * return bend. A cut end is right at a letter's terminus, where an electrode goes, and wrong
+   * everywhere else.
+   */
+  blockout?: number;
 }
 
 /** Loop radius as a multiple of the requested tube radius. sweepRadius's 0.8 curvature
@@ -76,6 +87,8 @@ const FLOOR = 0.05;
 const CONNECT_LIMIT = Math.PI * 0.75;
 const FALLBACK_RADIUS = 0.03;
 const FALLBACK_SPACING = 0.02;
+/** Cuts stay cuts unless a look asks for returns: the primitive's default is the plain corner cut. */
+const DEFAULT_BLOCKOUT = 0;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
@@ -378,6 +391,39 @@ function dropTail(span: THREE.Vector3[], count: number): THREE.Vector3[] {
   return span.slice(0, Math.max(2, span.length - count));
 }
 
+/**
+ * Splits a span that has just been merged through a return into the lit stretch before it, the dark
+ * stretch carrying the corner, and the lit stretch after. The dark stretch runs `rhoMin` of leg
+ * either side of the fillet, so the blockout reads as covering the return rather than the join.
+ */
+function splitReturn(span: THREE.Vector3[], fillet: Fillet, rhoMin: number): [Span, Span, Span] {
+  const entry = span.indexOf(fillet.points[0] as THREE.Vector3);
+  const exit = span.indexOf(fillet.points[fillet.points.length - 1] as THREE.Vector3);
+  const back = (from: number) => {
+    let along = 0;
+    for (let i = from; i > 0; i--) {
+      along += (span[i] as THREE.Vector3).distanceTo(span[i - 1] as THREE.Vector3);
+      if (along >= rhoMin) return i - 1;
+    }
+    return 0;
+  };
+  const forward = (from: number) => {
+    let along = 0;
+    for (let i = from; i + 1 < span.length; i++) {
+      along += (span[i] as THREE.Vector3).distanceTo(span[i + 1] as THREE.Vector3);
+      if (along >= rhoMin) return i + 1;
+    }
+    return span.length - 1;
+  };
+  const a = entry < 0 ? 0 : back(entry);
+  const b = exit < 0 ? span.length - 1 : forward(exit);
+  return [
+    { points: span.slice(0, a + 1) },
+    { points: span.slice(a, b + 1), dark: true },
+    { points: span.slice(b) },
+  ];
+}
+
 /** How far `point` sits from a tangent point along the leg leaving it. Negative when it is inside. */
 function legGap(
   point: THREE.Vector3 | undefined,
@@ -468,16 +514,23 @@ function mergeArc(
 const EPS = 1e-9;
 
 /** Draws a strategy for each corner and stitches the raw arcs into final spans accordingly. */
+interface Span {
+  points: THREE.Vector3[];
+  /** Set on the stretch a return carries dark across a corner. */
+  dark?: boolean;
+}
+
 function stitchPath(
   raw: RawSpans,
   weights: CornerWeights,
   loopRadius: number,
   rhoMin: number,
   spacing: number,
+  blockout: number,
   draw: () => number,
-): { spans: THREE.Vector3[][]; decisions: CornerDecision[] } {
+): { spans: Span[]; decisions: CornerDecision[] } {
   const { arcs, corners } = raw;
-  if (corners.length === 0) return { spans: arcs, decisions: [] };
+  if (corners.length === 0) return { spans: arcs.map((points) => ({ points })), decisions: [] };
 
   const closed = arcs.length === corners.length;
   const loopDiameter = loopRadius * 2;
@@ -492,14 +545,20 @@ function stitchPath(
   const decisions: CornerDecision[] = corners.map((c, k) => {
     const { before, after } = legsOf(k);
     const room = Math.min(polyLength(before), polyLength(after));
-    const strategy = pickStrategy(c.turn, room, loopDiameter, weights, draw);
+    let strategy: CornerStrategy = pickStrategy(c.turn, room, loopDiameter, weights, draw);
     // A hard corner drawn `connect` must fillet, and a fillet that will not fit breaks instead.
     // `CONNECT_LIMIT` used to guess this from the angle; now it is measured.
-    const fillet =
+    let fillet =
       strategy === 'connect' && c.hard ? filletFor(before, after, c, rhoMin, spacing) : null;
-    if (strategy === 'connect' && c.hard && !fillet) {
-      return { ...c, strategy: 'break' as const, setback: 0, fillet: null };
+    if (strategy === 'connect' && c.hard && !fillet) strategy = 'break';
+    // A cut end is an electrode, and a letter has two of those rather than thirty. Everywhere else
+    // the bender bends the tube out of the plane and paints the return, so the glass carries
+    // through and only the light stops — which is the same fillet a connect draws.
+    if (strategy === 'break' && draw() < blockout) {
+      fillet = filletFor(before, after, c, rhoMin, spacing);
+      if (fillet) strategy = 'return';
     }
+    if (strategy === 'break') return { ...c, strategy, setback: 0, fillet: null };
     return { ...c, strategy, setback: fillet?.setback ?? 0, fillet };
   });
 
@@ -534,19 +593,24 @@ function stitchPath(
   }
 
   if (!closed) {
-    const spans: THREE.Vector3[][] = [];
+    const spans: Span[] = [];
     let current = (arcs[0] as THREE.Vector3[]).slice();
     for (let k = 0; k < decisions.length; k++) {
       const decision = decisions[k] as CornerDecision;
       const next = arcs[k + 1] as THREE.Vector3[];
       if (decision.strategy === 'break') {
-        spans.push(dropTail(current, decision.groupBefore + 1));
+        spans.push({ points: dropTail(current, decision.groupBefore + 1) });
         current = dropHead(next.slice(), decision.groupAfter + 1);
       } else {
         mergeArc(current, next, decision, loopRadius, decision.fillet ?? null, spacing);
+        if (decision.strategy === 'return' && decision.fillet) {
+          const [head, dark, tail] = splitReturn(current, decision.fillet, rhoMin);
+          spans.push(head, dark);
+          current = tail.points;
+        }
       }
     }
-    spans.push(current);
+    spans.push({ points: current });
     return { spans, decisions };
   }
 
@@ -554,17 +618,24 @@ function stitchPath(
   const breakIdx = decisions.findIndex((d) => d.strategy === 'break');
 
   if (breakIdx === -1) {
-    // No break anywhere: the whole contour is one closed span.
-    const current = (arcs[0] as THREE.Vector3[]).slice();
+    // No break anywhere: the whole contour is one closed span, cut only where a return goes dark.
+    const closedSpans: Span[] = [];
+    let current = (arcs[0] as THREE.Vector3[]).slice();
     for (let k = 1; k < n; k++) {
+      const decision = decisions[k] as CornerDecision;
       mergeArc(
         current,
         arcs[k] as THREE.Vector3[],
-        decisions[k] as CornerDecision,
+        decision,
         loopRadius,
-        decisions[k]?.fillet ?? null,
+        decision.fillet ?? null,
         spacing,
       );
+      if (decision.strategy === 'return' && decision.fillet) {
+        const [head, dark, tail] = splitReturn(current, decision.fillet, rhoMin);
+        closedSpans.push(head, dark);
+        current = tail.points;
+      }
     }
     const start = (arcs[0] as THREE.Vector3[])[0] as THREE.Vector3;
     const closing = decisions[0] as CornerDecision;
@@ -576,18 +647,19 @@ function stitchPath(
       }
     }
     if ((current[current.length - 1] as THREE.Vector3).distanceTo(start) > EPS) current.push(start);
-    return { spans: [current], decisions };
+    closedSpans.push({ points: current });
+    return { spans: closedSpans, decisions };
   }
 
   // Rotate so the walk starts right after a break, reducing this to the open-path case.
-  const spans: THREE.Vector3[][] = [];
+  const spans: Span[] = [];
   const opening = decisions[breakIdx] as CornerDecision;
   let current = dropHead((arcs[breakIdx] as THREE.Vector3[]).slice(), opening.groupAfter + 1);
   for (let i = 1; i < n; i++) {
     const arcIdx = (breakIdx + i) % n;
     const decision = decisions[arcIdx] as CornerDecision;
     if (decision.strategy === 'break') {
-      spans.push(dropTail(current, decision.groupBefore + 1));
+      spans.push({ points: dropTail(current, decision.groupBefore + 1) });
       current = dropHead((arcs[arcIdx] as THREE.Vector3[]).slice(), decision.groupAfter + 1);
     } else {
       mergeArc(
@@ -598,9 +670,14 @@ function stitchPath(
         decision.fillet ?? null,
         spacing,
       );
+      if (decision.strategy === 'return' && decision.fillet) {
+        const [head, dark, tail] = splitReturn(current, decision.fillet, rhoMin);
+        spans.push(head, dark);
+        current = tail.points;
+      }
     }
   }
-  spans.push(dropTail(current, opening.groupBefore + 1));
+  spans.push({ points: dropTail(current, opening.groupBefore + 1) });
   return { spans, decisions };
 }
 
@@ -650,7 +727,7 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
   const draw = () => rng(cornerSeed(seed, cornerCounter++))();
 
   const cornerRecords: CornerRecord[] = [];
-  const spans: { points: THREE.Vector3[]; surface: SurfaceKind }[] = [];
+  const spans: { points: THREE.Vector3[]; surface: SurfaceKind; dark?: boolean }[] = [];
   for (const path of paths) {
     const raw = rawSpansOf(path, rhoMin, rhoStyle);
     const { spans: stitched, decisions } = stitchPath(
@@ -659,6 +736,7 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
       loopRadius,
       rhoMin,
       spacing,
+      opts.blockout ?? DEFAULT_BLOCKOUT,
       draw,
     );
     for (const d of decisions) {
@@ -668,8 +746,10 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
         turn: d.turn,
       });
     }
-    for (const pts of stitched) {
-      if (pts.length > 1) spans.push({ points: pts, surface: path.surface });
+    for (const span of stitched) {
+      if (span.points.length > 1) {
+        spans.push({ points: span.points, surface: path.surface, dark: span.dark });
+      }
     }
   }
   if (spans.length === 0) return { runs: [], corners: cornerRecords };
@@ -677,7 +757,8 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
   const lengths = spans.map((s) => polyLength(s.points));
   const total = lengths.reduce((a, b) => a + b, 0);
   const extra = Math.max(0, opts.runs - spans.length);
-  const want = lengths.map((l) => (total > 0 ? (extra * l) / total : 0));
+  // A dark span is one piece of blockout, never several: slicing it would light its middle.
+  const want = lengths.map((l, i) => (total > 0 && !spans[i]?.dark ? (extra * l) / total : 0));
   const base = want.map(Math.floor);
   let left = extra - base.reduce((a, b) => a + b, 0);
   for (const [, i] of want
@@ -692,13 +773,15 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
   spans.forEach((span, i) => {
     for (const piece of slice(span.points, 1 + (base[i] as number))) {
       const length = polyLength(piece);
-      if (length < opts.minRun) continue;
+      // A dark span is never dropped: dropping it would leave the gap the return exists to avoid.
+      if (length < opts.minRun && !span.dark) continue;
       out.push({
         points: piece,
         surface: span.surface,
         length,
         index: out.length,
         lit: true,
+        dark: span.dark,
         color: 0,
       });
     }
