@@ -58,13 +58,20 @@ export function resample(line: Point2[], spacing: number): Point2[] {
 /**
  * Three-tap smoothing; marching squares emits staircase noise at grid scale. `mode: 'closed'`
  * wraps around the loop; `'open'` holds both endpoints fixed instead of dragging them toward
- * each other, for a run that has already been cut at its corners.
+ * each other, for a run that has already been cut at its corners. `hold` pins individual points
+ * as well, for geometry that was built rather than extracted and so has no noise to remove.
  */
-export function smooth(line: Point2[], passes: number, mode: 'open' | 'closed'): Point2[] {
+export function smooth(
+  line: Point2[],
+  passes: number,
+  mode: 'open' | 'closed',
+  hold?: readonly boolean[],
+): Point2[] {
   let cur = line;
   for (let p = 0; p < passes; p++) {
     cur = cur.map((_, i) => {
       const b = cur[i] as Point2;
+      if (hold?.[i]) return b;
       if (mode === 'open' && (i === 0 || i === cur.length - 1)) return b;
       const prevIdx = mode === 'closed' ? (i - 1 + cur.length) % cur.length : i - 1;
       const nextIdx = mode === 'closed' ? (i + 1) % cur.length : i + 1;

@@ -245,21 +245,67 @@ function tangentInto(
  * it and then jump back to the tangent point, and that reversal reads as a tighter bend than the
  * corner it replaced.
  */
-function trimTail(span: THREE.Vector3[], back: number): void {
-  const corner = (span[span.length - 1] as THREE.Vector3).clone();
+function trimTail(span: THREE.Vector3[], back: number, corner: THREE.Vector3): void {
   while (span.length > 2 && (span[span.length - 1] as THREE.Vector3).distanceTo(corner) < back) {
     span.pop();
   }
 }
 
-/** The index in `span` at or past `skip` of arc length from its start. */
-function indexPast(span: THREE.Vector3[], skip: number): number {
-  let along = 0;
-  for (let i = 1; i < span.length; i++) {
-    along += (span[i] as THREE.Vector3).distanceTo(span[i - 1] as THREE.Vector3);
-    if (along >= skip) return i;
+/** The first index in `span` at or past `from` that clears `back` of the corner. */
+function indexPast(
+  span: THREE.Vector3[],
+  from: number,
+  back: number,
+  corner: THREE.Vector3,
+): number {
+  for (let i = Math.max(1, from); i < span.length; i++) {
+    if ((span[i] as THREE.Vector3).distanceTo(corner) >= back) return i;
   }
   return span.length - 1;
+}
+
+/** Segments averaged into a leg's direction. Four spans twice the setback at the shipped spacing. */
+const LEG_WINDOW = 4;
+
+/**
+ * A leg's direction, averaged over several segments rather than taken from the one segment next to
+ * the corner. A corner keeps turning past the stretch that detection collapses it to — measured on
+ * both the field-traced and the directly-traced contour, that shoulder reaches 20 degrees — and a
+ * direction taken there tilts the virtual corner off the leg the fillet has to be tangent to.
+ */
+function legDirection(span: THREE.Vector3[], at: number, step: 1 | -1): THREE.Vector3 | null {
+  const dir = new THREE.Vector3();
+  for (let k = 0; k < LEG_WINDOW; k++) {
+    const i = step === 1 ? at + k : at - k - 1;
+    const a = span[i] as THREE.Vector3 | undefined;
+    const b = span[i + 1] as THREE.Vector3 | undefined;
+    if (!a || !b) break;
+    const d = b.clone().sub(a);
+    if (d.lengthSq() < 1e-18) break;
+    dir.add(d.normalize());
+  }
+  return dir.lengthSq() < 1e-18 ? null : dir.normalize();
+}
+
+/**
+ * Where two leg lines meet, as the midpoint of their mutual perpendicular — the corner the path
+ * would have had before resampling rounded it. Null when the legs are parallel and there is none.
+ */
+function legIntersection(
+  a: THREE.Vector3,
+  u: THREE.Vector3,
+  b: THREE.Vector3,
+  v: THREE.Vector3,
+): THREE.Vector3 | null {
+  const uv = u.dot(v);
+  const denom = 1 - uv * uv;
+  if (Math.abs(denom) < 1e-9) return null;
+  const w = a.clone().sub(b);
+  const s = (uv * w.dot(v) - w.dot(u)) / denom;
+  const t = w.dot(v) - uv * w.dot(u);
+  const p = a.clone().addScaledVector(u, s);
+  const q = b.clone().addScaledVector(v, t / denom);
+  return p.add(q).multiplyScalar(0.5);
 }
 
 /**
@@ -271,26 +317,98 @@ function indexPast(span: THREE.Vector3[], skip: number): number {
 function filletFor(
   target: THREE.Vector3[],
   next: THREE.Vector3[],
+  corner: Corner,
   rhoMin: number,
   spacing: number,
 ): Fillet | null {
-  const corner = target[target.length - 1] as THREE.Vector3 | undefined;
-  const before = target[target.length - 2] as THREE.Vector3 | undefined;
-  const after = next[1] as THREE.Vector3 | undefined;
-  if (!corner || !before || !after) return null;
+  // The legs are measured outside the corner's whole stretch, not either side of its tightest
+  // vertex: the neighbouring vertices are part of the same rounded corner, and a direction taken
+  // across one of them is already turning.
+  const iA = target.length - 2 - corner.groupBefore;
+  const iB = corner.groupAfter + 1;
+  const a = target[iA] as THREE.Vector3 | undefined;
+  const b = next[iB] as THREE.Vector3 | undefined;
+  if (iA < 1 || !a || !b) return null;
 
-  const u = corner.clone().sub(before);
-  const v = after.clone().sub(corner);
-  if (u.lengthSq() < 1e-18 || v.lengthSq() < 1e-18) return null;
-  u.normalize();
-  v.normalize();
+  // Each leg line passes through its anchor vertex, so the fillet's tangent point stays collinear
+  // with the path there and the join cannot kink.
+  const u = legDirection(target, iA, -1);
+  const v = legDirection(next, iB, 1);
+  if (!u || !v) return null;
+
+  const virtual = legIntersection(a, u, b, v);
+  if (!virtual) return null;
+  // Near-parallel legs put the apex a long way from where the path actually turns, and the arc
+  // built there splices in somewhere the corner is not. A fit that disagrees with detection by
+  // more than a bend radius is not describing this corner.
+  const vertex = target[target.length - 1] as THREE.Vector3;
+  if (virtual.distanceTo(vertex) > rhoMin) return null;
+
+  // Room runs from the virtual corner: back to `a` and then down the rest of the leg.
+  const back = Math.max(0, virtual.clone().sub(a).dot(u)) + polyLength(target.slice(0, iA + 1));
+  const fwd = Math.max(0, b.clone().sub(virtual).dot(v)) + polyLength(next.slice(iB));
 
   const probe = [
-    corner.clone().addScaledVector(u, -polyLength(target)),
-    corner.clone(),
-    corner.clone().addScaledVector(v, polyLength(next)),
+    virtual.clone().addScaledVector(u, -back),
+    virtual.clone(),
+    virtual.clone().addScaledVector(v, fwd),
   ];
-  return filletAt(probe, false, 1, rhoMin, spacing);
+  const fillet = filletAt(probe, false, 1, rhoMin, spacing);
+  if (!fillet) return null;
+
+  // A fillet cuts the corner back on both sides. One whose tangent point lands past the corner
+  // vertex instead is inverted: the leg would run out to it and reverse, and the room test reads
+  // that consumption as near zero rather than as the overrun it is.
+  const entry = fillet.points[0] as THREE.Vector3;
+  const exit = fillet.points[fillet.points.length - 1] as THREE.Vector3;
+  if (entry.clone().sub(vertex).dot(u) > 0 || exit.clone().sub(vertex).dot(v) < 0) return null;
+  return fillet;
+}
+
+/**
+ * A break cuts the whole corner stretch out, not just the vertex detection collapsed it to. The
+ * neighbouring vertices are the same corner; left on a run's end they are tube still bending
+ * tighter than rhoMin, with no corner stage left to fix them.
+ */
+function dropHead(span: THREE.Vector3[], count: number): THREE.Vector3[] {
+  return span.slice(Math.min(count, Math.max(0, span.length - 2)));
+}
+
+function dropTail(span: THREE.Vector3[], count: number): THREE.Vector3[] {
+  return span.slice(0, Math.max(2, span.length - count));
+}
+
+/** How far `point` sits from a tangent point along the leg leaving it. Negative when it is inside. */
+function legGap(
+  point: THREE.Vector3 | undefined,
+  tangent: THREE.Vector3,
+  along: THREE.Vector3,
+): number {
+  return point ? point.clone().sub(tangent).dot(along) : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * How much leg a corner consumes either side of the vertex it was collapsed to — to the fillet's
+ * tangent points when it fillets, and to the end of its stretch when it breaks. A break shortens
+ * the leg for the corner at the other end of it just as a fillet does.
+ */
+function eatenBy(
+  corner: Corner,
+  fillet: Fillet | null,
+  before: THREE.Vector3[],
+  after: THREE.Vector3[],
+): { before: number; after: number } {
+  const vertex = before[before.length - 1] as THREE.Vector3 | undefined;
+  if (!vertex) return { before: 0, after: 0 };
+  if (fillet) {
+    const entry = fillet.points[0] as THREE.Vector3;
+    const exit = fillet.points[fillet.points.length - 1] as THREE.Vector3;
+    return { before: vertex.distanceTo(entry), after: vertex.distanceTo(exit) };
+  }
+  return {
+    before: polyLength(before.slice(Math.max(0, before.length - corner.groupBefore - 2))),
+    after: polyLength(after.slice(0, corner.groupAfter + 2)),
+  };
 }
 
 /** Appends `next` onto `target`, which already ends at the shared corner; splices a loop first. */
@@ -300,6 +418,7 @@ function mergeArc(
   decision: CornerDecision,
   loopRadius: number,
   fillet: Fillet | null,
+  spacing: number,
 ): void {
   if (decision.strategy === 'loop') {
     const cornerPt = target[target.length - 1] as THREE.Vector3;
@@ -310,10 +429,35 @@ function mergeArc(
     return;
   }
   if (fillet) {
-    trimTail(target, fillet.setback);
-    decision.at = fillet.points[fillet.points.length >> 1];
+    const n = fillet.points.length;
+    const entry = fillet.points[0] as THREE.Vector3;
+    const exit = fillet.points[n - 1] as THREE.Vector3;
+    const into = entry
+      .clone()
+      .sub(fillet.points[1] as THREE.Vector3)
+      .normalize();
+    const outOf = exit
+      .clone()
+      .sub(fillet.points[n - 2] as THREE.Vector3)
+      .normalize();
+
+    // Drop the corner's whole stretch before trimming by distance: a shallow turn's setback can be
+    // shorter than one sample step, and would leave the stretch's own vertices in the path.
+    for (let i = 0; i <= decision.groupBefore && target.length > 2; i++) target.pop();
+    trimTail(target, fillet.setback, fillet.corner);
+    // The leg has to resume a full sample clear of the tangent point. A point closer than that is
+    // still off the leg line by whatever the fit missed, and over a short step that reads as a kink
+    // rather than as the slight offset it is.
+    while (target.length > 2 && legGap(target[target.length - 1], entry, into) < spacing) {
+      target.pop();
+    }
+
+    decision.at = fillet.points[n >> 1];
     for (const p of fillet.points) target.push(p);
-    for (let i = indexPast(next, fillet.setback); i < next.length; i++) {
+
+    let from = indexPast(next, decision.groupAfter + 1, fillet.setback, fillet.corner);
+    while (from < next.length - 1 && legGap(next[from], exit, outOf) < spacing) from++;
+    for (let i = from; i < next.length; i++) {
       target.push(next[i] as THREE.Vector3);
     }
     return;
@@ -352,24 +496,41 @@ function stitchPath(
     // A hard corner drawn `connect` must fillet, and a fillet that will not fit breaks instead.
     // `CONNECT_LIMIT` used to guess this from the angle; now it is measured.
     const fillet =
-      strategy === 'connect' && c.hard ? filletFor(before, after, rhoMin, spacing) : null;
+      strategy === 'connect' && c.hard ? filletFor(before, after, c, rhoMin, spacing) : null;
     if (strategy === 'connect' && c.hard && !fillet) {
-      return { ...c, strategy: 'break' as const, setback: 0 };
+      return { ...c, strategy: 'break' as const, setback: 0, fillet: null };
     }
     return { ...c, strategy, setback: fillet?.setback ?? 0, fillet };
   });
 
-  // Both ends of a leg may fillet, and then the two setbacks have to fit in it together. The
-  // deeper cut yields, since breaking the shallower one would remove less of the problem.
-  for (let k = 0; k < corners.length; k++) {
-    const here = decisions[k] as CornerDecision;
-    const next = decisions[(k + 1) % decisions.length] as CornerDecision | undefined;
-    if (!next || here.setback === 0 || next.setback === 0) continue;
-    const leg = polyLength(legsOf(k).after);
-    if (here.setback + next.setback <= leg) continue;
-    const loser = here.setback >= next.setback ? here : next;
-    loser.strategy = 'break';
-    loser.setback = 0;
+  // Both ends of a leg consume it, and the two cuts have to fit in it together. Measured from the
+  // tangent points rather than from the setback: a setback runs from the virtual corner, which is
+  // not on the path, so two fillets can overlap while their setbacks still appear to fit.
+  const eatsAt = (k: number) => {
+    const { before, after } = legsOf(k);
+    return eatenBy(corners[k] as Corner, decisions[k]?.fillet ?? null, before, after);
+  };
+  // To a fixed point: breaking a corner cuts its own stretch out of the same leg, so the survivor
+  // has less room than the pass that spared it measured, not more.
+  for (let pass = 0; pass < corners.length; pass++) {
+    let settled = true;
+    for (let k = 0; k < corners.length; k++) {
+      const kNext = k + 1 < corners.length ? k + 1 : 0;
+      const here = decisions[k] as CornerDecision;
+      const next = decisions[kNext] as CornerDecision;
+      if (next === here || (!closed && kNext === 0)) continue;
+      // One sample of straight leg has to survive between the two: meeting end to end leaves a
+      // join with no shared tangent, which bends tighter than either arc does.
+      const room = polyLength(legsOf(k).after) - spacing;
+      if (eatsAt(k).after + eatsAt(kNext).before <= room) continue;
+      const loser = here.fillet && (!next.fillet || here.setback >= next.setback) ? here : next;
+      if (!loser.fillet) continue;
+      loser.strategy = 'break';
+      loser.setback = 0;
+      loser.fillet = null;
+      settled = false;
+    }
+    if (settled) break;
   }
 
   if (!closed) {
@@ -379,10 +540,10 @@ function stitchPath(
       const decision = decisions[k] as CornerDecision;
       const next = arcs[k + 1] as THREE.Vector3[];
       if (decision.strategy === 'break') {
-        spans.push(current);
-        current = next.slice();
+        spans.push(dropTail(current, decision.groupBefore + 1));
+        current = dropHead(next.slice(), decision.groupAfter + 1);
       } else {
-        mergeArc(current, next, decision, loopRadius, decision.fillet ?? null);
+        mergeArc(current, next, decision, loopRadius, decision.fillet ?? null, spacing);
       }
     }
     spans.push(current);
@@ -401,9 +562,8 @@ function stitchPath(
         arcs[k] as THREE.Vector3[],
         decisions[k] as CornerDecision,
         loopRadius,
-        decisions[k]?.setback
-          ? filletFor(current, arcs[k] as THREE.Vector3[], rhoMin, spacing)
-          : null,
+        decisions[k]?.fillet ?? null,
+        spacing,
       );
     }
     const start = (arcs[0] as THREE.Vector3[])[0] as THREE.Vector3;
@@ -421,26 +581,26 @@ function stitchPath(
 
   // Rotate so the walk starts right after a break, reducing this to the open-path case.
   const spans: THREE.Vector3[][] = [];
-  let current = (arcs[breakIdx] as THREE.Vector3[]).slice();
+  const opening = decisions[breakIdx] as CornerDecision;
+  let current = dropHead((arcs[breakIdx] as THREE.Vector3[]).slice(), opening.groupAfter + 1);
   for (let i = 1; i < n; i++) {
     const arcIdx = (breakIdx + i) % n;
     const decision = decisions[arcIdx] as CornerDecision;
     if (decision.strategy === 'break') {
-      spans.push(current);
-      current = (arcs[arcIdx] as THREE.Vector3[]).slice();
+      spans.push(dropTail(current, decision.groupBefore + 1));
+      current = dropHead((arcs[arcIdx] as THREE.Vector3[]).slice(), decision.groupAfter + 1);
     } else {
       mergeArc(
         current,
         arcs[arcIdx] as THREE.Vector3[],
         decision,
         loopRadius,
-        decision.setback > 0
-          ? filletFor(current, arcs[arcIdx] as THREE.Vector3[], rhoMin, spacing)
-          : null,
+        decision.fillet ?? null,
+        spacing,
       );
     }
   }
-  spans.push(current);
+  spans.push(dropTail(current, opening.groupBefore + 1));
   return { spans, decisions };
 }
 

@@ -27,6 +27,14 @@ export interface VertexBend {
 export interface Corner extends VertexBend {
   /** Below `rhoMin`: the material physically cannot go round it. */
   hard: boolean;
+  /**
+   * Vertices in this corner's stretch before and after the one it was collapsed to. Arc-length
+   * resampling splits a sharp corner across two vertices whenever a sample does not land on it, so
+   * a corner is routinely a stretch; filleting only the tightest vertex leaves its neighbours
+   * over-bent. `spikes/corner-width.mjs` measures this on a square with no distance field near it.
+   */
+  groupBefore: number;
+  groupAfter: number;
 }
 
 /**
@@ -90,9 +98,32 @@ export function cornersByBend(
     }
   }
 
-  return groups
-    .map((g) => g.reduce((a, b) => (b.rho < a.rho ? b : a)))
-    .map((b) => ({ ...b, hard: b.rho < rhoMin }));
+  return groups.map((g) => {
+    const tightest = g.reduce((a, b) => (b.rho < a.rho ? b : a));
+    const j = g.indexOf(tightest);
+    return {
+      ...tightest,
+      hard: tightest.rho < rhoMin,
+      groupBefore: j,
+      groupAfter: g.length - 1 - j,
+    };
+  });
+}
+
+/**
+ * Points built analytically rather than extracted from the field. The sweep smooths a run to see
+ * past the field's staircase, and that filter shaves a few percent off an arc built at exactly
+ * `rhoMin` — so authored geometry is held fixed through it instead of being denoised.
+ */
+const AUTHORED = new WeakSet<THREE.Vector3>();
+
+export function markAuthored(points: THREE.Vector3[]): THREE.Vector3[] {
+  for (const p of points) AUTHORED.add(p);
+  return points;
+}
+
+export function isAuthored(point: THREE.Vector3): boolean {
+  return AUTHORED.has(point);
 }
 
 export interface Fillet {
@@ -102,6 +133,8 @@ export interface Fillet {
   setback: number;
   /** Index of the corner vertex these points replace. */
   index: number;
+  /** The corner the setback is measured from — virtual, when the fillet spans a stretch. */
+  corner: THREE.Vector3;
 }
 
 /**
@@ -154,7 +187,7 @@ export function filletAt(
   for (let i = 0; i <= steps; i++) {
     arc.push(centre.clone().add(radial.clone().applyAxisAngle(axis, (i / steps) * sweep)));
   }
-  return { points: arc, setback, index };
+  return { points: markAuthored(arc), setback, index, corner: cur.clone() };
 }
 
 interface GridEntry {

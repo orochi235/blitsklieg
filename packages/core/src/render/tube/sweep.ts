@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isAuthored } from './bend.js';
 import type { Point2 } from './field.js';
 import { rotationMinimizingFrames } from './frames.js';
 import { minCurvatureRadius3, smooth } from './resample.js';
@@ -17,6 +18,7 @@ export function smoothedPoints(run: Run): THREE.Vector3[] {
     run.points.map((p) => ({ x: p.x, y: p.y })),
     SMOOTH_PASSES,
     'open',
+    run.points.map(isAuthored),
   );
   return run.points.map((p, i) => {
     const f = flat[i] as Point2;

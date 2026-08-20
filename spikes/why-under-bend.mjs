@@ -26,6 +26,8 @@ const buf = readFileSync(new URL('../apps/lab/public/font.ttf', import.meta.url)
 const font = opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const spec = specOf('tubing').decoration;
 const rhoMin = minBendRadius(spec.radius, spec.bend);
+/** A fillet is built at exactly rhoMin, so the invariant is `not below it`, not `strictly above`. */
+const TOL = rhoMin * 1e-6;
 
 const STRATEGIES = {
   'all break': { break: 1, connect: 0, loop: 0 },
@@ -99,7 +101,7 @@ for (const [name, corners] of Object.entries(STRATEGIES)) {
       seed: 0,
     });
     const bends = runs.map((r) => tightestBend(r));
-    under += bends.filter((b) => b < rhoMin).length;
+    under += bends.filter((b) => b < rhoMin - TOL).length;
     total += bends.length;
     worstOf.push(`${ch} ${(Math.min(...bends) / spec.radius).toFixed(2)}r`);
   }
