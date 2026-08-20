@@ -3,6 +3,12 @@
 **For:** the next session picking up the tube geometry work. **Answers:** what landed overnight,
 what is left, and the two defects standing between here and acceptance.
 
+The spikes are the fast way back in: `bend-acceptance.mjs` is the invariant across the alphabet,
+`why-under-bend.mjs` separates the corner strategies, `where-under-bend.mjs` says whether a bad bend
+is inside a fillet, at a join, or on plain path, `run-vertices.mjs` dumps one run, `corner-width.mjs`
+measures corner stretches against a synthetic control, and `fillet-view.mjs` draws the corner stage's
+decisions as an SVG page.
+
 Read `docs/superpowers/specs/2026-08-19-tube-geometry-design.md` for the model and
 `docs/superpowers/plans/2026-08-20-tube-geometry.md` for the steps. This file is a pointer to those
 plus what they cannot carry.
@@ -13,12 +19,10 @@ Branch `tube-geometry`, unpushed, in the worktree `.claude/worktrees/tube-geomet
 `tube-lab` at `6bb0994` — the tube lab is finished and was built by a second session in the main
 checkout; both branches are clean and disjoint.
 
-`npm run check` green at **636 tests**. `npm run test:visual` has **not** been run and should not be
-until the two defects below are fixed: the four baselines it would move are not yet moving for the
-right reasons.
+`npm run check` green at **636 tests**, nothing half-built in the tree.
 
-**Tasks 1–7 of the nine are committed. Task 7 does not meet its acceptance criterion** — that is the
-main thing to know, and it is deliberate rather than overlooked.
+**Tasks 1–7 of the nine are committed and task 7 now meets its acceptance criterion.** Task 8 was
+attempted and reverted; what it cost is written into the spec rather than left in the code.
 
 | | |
 | --- | --- |
@@ -28,67 +32,41 @@ main thing to know, and it is deliberate rather than overlooked.
 | 4 | `ClearanceGrid` — the spatial hash |
 | 5 | wander capped so it cannot out-bend the tube |
 | 6 | **the invariant**: `sweepRun` holds the requested radius; `sweepRadius` → `tightestBend` |
-| 7 | fillets wired into the cut — machinery lands, acceptance does not |
-| 8 | the pigtail — **not started** |
-| 9 | acceptance and the four baselines — **blocked on 7 and 8** |
+| 7 | fillets wired into the cut — **1 run of 168 under rho_min across the alphabet** |
+| 8 | the pigtail — **attempted, reverted; see the spec's `## Loops` section** |
+| 9 | acceptance and the baselines — **blocked on 8, and on the two decisions below** |
 
-## The two defects between here and acceptance
+## Where the bend invariant stands
 
-`node spikes/why-under-bend.mjs` reports both. It re-cuts `MWNSRE` under each pure corner strategy so
-the two cannot be confused for each other:
+`node spikes/bend-acceptance.mjs` is the check — the whole pipeline, not just the cut, so wander is
+included. A fillet is built at exactly `rhoMin`, so it tests "not below", not "strictly above".
 
 ```
-all break    under-bend  1/61
-all connect  under-bend 33/42
-all loop     under-bend 30/42
+tubing                       11/171 runs under rho_min   worst 0.88r
+tubing no loop               25/168                      worst 1.52r
+tubing no loop no wander      1/168                      worst 1.52r
+piping                        3/47                       worst 1.43r
 ```
 
-**Breaking works.** Filleting and looping do not, and they fail for unrelated reasons.
+The corner stage is done. What is left splits cleanly: **wander owns 24** and **the loop splice owns
+the rest, including every severe number**.
 
-### 1. A tight region is a stretch, not a vertex
+## Two decisions, both the owner's
 
-This is a gap in the spec's model, not a bug in the code implementing it. The spec assumes a corner
-is one vertex. On an SDF-extracted contour it is 2–4 vertices wide, because the field's blur rounds
-every corner into a short arc. `cornersByBend` collapses each stretch to its tightest vertex — right
-for deciding *that* there is a corner, wrong for fixing it — so `M` carries **21 vertices under
-`ρmin` behind only 13 detected corners**, and filleting the tightest of each leaves the neighbours
-over-bent.
+**1. Wander and fillets collide, and the spec's model does not resolve it.** Wander bends in z while
+the path bends in x/y, so they are perpendicular and combine as a hypotenuse. Enforce that exactly
+and *any* wander on a run holding a fillet is illegal, because a fillet sits at exactly `rhoMin` with
+nothing left to spend. That was built, it flattened every filleted run, and it was reverted; the
+`budget = rhoMin * 2` heuristic is back and those 24 runs are what it costs. Three ways out: accept
+it and lose wander on filleted runs; build fillets *above* `rhoMin` so wander has headroom, since
+`rhoMin` is a floor rather than a target; or move wander ahead of cutting so the fillets absorb the
+combined curvature — which the plan flagged as a choice to make rather than discover. The third is
+the one to take.
 
-The fix is to fillet the **whole group**, tangent to the legs *outside* it, rather than the single
-vertex. Concretely: `cornersByBend` returns each corner's group extent (`from`/`to`); `filletFor`
-takes its incoming direction at `from - 1 → from` and its outgoing at `to → to + 1`; the virtual
-corner is the intersection of those two leg lines (closest point between them, since this is 3D), and
-the setback runs from there. `S` is the case to watch — its widest stretch is 4 vertices.
-
-**Answer this before building it: does the corner need to be a stretch at all?**
-
-A corner is 2–4 vertices wide *because* the path is rasterised into a 256² distance field and
-re-extracted. On the font's own béziers a corner is one vertex, and the analytic fillet the model
-already specifies works without any of this. Three separate pieces of complexity trace to that one
-root:
-
-- group filleting against a virtual corner, above;
-- `tightestBend`'s three smoothing passes, which are calibrated for the field's staircase noise and
-  which shrink a coarsely-sampled arc's radius by a tenth — see the traps below;
-- the blur masking the clamp, which is the argument the spec's `## Path fidelity` section uses to
-  order this work *before* path fidelity.
-
-That third one **expires with this change**: it says the blur hides the clamp, and the clamp is being
-deleted. So the ordering argument should be re-derived rather than inherited, and the machinery above
-may exist only to undo an artifact that was already scheduled for removal.
-
-The counterweight is real: `piping` traces at `level: -0.015`, so it genuinely needs offset contours
-and the field cannot simply be deleted. But "one look needs an offset" is a much narrower problem
-than "the whole pipeline goes through a 256² grid".
-
-**Re-run `spikes/clamp-vs-blur.mjs` before deciding.** Its numbers were taken under the old clamp,
-which no longer exists, so the measurement that ordered this work may not still hold. This is a
-sequencing call for the owner, not something to settle in code.
-
-### 2. Loops are still the old `buildLoop`
-
-Task 8 is untouched, so a loop still splices a full turn that lands exactly back on its corner. The
-cusp at that join is what `all loop 30/42` is measuring. Nothing in tasks 1–7 changed it.
+**2. Is the loop worth its geometry?** The spec now carries what both pigtail constructions cost and
+why neither closes. Wiring `loop` to fall back to `break` takes tubing from 46/171 under-bend to
+**11/171** — already far better than the `buildLoop` that ships, at the cost of the flourish only.
+Decide that before building the pigtail, not after.
 
 ## What was learned that is not in the plan
 
@@ -106,6 +84,14 @@ cusp at that join is what `all loop 30/42` is measuring. Nothing in tasks 1–7 
   never the corner count.
 - **Filleting is the ordinary path**: 228 hard corners on `tubing` and 244 on `piping`, across all 26
   letters of both. Robustness in the common case, not correctness in the rare one.
+- **A corner is a stretch because of resampling, not because of the field.** `spikes/corner-width.mjs`
+  measures a square with no distance field anywhere near it: arc-length resampling splits a perfectly
+  sharp corner across two vertices whenever a sample does not land on it, which is the generic case.
+  The direct contour carries the same stretches, and the same 20-degree shoulder outside them. Group
+  filleting is needed at either fidelity, and **path fidelity neither blocks nor is blocked by this
+  work** — the ordering question the spec reopened is closed.
+- **The corner keeps turning past its stretch.** That shoulder is why a leg direction is averaged over
+  four segments rather than taken from the segment next to the corner.
 
 ## Traps this work hit
 
@@ -120,6 +106,16 @@ cusp at that join is what `all loop 30/42` is measuring. Nothing in tasks 1–7 
   90° turn at 0.1 spacing is a 0.071 em bend — wider than a 0.03 tube need bend, and no corner is
   found at all. Nine pre-existing tests went red on a correct change for exactly this. Sample
   fixtures at the pipeline's own 0.02.
+- **A room test measured on geometry the merge does not build passes on nothing.** The fillet was
+  computed twice from different inputs, so the check validated an arc that was never spliced. Any
+  test of fit has to run on the same object the caller uses.
+- **The sweep's smoothing is a denoiser for the field's staircase, and it was being applied to arcs
+  built analytically**, shaving 3–6% off a fillet at exactly `rhoMin`. Authored points are held fixed
+  through it now (`markAuthored` / `isAuthored` in `bend.ts`); anything else that builds exact
+  geometry into a run needs the same.
+- **Smoothing masks raw kinks.** Holding fillet points fixed made joins fail that had looked fine,
+  because the filter had been rounding them off. A green measurement through a smoother is not
+  evidence the path is clean.
 - **Do not `git add -A`**, and do not chain `npm run check && git commit` through a `grep` — the grep
   succeeds and the failed check is swallowed. That committed a lint failure once tonight.
 
@@ -137,18 +133,18 @@ highest-yield instruction was "verify this by mutation". It held here too, and i
 - The plan's own mutation instruction for the wander cap had the direction backwards: `budget` is in
   the denominator, so raising it *tightens* the cap. Corrected in the plan.
 
-## The baselines, when you get there
+## The baselines: two images, not four
 
-Four images move: `look-tubing`, `look-piping`, `offaxis-tubing`, `offaxis-piping`. **Do not pass
-`--update-snapshots`** — it rewrites all fifteen. Run the suite, expect exactly four failures, and
-let Playwright's `test-results/` artifacts be the evidence. A fifth moved image means the change
-leaked; stop rather than reasoning around it.
+**`look-piping` and `offaxis-piping` do not move.** The suite has been run against the current
+branch and both pass. Piping's baseline is solid extruded letters with no cord visible anywhere — it
+traces inset at `level: -0.015`, so the cord sits inside the letter body in both framings. **The
+visual suite is blind to piping's cord**, which means it cannot see the change that matters most for
+that look; piping's acceptance has to be `spikes/bend-acceptance.mjs` or a lab capture.
 
-Three effects will be visible, and the last two read as regressions if unnamed:
+`look-tubing` and `offaxis-tubing` move, by 4047 pixels: corners visibly rounder, and nothing else.
+**Do not pass `--update-snapshots`** — it rewrites all fifteen. Run the suite, expect exactly two
+failures, and let `test-results/` be the evidence. A third moved image means the change leaked.
 
-1. `piping`'s cord roughly doubles — it drew at 26–69% of its requested 0.03 on every letter.
-2. Every corner is rounded, cut back by up to 0.112 em.
-3. Short runs' wander flattens: the Task 5 cap binds at `tubing`'s shipped `amplitude: 0.02` for any
-   run near its `minRun: 0.15`, so amplitude is a request rather than a guarantee there.
-
-The re-record is the owner's call. The recipe is in the spec's `## Baselines`.
+One effect reads as a regression if unnamed: every corner is rounded, cut back by up to 0.112 em.
+Short-run wander no longer flattens — lobe count is now chosen by what the run carries, so that
+prediction is off the list. The re-record is the owner's call.
