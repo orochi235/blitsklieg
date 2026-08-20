@@ -15,8 +15,13 @@ export type { SurfaceKind } from './surfaces.js';
 
 export interface TubeSpec {
   kind: 'tube';
-  /** Tube radius in em, tapered down where the path's curvature cannot carry it. */
+  /** Tube radius in em. Held exactly: the corner stage bends the path to carry it. */
   radius: number;
+  /**
+   * Minimum bend radius as a multiple of `radius` — how tightly this material bends relative to its
+   * own thickness. Floored at 1.25, below which the swept mesh self-intersects whatever a look asks.
+   */
+  bend?: number;
   /** Ring segments around the tube. */
   segments: number;
   /** Arc length in em between resampled path points. */

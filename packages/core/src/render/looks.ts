@@ -170,6 +170,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     decoration: {
       kind: 'tube',
       radius: 0.022,
+      bend: 2,
       segments: 10,
       spacing: 0.02,
       surfaces: ['front'],
@@ -210,6 +211,7 @@ export const LOOKS: Record<LookName, LookSpec> = {
     decoration: {
       kind: 'tube',
       radius: 0.03,
+      bend: 2,
       segments: 8,
       spacing: 0.02,
       surfaces: ['front'],
