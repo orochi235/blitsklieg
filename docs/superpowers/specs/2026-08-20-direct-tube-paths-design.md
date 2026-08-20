@@ -8,12 +8,16 @@
 
 ## The decision
 
-A front or back path is traced from the glyph's own contour. The 256² distance field that today
-rasterises the outline and re-extracts an isocontour from it is deleted.
+A front or back path is traced from the glyph's own contour. `level` — the isocontour level a look
+insets or stands off by — becomes a normal offset on that contour, and overlapping contours, which
+the grid resolved for free, are resolved by a vendored polygon clipper.
 
-`level` — the isocontour level a look insets or stands off by — becomes a normal offset on the
-contour. Overlapping contours, which the grid resolved for free, are resolved by a vendored
-polygon clipper.
+**`pathSource` is public API**, not a migration flag. `direct` is the traced path and `field` is the
+256² grid that rasterises the outline and re-extracts an isocontour from it. Both stay supported and
+both are exported from the package root; `tubing` and `piping` move to `direct`.
+
+That is a visible change to two published looks, and for a reason that is not the one it looks like
+— see below.
 
 ## Why
 
@@ -59,6 +63,27 @@ Separately, an arc built at exactly ρmin reads as *at* ρmin and still fails a 
 test, because `tightestBend` smooths before measuring. That is the handoff's "three fillet arcs
 measuring 2% under", and it is a tolerance question, not geometry.
 
+## Why a published look changes
+
+Not because the path moves. The two sources agree to about 0.001 em.
+
+**The grid's wobble manufactures corners, and every corner is a candidate break.** Strip it and the
+corner count roughly halves — 12 to 6 on piping's `S`. The cut then lands somewhere else, and
+`assign` paints a different lit/dark pattern from the identical seed:
+
+```
+tubing S, seed 0
+  field    6 runs  lit OxO.xO   lengths 0.15 0.13 1.27 0.17 0.14 1.35
+  direct   6 runs  lit OO.OOx   lengths 0.18 0.92 0.90 0.66 0.62 0.13
+```
+
+On `M` the grid yields 15 runs where the trace yields 12, splitting one 1.28-long run into four.
+`spikes/run-decomposition.mjs` prints this.
+
+So the compatibility statement is stronger than "baselines move": **a look reads differently under a
+different source even though its path is the same shape.** Anyone tuning a look against one source
+is tuning the decomposition too, and cannot carry those numbers to the other.
+
 ## The work
 
 **1. Junction reconciliation** (`bend.ts`, `runs.ts`). After an arc is spliced between two trimmed
@@ -87,8 +112,11 @@ a counter. Deriving a direction from winding *on top of that* cancels the distin
 every counter backwards by a full `level` — on 7 of 26 letters, with identical contour counts and
 no error. It is only visible by measuring a counter's area against the grid's.
 
-**4. Retire the grid.** Flip `pathSource` to `direct`, delete `field.ts` and `refineExact`,
-re-record the visual baselines.
+**4. Publish the flag and move the looks.** Export `PathSource` from the package root, document
+`TubeSpec.pathSource`, set `tubing` and `piping` to `direct`, and re-record the visual baselines.
+
+`field.ts` stays — `field` is a supported source, not a legacy path. `refineExact` does not: it is a
+diagnostic, and it goes once step 1 lands and the ordering argument below is spent.
 
 ## Ordering
 
@@ -96,8 +124,10 @@ re-record the visual baselines.
 
 The junction fix must land before the default flips, but it is only clearly visible under an
 accurate path. So fix the junction while measuring under `direct`, with `field` as the regression
-guard, and flip the default last. `refineExact` stays until the flip: it isolates whether a
-failure comes from the path's accuracy or from the trace, which the direct source alone cannot.
+guard, and flip the default last. `refineExact` stays until step 1 lands: it isolates whether a failure comes from the path's accuracy
+or from the trace, which the direct source alone cannot. That distinction is not academic — it is
+what separated the junction defect from a fidelity problem, and what showed the halved corner count
+to be a decomposition change rather than noise.
 
 ## Out of scope
 
@@ -117,7 +147,9 @@ removing it to expose further raw kinks rather than to close work.
   (`spikes/contour-parity.mjs`). Already true.
 - Path error against a densely sampled bezier at or below the direct trace's current worst mean of
   0.00005 em (`spikes/path-fidelity-budget.mjs`). Today's grid: 0.00087–0.00162.
-- A lab spec change well under today's 1.45 s.
+- A lab spec change well under today's 1.45 s on `direct`.
+- Both sources build every letter of both looks; `field` keeps its current output exactly, so the
+  move is a look's choice of source and never a silent change under one.
 - `npm run check` and `npx playwright test` green, baselines re-recorded.
 
 ## Traps

@@ -46,6 +46,7 @@ export { specOf } from './render/looks.js';
 export type {
   CornerStrategy,
   CornerWeights,
+  PathSource,
   Run,
   SelectSpec,
   SurfaceKind,
