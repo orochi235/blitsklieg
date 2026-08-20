@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { asNodeId, createPanel, type NodeId, type SplitNode, type Store } from 'windease';
 import {
   type ChromeArgs,
@@ -70,7 +70,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   const store = useStore();
   const [letters, setLetters] = useState(initialLetters);
   const [lookName] = useState<'tubing' | 'piping'>('tubing');
-  const look = specOf(lookName);
+  const look = useMemo(() => specOf(lookName), [lookName]);
   const specKey = JSON.stringify(spec) + lookName;
 
   const panels = useCallback((): PanelRecord[] => {
@@ -187,6 +187,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
           cellsRef.current.set(id, cell);
         }
         cell.pivot.rotation.set(0, 0, 0);
+        cell.fit(rect.w / rect.h);
         draws.push({ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom });
       }
       for (const [id, cell] of cellsRef.current) {
