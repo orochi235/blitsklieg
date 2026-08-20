@@ -131,9 +131,8 @@ export class BloomPath {
     r.setScissorTest(false);
     r.setViewport(0, 0, size.x, size.y);
     r.clear();
-    // Viewport only, never a scissor: three resolves this target's multisample buffer with a
-    // blitFramebuffer that a scissor would clip, stranding the previous panel in the margins
-    // where the blur reads it back in.
+    // Viewport only, never a scissor: three resolves this target's MSAA buffer with a
+    // blitFramebuffer a scissor would clip, stranding a neighbour in the margins for the blur.
     if (rect) r.setViewport(rect.x, rect.y, rect.w, rect.h);
     r.render(scene, camera);
 
@@ -188,8 +187,8 @@ export class BloomPath {
   private blit(material: THREE.Material, target: THREE.WebGLRenderTarget | null): void {
     this.quad.material = material;
     this.renderer.setRenderTarget(target);
-    // In rect mode this clear is scissored and load-bearing: with the scissor off here it
-    // would wipe the whole canvas instead of just this panel's already-drawn neighbours.
+    // Redundant while autoClear is on and the quad covers every pixel, and safe only because rect
+    // mode arms the scissor first - unscissored it would wipe the panels already drawn.
     this.renderer.clear();
     this.renderer.render(this.quadScene, this.quadCam);
   }

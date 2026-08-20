@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { BloomPath, DEFAULT_BLOOM } from '../../src/render/bloom.js';
 
+type Rect4 = [number, number, number, number];
+
 /** What a single draw saw: uniforms are reused across passes, so textures are snapshotted. */
 interface Pass {
   scene: THREE.Scene;
@@ -10,13 +12,14 @@ interface Pass {
   source: THREE.Texture | null;
   bloom: THREE.Texture | null;
   dir: THREE.Vector2 | null;
-  viewport: [number, number, number, number] | null;
-  scissor: [number, number, number, number] | null;
+  viewport: Rect4 | null;
+  scissor: Rect4 | null;
   scissorTest: boolean;
 }
 
-/** What a single clear() saw: the target and scissor state at the time it ran. */
-interface Clear {
+/** One clear or render, in call order - the only way an ordering claim (X before Y) means anything. */
+interface Op {
+  kind: 'clear' | 'render';
   target: THREE.WebGLRenderTarget | null;
   scissorTest: boolean;
 }
@@ -24,35 +27,55 @@ interface Clear {
 function harness(width = 640, height = 480) {
   const size = new THREE.Vector2(width, height);
   const passes: Pass[] = [];
-  const clears: Clear[] = [];
+  const ops: Op[] = [];
   let target: THREE.WebGLRenderTarget | null = null;
-  let viewport: [number, number, number, number] | null = null;
-  let scissor: [number, number, number, number] | null = null;
+
+  // Applied is what's live for the current target; own is what the caller last asked for
+  // directly. setRenderTarget(rt) overwrites applied from rt's own size; setRenderTarget(null)
+  // restores applied from own - three's real behaviour, not a passthrough.
+  let viewport: Rect4 = [0, 0, width, height];
+  let scissor: Rect4 | null = null;
   let scissorTest = false;
+  let ownViewport: Rect4 = [0, 0, width, height];
+  let ownScissor: Rect4 | null = null;
+  let ownScissorTest = false;
 
   const renderer = {
     getDrawingBufferSize: (out: THREE.Vector2) => out.copy(size),
     getSize: (out: THREE.Vector2) => out.copy(size),
     setViewport: vi.fn((x: number, y: number, w: number, h: number) => {
-      viewport = [x, y, w, h];
+      ownViewport = [x, y, w, h];
+      viewport = ownViewport;
     }),
     setScissor: vi.fn((x: number, y: number, w: number, h: number) => {
-      scissor = [x, y, w, h];
+      ownScissor = [x, y, w, h];
+      scissor = ownScissor;
     }),
     setScissorTest: vi.fn((on: boolean) => {
+      ownScissorTest = on;
       scissorTest = on;
     }),
     setRenderTarget: vi.fn((next: THREE.WebGLRenderTarget | null) => {
       target = next;
+      if (next) {
+        viewport = [0, 0, next.width, next.height];
+        scissor = null;
+        scissorTest = false;
+      } else {
+        viewport = ownViewport;
+        scissor = ownScissor;
+        scissorTest = ownScissorTest;
+      }
     }),
     clear: vi.fn(() => {
-      clears.push({ target, scissorTest });
+      ops.push({ kind: 'clear', target, scissorTest });
     }),
     render: vi.fn((scene: THREE.Scene) => {
       const mesh = scene.children[0] as THREE.Mesh | undefined;
       const material = (mesh?.material as THREE.ShaderMaterial | undefined) ?? null;
       const uniforms = material?.uniforms;
       const dir = uniforms?.dir?.value as THREE.Vector2 | undefined;
+      ops.push({ kind: 'render', target, scissorTest });
       passes.push({
         scene,
         target,
@@ -67,7 +90,7 @@ function harness(width = 640, height = 480) {
     }),
   } as unknown as THREE.WebGLRenderer;
 
-  return { renderer, passes, clears, size };
+  return { renderer, passes, ops, size };
 }
 
 function pass(passes: Pass[], index: number): Pass {
@@ -230,18 +253,14 @@ describe('BloomPath.render into a rect', () => {
     // Both armed first: agreeing with the harness's initial state would make this unable to fail.
     renderer.setScissorTest(true);
     renderer.setViewport(7, 7, 33, 33);
-    vi.mocked(renderer.setViewport).mockClear();
     new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
 
     for (const p of passes) expect(p.scissorTest).toBe(false);
-    // The harness's viewport persists across setRenderTarget, so a stale value from the scene
-    // pass would read as correct here too - only the call count proves the composite reset it.
-    expect(renderer.setViewport).toHaveBeenCalledTimes(2);
     expect(pass(passes, 6).viewport).toEqual([0, 0, 640, 480]);
   });
 
   it('renders the scene inside the rect viewport, unscissored, and blurs the whole target', () => {
-    const { renderer, passes, clears } = harness(640, 480);
+    const { renderer, passes, ops } = harness(640, 480);
     new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera(), RECT);
 
     const scenePass = pass(passes, 0);
@@ -249,8 +268,9 @@ describe('BloomPath.render into a rect', () => {
     expect(scenePass.scissorTest).toBe(false);
     expect(scenePass.scissor).toBeNull();
     expect(scenePass.viewport).toEqual([100, 60, 200, 150]);
-    // Pins the clear ahead of the render: a clear armed with the scissor on would miss the margins.
-    expect(clears[0]).toEqual({ target: scenePass.target, scissorTest: false });
+    // The scene target's clear must precede its render, or the resolved margins go unclean.
+    expect(ops[0]).toEqual({ kind: 'clear', target: scenePass.target, scissorTest: false });
+    expect(ops[1]).toMatchObject({ kind: 'render', target: scenePass.target });
     // A scissored blur would clip the halo mid-pass and read the wrong texels back.
     for (const i of [1, 2, 3, 4, 5]) expect(pass(passes, i).scissorTest).toBe(false);
   });
