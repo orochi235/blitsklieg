@@ -6,7 +6,12 @@ next.
 ## State
 
 **`main` carries the tube lab and the tube geometry rewrite, both merged.** `npm run check` green at
-638 tests; `npx playwright test` green at 24. Nothing is in flight.
+638 tests; `npx playwright test` green at 24. No code is in flight.
+
+**[Direct tube paths](specs/2026-08-20-direct-tube-paths-design.md) is specced and not started.** It
+replaces the distance field with a trace of the glyph's own contour, and it subsumes the bend-minimum
+failures below — read it before picking up either. `TubeSpec.pathSource` (`field` | `exact` |
+`direct`) is already in the tree, defaulting to `field`, and the tube lab's rail switches it.
 
 The geometry model is in `docs/superpowers/specs/2026-08-19-tube-geometry-design.md`, and its
 `## Acceptance, as measured` section has the numbers. In short: the tube holds one diameter, corners
@@ -22,26 +27,28 @@ The spikes are the fast way back into any of it: `bend-acceptance.mjs` is the in
 alphabet, `where-under-bend.mjs <look> <letters>` says whether a bad bend is inside a fillet, at a
 join, or on plain path, `run-vertices.mjs` dumps one run, `corner-width.mjs` measures corner
 stretches against a synthetic control, and `fillet-view.mjs` draws the corner stage's decisions as an
-SVG page.
+SVG page. For the path source work: `join-geometry.mjs` dumps a failing run per vertex,
+`source-shootout.mjs` is the acceptance across all three sources, and `run-decomposition.mjs` shows
+how the source changes the cut. The spec lists the rest.
 
 ## What is worth doing next
 
-Nothing is blocked, and these are independent. Roughly in order of value:
+Roughly in order of value. Only the first two are entangled — the bend-minimum defect gates path
+fidelity, and the spec covers both; the rest are independent.
 
-- **Path fidelity.** The tube's path is not the font's curves: they are flattened, rasterised into a
-  256² distance field, re-extracted by marching squares and smoothed. That rounding is why the
-  letters read as melted. **This is now unblocked** — the old argument that it had to wait for the
-  clamp expired with the clamp, and `spikes/corner-width.mjs` shows the multi-vertex corner is a
-  resampling effect that survives at either fidelity. It carries its own risk: `piping` traces at
-  `level: -0.015`, so the field is doing real work there, and its even-odd rasterisation resolves
-  overlapping contours that a direct per-contour trace would not.
+- **Path fidelity — specced, and it starts with the fillet junction.** The field displaces the path
+  a mean of 4 to 7 percent of the tube radius. The flattening it rasterises is not at fault and
+  measures 0.00000 em; the grid is the whole of the loss. The spec has the plan and the numbers.
 - **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon. The
   last unbuilt look item from tubing, and the owner rated it a bonus rather than the point.
 - **`pyrite` is built on the wrong model and should be respecced before it is tuned.** See below.
-- **The five runs still under the bend minimum.** Three are fillet arcs measuring 2% under the radius
-  they were built at. The other two are `piping`'s `S`, at a fillet's entry join — `.AA` in
-  `where-under-bend.mjs` — and the cause is not yet the one it looks like: neither tightening the
-  room test by a sample nor filleting the contour's seam moved them.
+- **The runs under the bend minimum are one defect, and it is diagnosed.** Every one of them sits at
+  a fillet-to-path junction: the arc is sampled at half `spacing` and the legs at `spacing`, and the
+  leftover segment carries the whole residual turn at one vertex. Under the grid that reads as a 22
+  degree turn at 1.91r; under an accurate path the leg's last point lands inside the setback and the
+  path reverses, 174 degrees at 0.32r. `spikes/join-geometry.mjs` prints a failing run per vertex.
+  This is not independent of path fidelity — it gates it, because the grid's blur is what was
+  holding it to a few percent.
 - **`sequin` and `pyrite` both waste ~30% of their chunk pool on the back cap** (`decoration.ts:227`).
   Rejecting back-facing samples changes which pool indices exist, so it changes how both published
   looks render. That is a decision, not a patch.
@@ -70,46 +77,12 @@ Nothing is blocked, and these are independent. Roughly in order of value:
   work** — the ordering question the spec reopened is closed.
 - **The corner keeps turning past its stretch.** That shoulder is why a leg direction is averaged over
   four segments rather than taken from the segment next to the corner.
-
-## Traps this work hit
-
-- **`tightestBend` smooths three times before measuring**, which is calibrated for the distance
-  field's staircase noise on straightish stretches. On a coarsely sampled arc it shrinks the radius
-  about a tenth — enough to fail the invariant it is checking. Fillets are therefore sampled at half
-  `spacing`. Anything else that builds analytic geometry into a run needs the same care.
-- **Trimming a leg back by accumulated step length leaves a point *inside* the setback**, so the path
-  runs forward to it and then jumps back to the tangent point. That reversal reads as a *tighter*
-  bend than the corner it replaced. Trim by distance from the corner instead.
-- **A test fixture's sampling spacing is load-bearing now.** Bend radius is `s / (2 sin(θ/2))`, so a
-  90° turn at 0.1 spacing is a 0.071 em bend — wider than a 0.03 tube need bend, and no corner is
-  found at all. Nine pre-existing tests went red on a correct change for exactly this. Sample
-  fixtures at the pipeline's own 0.02.
-- **A room test measured on geometry the merge does not build passes on nothing.** The fillet was
-  computed twice from different inputs, so the check validated an arc that was never spliced. Any
-  test of fit has to run on the same object the caller uses.
-- **The sweep's smoothing is a denoiser for the field's staircase, and it was being applied to arcs
-  built analytically**, shaving 3–6% off a fillet at exactly `rhoMin`. Authored points are held fixed
-  through it now (`markAuthored` / `isAuthored` in `bend.ts`); anything else that builds exact
-  geometry into a run needs the same.
-- **Smoothing masks raw kinks.** Holding fillet points fixed made joins fail that had looked fine,
-  because the filter had been rounding them off. A green measurement through a smoother is not
-  evidence the path is clean.
-- **Do not `git add -A`**, and do not chain `npm run check && git commit` through a `grep` — the grep
-  succeeds and the failed check is swallowed. That committed a lint failure once tonight.
-
-## Verify by mutation
-
-The tube lab plan's two-stage review found a defect on all nine of its tasks, and the single
-highest-yield instruction was "verify this by mutation". It held here too, and it is worth keeping:
-
-- Two of my own tests passed with the code under test **deleted**. A closed-path seam test needed a
-  superellipse sampled finely enough that corners span several vertices before it could bite; a
-  square with single-vertex corners never straddles the seam at all.
-- A `report.ts` predicate comparing bend radius against the *tube radius* instead of `ρmin` returns
-  plausible booleans rather than failing, on the very panel used to judge whether the model worked.
-  There is now a test whose fixture sits between the two so it discriminates.
-- The plan's own mutation instruction for the wander cap had the direction backwards: `budget` is in
-  the denominator, so raising it *tightens* the cap. Corrected in the plan.
+- **The field manufactures corners, so a path source change is a look change.** Its wobble creates
+  corners that are not in the glyph, every corner is a candidate break, and stripping it roughly
+  halves the corner count. The cut then lands elsewhere and `assign` paints a different lit pattern
+  from the identical seed — tubing's `S` goes `OxO.xO` to `OO.OOx`. A look reads differently under a
+  different source even though its path is the same shape, so numbers tuned against one do not carry
+  to the other. `spikes/run-decomposition.mjs`.
 
 ## Traps
 
@@ -161,10 +134,20 @@ succeeds and the failed check is swallowed.
 ## Verify by mutation
 
 The tube lab plan's two-stage review found a defect on all nine of its tasks, and the single
-highest-yield instruction was "verify this by mutation". It has held on everything since. Two tests
-written for this work passed with the code under test deleted, and a `report.ts` predicate comparing
-bend radius against the *tube radius* instead of `ρmin` returned plausible booleans rather than
-failing — on the very panel used to judge whether the model worked.
+highest-yield instruction was "verify this by mutation". It has held on everything since:
+
+- Two tests written for the geometry work passed with the code under test **deleted**. A closed-path
+  seam test needed a superellipse sampled finely enough that corners span several vertices before it
+  could bite; a square with single-vertex corners never straddles the seam at all.
+- A `report.ts` predicate comparing bend radius against the *tube radius* instead of `ρmin` returns
+  plausible booleans rather than failing, on the very panel used to judge whether the model worked.
+  There is now a test whose fixture sits between the two so it discriminates.
+- The plan's own mutation instruction for the wander cap had the direction backwards: `budget` is in
+  the denominator, so raising it *tightens* the cap. Corrected in the plan.
+- The path source work reached both its findings by a wrong turn first: the junction defect read as
+  a fidelity problem, and the contour offset's first fix broke the outer contour instead of the
+  counter it was aimed at. A number that agrees with the hypothesis is not evidence until the code
+  under it has been deleted and the number moved.
 
 ## windease: the workaround has an expiry date
 
