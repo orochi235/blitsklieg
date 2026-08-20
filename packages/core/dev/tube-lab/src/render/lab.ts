@@ -62,16 +62,18 @@ export class LabRenderer {
 
   draw(panels: readonly PanelDraw[]): void {
     const r = this.renderer;
+    // Integer device pixels: setViewport rounds where setRenderTarget(null) floors, so a fractional
+    // rect can shift a pixel between the scene draw and the composite and leave a hairline seam.
+    // The far edge snaps too, or a panel and its neighbour round apart and strand a column.
+    const dpr = r.getPixelRatio();
+    const snap = (v: number) => Math.round(v * dpr) / dpr;
     for (const panel of panels) {
-      const { w, h } = panel.rect;
-      if (w < 2 || h < 2) continue;
-      // Integer device pixels: setViewport rounds where setRenderTarget(null) floors, so a
-      // fractional rect can shift a pixel between the scene draw and the composite and leave a
-      // hairline seam at the panel border.
-      const dpr = r.getPixelRatio();
-      const x = Math.round(panel.rect.x * dpr) / dpr;
+      const x = snap(panel.rect.x);
+      const w = snap(panel.rect.x + panel.rect.w) - x;
       // three measures a viewport from the bottom; a windease rect comes from the DOM's top.
-      const y = Math.round((this.height - panel.rect.y - h) * dpr) / dpr;
+      const y = snap(this.height - panel.rect.y - panel.rect.h);
+      const h = snap(this.height - panel.rect.y) - y;
+      if (w < 2 || h < 2) continue;
       panel.camera.aspect = w / h;
       panel.camera.updateProjectionMatrix();
 

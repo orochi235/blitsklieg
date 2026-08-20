@@ -13,7 +13,14 @@ const DISTANCE = 11;
 const VIEW_HEIGHT = 2 * Math.tan((FOV * Math.PI) / 360) * DISTANCE;
 
 /** How much of the panel's smaller side the letter spans. */
-const FILL = 0.72;
+export const FILL = 0.72;
+
+/** The lab's fixed view, shared with the fit test so it projects against the same frustum. */
+export function labCamera(): THREE.PerspectiveCamera {
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 100);
+  camera.position.set(0, 0, DISTANCE);
+  return camera;
+}
 
 /**
  * The rest pose. Word starts every material at three's default opacity of 1 until `apply` runs,
@@ -35,7 +42,7 @@ function budget(): { width: number; height: number } {
  * and useless for reading tube geometry. Solved at the tube's own plane, a glyph depth in front of
  * the word, because the flat fit overshoots by that plane's magnification and gets scissored.
  */
-function fitter(pivot: THREE.Group): (aspect: number) => void {
+export function fitter(pivot: THREE.Group): (aspect: number) => void {
   const box = new THREE.Box3().setFromObject(pivot);
   const size = box.getSize(new THREE.Vector3());
   const extent = Math.max(size.x, size.y);
@@ -52,7 +59,7 @@ export interface Cell {
   key: string;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  /** Yawed and pitched by orbit. Never the camera: the fit reads `camera.position.z`. */
+  /** Yawed and pitched by orbit. The camera never moves; the fit is solved against `DISTANCE`. */
   pivot: THREE.Group;
   /** Sizes the letter to the panel it is about to be drawn into, `w / h`. */
   fit(aspect: number): void;
@@ -72,8 +79,7 @@ export interface CellInput {
 export function buildCell(input: CellInput): Cell {
   const scene = new THREE.Scene();
   scene.environment = input.environment;
-  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 100);
-  camera.position.set(0, 0, DISTANCE);
+  const camera = labCamera();
   const pivot = new THREE.Group();
   scene.add(pivot);
 

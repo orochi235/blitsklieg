@@ -130,6 +130,8 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const labRef = useRef<LabRenderer | null>(null);
   const cellsRef = useRef(new Map<string, Cell>());
+  const frame = useRef(0);
+  const latest = useRef<() => void>(() => {});
   const [font, setFont] = useState<LoadedFont | null>(null);
   const { placements } = useContainerLayout(ZONE, stageRef);
 
@@ -147,6 +149,8 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     labRef.current = lab;
     const cells = cellsRef.current;
     return () => {
+      if (frame.current) cancelAnimationFrame(frame.current);
+      frame.current = 0;
       for (const cell of cells.values()) cell.dispose();
       cells.clear();
       lab.dispose();
@@ -155,11 +159,18 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   }, []);
 
   // A tuning tool has no use for an idle 60fps: one draw per change, coalesced into a frame.
-  const frame = useRef(0);
   const drawAll = useCallback(() => {
     if (frame.current) return;
     frame.current = requestAnimationFrame(() => {
       frame.current = 0;
+      latest.current();
+    });
+  }, []);
+
+  // The frame calls the newest body, never the one that queued it: coalescing on the call would
+  // drop the later layout and leave the canvas at rects nothing reschedules.
+  useEffect(() => {
+    latest.current = () => {
       const lab = labRef.current;
       const stage = stageRef.current;
       if (!lab || !stage || !font) return;
@@ -196,10 +207,9 @@ export function App({ letters: initialLetters, spec }: AppProps) {
         cellsRef.current.delete(id);
       }
       lab.draw(draws);
-    });
-  }, [font, placements, spec, specKey, look, store]);
-
-  useEffect(drawAll, [drawAll]);
+    };
+    drawAll();
+  }, [drawAll, font, placements, spec, specKey, look, store]);
 
   return (
     <div className="lab">
