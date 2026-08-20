@@ -34,26 +34,95 @@ interface NumberField {
   unset?: number;
   /** Values the drag catches on, in the slider's own integer units. */
   stops?: number[];
+  /** Shown on hover. What the field does, and what it interacts with badly. */
+  hint?: string;
 }
 
 const TUBE_FIELDS: NumberField[] = [
-  { key: 'radius', label: 'radius', min: 1, max: 120, step: 1, scale: 1000 },
-  // Floored at 1.25 in bend.ts whatever the slider says. Watch the skeleton panel's rejected-fillet
-  // count rather than its corner count: bend sets setback, and barely moves classification at all.
-  { key: 'bend', label: 'bend', min: 125, max: 400, step: 5, scale: 100, unset: 2 },
-  { key: 'segments', label: 'segments', min: 3, max: 32, step: 1, scale: 1 },
-  { key: 'spacing', label: 'spacing', min: 2, max: 80, step: 1, scale: 1000 },
-  // Zero is the only level with a geometric meaning — the path rides the outline. Either side of it
-  // the contour count is a step function over glyph topology, not a scale.
-  { key: 'level', label: 'level', min: -120, max: 120, step: 1, scale: 1000, stops: [0] },
-  // Blockout darkens tube that `select` never gets to light, so `lit` alone cannot reach a fully
-  // lit letter: at blockout 0.7 the most `lit` can do is 92% of tubing's length.
-  { key: 'blockout', label: 'blockout', min: 0, max: 100, step: 1, scale: 100, unset: 0 },
-  { key: 'runs', label: 'runs', min: 1, max: 24, step: 1, scale: 1 },
-  { key: 'minRun', label: 'min run', min: 0, max: 300, step: 5, scale: 1000 },
-  { key: 'amplitude', label: 'amplitude', min: 0, max: 80, step: 1, scale: 1000 },
-  // `wallDepth + rise` is clamped to the depth, so a half-depth run is the only one whose rise
-  // swings symmetrically; off-centre, half the perimeter flattens against the clamp.
+  {
+    key: 'radius',
+    label: 'radius',
+    min: 1,
+    max: 120,
+    step: 1,
+    scale: 1000,
+    hint: 'Tube radius in em. Held exactly — the corner stage bends the path to carry it.',
+  },
+  {
+    key: 'bend',
+    label: 'bend',
+    min: 125,
+    max: 400,
+    step: 5,
+    scale: 100,
+    unset: 2,
+    hint: 'Minimum bend radius, as a multiple of radius, floored at 1.25. Sets the fillet setback rather than the corner classification: raise it and more fillets are rejected, so more corners break and the runs floor rises to meet it. Watch the skeleton panel\u2019s rejected-fillet count, not its corner count.',
+  },
+  {
+    key: 'segments',
+    label: 'ring segments',
+    min: 3,
+    max: 32,
+    step: 1,
+    scale: 1,
+    hint: 'Sides of the tube\u2019s circular cross-section, around the tube rather than along it. Inscribed in the radius, so fewer segments make a genuinely thinner tube: 3 is 83% of the round width, 8 is 97%. Flat emissive hides the faceting, so this reads only as glow.',
+  },
+  {
+    key: 'spacing',
+    label: 'spacing',
+    min: 2,
+    max: 80,
+    step: 1,
+    scale: 1000,
+    hint: 'Arc length in em between points along the centerline, along the tube rather than around it. Load-bearing: bend radius is measured from it, so coarse spacing hides corners entirely.',
+  },
+  {
+    key: 'level',
+    label: 'level',
+    min: -120,
+    max: 120,
+    step: 1,
+    scale: 1000,
+    stops: [0],
+    hint: 'Isocontour level in em: negative insets, 0 rides the outline, positive stands off. Topological rather than a scale — contours merge, counters close and thin strokes vanish as it moves, so the contour count steps instead of sliding. 0 is the only level with a geometric meaning.',
+  },
+  {
+    key: 'blockout',
+    label: 'blockout',
+    min: 0,
+    max: 100,
+    step: 1,
+    scale: 100,
+    unset: 0,
+    hint: 'How often a corner that would cut instead carries the tube past the light unlit. Those runs never light whatever `lit` picks, so blockout caps what `lit` can reach: at 0.7 the most `lit` can do is 92% of tubing\u2019s length.',
+  },
+  {
+    key: 'runs',
+    label: 'runs',
+    min: 1,
+    max: 24,
+    step: 1,
+    scale: 1,
+    hint: 'Requested runs per glyph, not a count. Bounded below by the corner count — a corner that breaks is a cut, asked for or not — and above by min run. Usually pinned across most of its range, and at bend 4 pinned across all of it.',
+  },
+  {
+    key: 'minRun',
+    label: 'min run',
+    min: 0,
+    max: 300,
+    step: 5,
+    scale: 1000,
+    hint: 'Runs shorter than this are dropped and left dark. The ceiling `runs` pushes against from above.',
+  },
+  {
+    key: 'amplitude',
+    label: 'amplitude',
+    min: 0,
+    max: 80,
+    step: 1,
+    scale: 1000,
+    hint: 'How far a front or back run wanders off its flat plane, in em. Applied after the corner stage, so it is the one thing that can re-bend a run nothing checks again. 0 is exactly planar.',
+  },
   {
     key: 'wallDepth',
     label: 'wall depth',
@@ -63,8 +132,17 @@ const TUBE_FIELDS: NumberField[] = [
     scale: 100,
     unset: 0.5,
     stops: [50],
+    hint: 'Where a wall run sits in the extruded side, 0 back to 1 front. Depth plus rise is clamped to the depth, so 0.5 is the only setting whose rise swings symmetrically — off centre, half the perimeter flattens against the clamp. Needs `wall` in surfaces.',
   },
-  { key: 'wallRise', label: 'wall rise', min: 0, max: 100, step: 1, scale: 100 },
+  {
+    key: 'wallRise',
+    label: 'wall rise',
+    min: 0,
+    max: 100,
+    step: 1,
+    scale: 100,
+    hint: 'Peak-to-peak depth swing along a wall run, as a fraction of depth — one sine cycle per trip around the perimeter, so the tube weaves front to back along the letter\u2019s edge. 0 is a flat band. Needs `wall` in surfaces.',
+  },
 ];
 
 /** `field` is what every published look was tuned against; the other two are candidates. */
@@ -139,10 +217,11 @@ interface RangeProps {
   disabled?: boolean;
   /** Values the drag catches on, in the slider's own integer units. */
   stops?: number[];
+  hint?: string;
   onCommit: (next: number) => void;
 }
 
-function Range({ label, min, max, step, value, disabled, stops, onCommit }: RangeProps) {
+function Range({ label, min, max, step, value, disabled, stops, hint, onCommit }: RangeProps) {
   const { shown, edit, commit } = useDeferred(value, onCommit);
   const listId = useId();
   // A detent worth 3% of the track: narrower is unhittable at this width, wider swallows the
@@ -161,7 +240,7 @@ function Range({ label, min, max, step, value, disabled, stops, onCommit }: Rang
     return best;
   };
   return (
-    <label>
+    <label title={hint}>
       {label}
       <input
         type="range"
@@ -190,10 +269,11 @@ function Range({ label, min, max, step, value, disabled, stops, onCommit }: Rang
 interface ColorProps {
   label: string;
   value: number;
+  hint?: string;
   onCommit: (next: number) => void;
 }
 
-function Color({ label, value, onCommit }: ColorProps) {
+function Color({ label, value, hint, onCommit }: ColorProps) {
   const { shown, edit, commit } = useDeferred(value, onCommit);
   const input = useRef<HTMLInputElement>(null);
 
@@ -207,7 +287,7 @@ function Color({ label, value, onCommit }: ColorProps) {
   }, [commit]);
 
   return (
-    <label>
+    <label title={hint}>
       {label}
       <input
         ref={input}
@@ -238,6 +318,10 @@ export interface RailProps {
 export function Rail(props: RailProps) {
   const { spec, onSpec } = props;
   const corners = spec.corners ?? { break: 1, connect: 0 };
+  const litSurfaces: SurfaceKind[] = [
+    ...spec.surfaces,
+    ...(spec.connectors && spec.connectors > 0 ? (['connector'] as SurfaceKind[]) : []),
+  ];
   const patch = (part: Partial<TubeSpec>) => onSpec({ ...spec, ...part });
   // `generateConnectors` returns nothing without both faces, so the controls say so rather than
   // sitting live and doing nothing.
@@ -261,12 +345,14 @@ export function Rail(props: RailProps) {
             max={field.max}
             step={field.step}
             stops={field.stops}
+            hint={field.hint}
             value={Math.round((spec[field.key] ?? field.unset ?? 0) * field.scale)}
             onCommit={(next) => onSpec({ ...spec, [field.key]: next / field.scale })}
           />
         ))}
         <Range
           label="lit"
+          hint="Fraction of lightable runs that light. Blockout runs are never lightable, so this cannot reach every run on its own — drop blockout to 0 for a fully lit letter."
           min={0}
           max={100}
           step={1}
@@ -281,6 +367,7 @@ export function Rail(props: RailProps) {
             which is a different corner sequence rather than a louder all-break. */}
         <Range
           label="connect ← → break"
+          hint="What each corner does. Only the ratio reaches the cut, which is why this is one slider and not two. 0 is ALL_CONNECT, 100 is ALL_BREAK. A hard corner drawn connect must fillet, and a fillet with no room breaks anyway."
           min={0}
           max={100}
           step={1}
@@ -291,7 +378,9 @@ export function Rail(props: RailProps) {
       </section>
 
       <section className="rail__group">
-        <h2>path source</h2>
+        <h2 title="Where a front or back path comes from. field rasterises the outline to a 256 grid and re-extracts it, which wobbles the path about 5% of the tube radius and manufactures corners. direct traces the contour itself: accurate and ~120x faster. exact is field with the wobble corrected, kept for telling the two changes apart.">
+          path source
+        </h2>
         <label>
           source
           <select
@@ -308,7 +397,9 @@ export function Rail(props: RailProps) {
       </section>
 
       <section className="rail__group">
-        <h2>surfaces</h2>
+        <h2 title="Where tube is run on the extruded letter. front and back are the same contour at two depths; wall is the extruded side connecting them — a return, in signage terms, not the thing the sign hangs on.">
+          surfaces
+        </h2>
         {SURFACE_KINDS.map((kind) => (
           <label key={kind}>
             {kind}
@@ -329,6 +420,7 @@ export function Rail(props: RailProps) {
         ))}
         <Range
           label="connectors"
+          hint="Short runs joining a front path to the back plane along z. Counted per front contour, not per glyph, so an O gives twice what you ask and a B three times. Needs both front and back."
           min={0}
           max={8}
           step={1}
@@ -341,6 +433,7 @@ export function Rail(props: RailProps) {
           min={0}
           max={200}
           step={1}
+          hint="How far a connector continues past the back plane, in em, so it does not end flush against it."
           value={Math.round((spec.connectorOvershoot ?? 0.05) * 1000)}
           disabled={!bothFaces}
           onCommit={(next) => patch({ connectorOvershoot: next / 1000 })}
@@ -352,11 +445,13 @@ export function Rail(props: RailProps) {
         <h2>material</h2>
         <Color
           label="emissive"
+          hint="The tube material's emissive colour. Flat across the whole surface, which is why ring segments changes brightness but never shows faceting."
           value={spec.look.emissive ?? 0xffffff}
           onCommit={(next) => patch({ look: { ...spec.look, emissive: next } })}
         />
         <Range
           label="intensity"
+          hint="Emissive strength. What bloom picks up, so it drives the glow more than the run colour does."
           min={0}
           max={100}
           step={1}
@@ -365,9 +460,21 @@ export function Rail(props: RailProps) {
         />
         <Color
           label="run colour"
+          hint="The palette every lit run draws from, unless its layer has its own colour below."
           value={spec.colors[0] ?? 0xffffff}
           onCommit={(next) => patch({ colors: [next] })}
         />
+        {/* Per-layer pickers only for layers this spec actually draws; a colour on a surface that
+            is switched off is a control with nothing behind it. */}
+        {litSurfaces.map((kind) => (
+          <Color
+            key={kind}
+            label={`${kind} colour`}
+            hint={`Overrides the run colour for ${kind} runs only. Each layer cycles its own palette.`}
+            value={spec.surfaceColors?.[kind]?.[0] ?? spec.colors[0] ?? 0xffffff}
+            onCommit={(next) => patch({ surfaceColors: { ...spec.surfaceColors, [kind]: [next] } })}
+          />
+        ))}
         <label>
           bloom
           <input

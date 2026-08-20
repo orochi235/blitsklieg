@@ -1,4 +1,5 @@
 import type { Run } from './runs.js';
+import type { SurfaceKind } from './surfaces.js';
 
 export interface SelectSpec {
   /** How runs are ordered before the amount is taken off the front. */
@@ -24,7 +25,13 @@ function rng(seed: number): () => number {
  * Sets `lit` and `color` in place of the incoming order. The run list order never changes —
  * a post-effects layer addresses runs by index, so reordering here would silently retarget it.
  */
-export function assign(runs: Run[], select: SelectSpec, colors: number[], seed: number): Run[] {
+export function assign(
+  runs: Run[],
+  select: SelectSpec,
+  colors: number[],
+  seed: number,
+  surfaceColors?: Partial<Record<SurfaceKind, number[]>>,
+): Run[] {
   if (runs.length === 0) return runs;
   // Blockout is paint, not selection: a return carries the tube past a corner unlit whatever
   // `select` picked, and it must not spend that selection's budget on the way.
@@ -62,11 +69,27 @@ export function assign(runs: Run[], select: SelectSpec, colors: number[], seed: 
   for (const run of runs) if (run.dark) run.lit = false;
 
   const palette = colors.length > 0 ? colors : [0xffffff];
-  let n = 0;
+  if (!surfaceColors) {
+    let n = 0;
+    for (const run of runs) {
+      if (!run.lit) continue;
+      run.color = palette[n % palette.length] as number;
+      n++;
+    }
+    return runs;
+  }
+
+  // A per-surface palette cycles on its own cursor, so a layer's colours run in order rather than
+  // being dealt from a shared deck. Reached only when a spec asks for one: sharing the cursor is
+  // what every published look was assigned with, and a multi-colour palette would notice.
+  const cursors = new Map<SurfaceKind, number>();
   for (const run of runs) {
     if (!run.lit) continue;
-    run.color = palette[n % palette.length] as number;
-    n++;
+    const own = surfaceColors[run.surface];
+    const use = own && own.length > 0 ? own : palette;
+    const n = cursors.get(run.surface) ?? 0;
+    run.color = use[n % use.length] as number;
+    cursors.set(run.surface, n + 1);
   }
   return runs;
 }

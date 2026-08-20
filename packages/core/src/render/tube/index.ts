@@ -55,6 +55,8 @@ export interface TubeSpec {
   amplitude?: number;
   select: SelectSpec;
   colors: number[];
+  /** Per-surface palettes, each falling back to `colors`. Omit for one palette across every layer. */
+  surfaceColors?: Partial<Record<SurfaceKind, number[]>>;
   look: MaterialSpec;
   /** Unlit glass. Present so a dark run is visibly there rather than missing. */
   dark: MaterialSpec;
@@ -113,7 +115,7 @@ export function buildTubeBlueprint(
     blockout: spec.blockout,
     seed,
   });
-  const runs = assign(cut.runs, spec.select, spec.colors, seed);
+  const runs = assign(cut.runs, spec.select, spec.colors, seed, spec.surfaceColors);
   // Cloned after wander, not before: wander moves run points in place, and every corner interior
   // to a run — every `connect` and `loop` — moves with them.
   const corners = cut.corners.map((c) => ({ ...c, point: c.point.clone() }));
