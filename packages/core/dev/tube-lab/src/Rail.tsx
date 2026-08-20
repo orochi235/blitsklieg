@@ -6,6 +6,7 @@ import { TUBE_LOOKS, type TubeLook } from './spec.js';
 /** The spec fields a slider drives. Every one of them is a number in `TubeSpec`. */
 type NumberKey =
   | 'radius'
+  | 'bend'
   | 'segments'
   | 'spacing'
   | 'level'
@@ -29,6 +30,9 @@ interface NumberField {
 
 const TUBE_FIELDS: NumberField[] = [
   { key: 'radius', label: 'radius', min: 1, max: 120, step: 1, scale: 1000 },
+  // Floored at 1.25 in bend.ts whatever the slider says. Watch the skeleton panel's rejected-fillet
+  // count rather than its corner count: bend sets setback, and barely moves classification at all.
+  { key: 'bend', label: 'bend', min: 125, max: 400, step: 5, scale: 100, unset: 2 },
   { key: 'segments', label: 'segments', min: 3, max: 32, step: 1, scale: 1 },
   { key: 'spacing', label: 'spacing', min: 2, max: 80, step: 1, scale: 1000 },
   { key: 'level', label: 'level', min: -120, max: 120, step: 1, scale: 1000 },
