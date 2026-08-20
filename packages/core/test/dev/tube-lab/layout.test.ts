@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { splitStrategy } from 'windease';
-import { balancedTree } from '../../../dev/tube-lab/src/tree.js';
+import { type SplitNode, splitStrategy } from 'windease';
+import { balancedTree, withLeaf, withoutLeaf } from '../../../dev/tube-lab/src/tree.js';
 
 const CONTAINER = { w: 1200, h: 800 };
 const OPTIONS = { recursive: true, gutterSize: 6 };
@@ -69,5 +69,44 @@ describe('splitStrategy over the tube lab zone', () => {
 
     expect(new Set(rects.map((r) => Math.round(r.x))).size).toBe(4);
     expect(new Set(rects.map((r) => Math.round(r.y))).size).toBe(4);
+  });
+});
+
+describe('editing the tree', () => {
+  it('places a leaf that arrives, which windease will not do on its own', () => {
+    const grown = withLeaf(balancedTree(['a', 'b', 'c', 'd']), 'e');
+    const items = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id }));
+    const { placements } = splitStrategy.layout({
+      items,
+      container: CONTAINER,
+      state: grown,
+      options: OPTIONS,
+    });
+
+    expect(placements.size).toBe(5);
+    for (const rect of placements.values()) expect(rect.w).toBeGreaterThan(0);
+  });
+
+  it('hands the removed pane space to its sibling rather than leaving a hole', () => {
+    const shrunk = withoutLeaf(balancedTree(['a', 'b', 'c', 'd']), 'c');
+    const items = ['a', 'b', 'd'].map((id) => ({ id }));
+    const { placements } = splitStrategy.layout({
+      items,
+      container: CONTAINER,
+      state: shrunk,
+      options: OPTIONS,
+    });
+
+    const covered = [...placements.values()].reduce((sum, r) => sum + r.w * r.h, 0);
+    // Gutters are the only thing the panes do not cover, so 96% is generous but still fails the
+    // ~74% a stale tree leaves behind.
+    expect(covered).toBeGreaterThan(CONTAINER.w * CONTAINER.h * 0.96);
+  });
+
+  it('leaves the ratios a user dragged alone', () => {
+    const dragged: SplitNode = { ...balancedTree(['a', 'b']), ratio: 0.8 } as SplitNode;
+    const grown = withLeaf(dragged, 'c');
+
+    expect((grown as { ratio: number }).ratio).toBe(0.8);
   });
 });

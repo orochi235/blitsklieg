@@ -8,20 +8,23 @@ import './styles.css';
 import { balancedTree } from './tree.js';
 
 const store = new Store();
-store.registerNode(
-  createZone({ id: ZONE, strategyId: 'split', config: { recursive: true, gutterSize: 6 } }),
-);
-store.showNode(ZONE);
+// Only a first run seeds; otherwise `App` restores the snapshot into this empty store.
+if (!localStorage.getItem('tube-lab/v1')) {
+  store.registerNode(
+    createZone({ id: ZONE, strategyId: 'split', config: { recursive: true, gutterSize: 6 } }),
+  );
+  store.showNode(ZONE);
 
-const ids: NodeId[] = [];
-let counter = 0;
-for (const meta of seedPanels(DEFAULT_LETTERS)) {
-  const id = asNodeId(`p${counter++}`);
-  store.registerNode(createPanel({ id, parentId: ZONE, meta: { ...meta } }));
-  store.showNode(id);
-  ids.push(id);
+  const ids: NodeId[] = [];
+  let counter = 0;
+  for (const meta of seedPanels(DEFAULT_LETTERS)) {
+    const id = asNodeId(`p${counter++}`);
+    store.registerNode(createPanel({ id, parentId: ZONE, meta: { ...meta } }));
+    store.showNode(id);
+    ids.push(id);
+  }
+  store.setContainerState(ZONE, balancedTree(ids));
 }
-store.setContainerState(ZONE, balancedTree(ids));
 
 const host = document.getElementById('root');
 if (!host) throw new Error('tube lab: the page has no #root');
