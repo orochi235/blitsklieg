@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SurfaceKind, TubeSpec } from '../../../src/render/tube/index.js';
+import type { PathSource, SurfaceKind, TubeSpec } from '../../../src/render/tube/index.js';
 import { lettersOf, MODES, type PanelMode } from './panels.js';
 import { TUBE_LOOKS, type TubeLook } from './spec.js';
 
@@ -10,6 +10,7 @@ type NumberKey =
   | 'segments'
   | 'spacing'
   | 'level'
+  | 'blockout'
   | 'runs'
   | 'minRun'
   | 'amplitude'
@@ -36,12 +37,18 @@ const TUBE_FIELDS: NumberField[] = [
   { key: 'segments', label: 'segments', min: 3, max: 32, step: 1, scale: 1 },
   { key: 'spacing', label: 'spacing', min: 2, max: 80, step: 1, scale: 1000 },
   { key: 'level', label: 'level', min: -120, max: 120, step: 1, scale: 1000 },
+  // Blockout darkens tube that `select` never gets to light, so `lit` alone cannot reach a fully
+  // lit letter: at blockout 0.7 the most `lit` can do is 92% of tubing's length.
+  { key: 'blockout', label: 'blockout', min: 0, max: 100, step: 1, scale: 100, unset: 0 },
   { key: 'runs', label: 'runs', min: 1, max: 24, step: 1, scale: 1 },
   { key: 'minRun', label: 'min run', min: 0, max: 300, step: 5, scale: 1000 },
   { key: 'amplitude', label: 'amplitude', min: 0, max: 80, step: 1, scale: 1000 },
   { key: 'wallDepth', label: 'wall depth', min: 0, max: 100, step: 1, scale: 100, unset: 0.5 },
   { key: 'wallRise', label: 'wall rise', min: 0, max: 100, step: 1, scale: 100 },
 ];
+
+/** `field` is what every published look was tuned against; the other two are candidates. */
+const PATH_SOURCES: PathSource[] = ['field', 'exact', 'direct'];
 
 /** The three kinds `surfacesOf` actually produces; `connector` is a count, not a surface. */
 const SURFACE_KINDS: SurfaceKind[] = ['front', 'back', 'wall'];
@@ -228,6 +235,23 @@ export function Rail(props: RailProps) {
             onCommit={(next) => patch({ corners: { ...corners, [kind]: next / 100 } })}
           />
         ))}
+      </section>
+
+      <section className="rail__group">
+        <h2>path source</h2>
+        <label>
+          source
+          <select
+            value={spec.pathSource ?? 'field'}
+            onChange={(e) => patch({ pathSource: e.target.value as PathSource })}
+          >
+            {PATH_SOURCES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       <section className="rail__group">

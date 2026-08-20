@@ -10,6 +10,7 @@ import { sweepRun } from './sweep.js';
 import { wanderPaths } from './wander.js';
 
 export type { SelectSpec } from './assign.js';
+export type { PathSource } from './generators.js';
 export type { CornerRecord, CornerStrategy, CornerWeights, Run } from './runs.js';
 export { ALL_BREAK, ALL_CONNECT } from './runs.js';
 export type { SurfaceKind } from './surfaces.js';
