@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { asNodeId, createPanel, type NodeId, type SplitNode, type Store } from 'windease';
 import { type ChromeArgs, Container, DragHandle, useStore } from 'windease/react';
 import type { TubeSpec } from '../../../src/render/tube/index.js';
@@ -69,12 +69,14 @@ export function App({ letters: initialLetters, spec }: AppProps) {
       const { add, remove } = reconcileLetters(panels(), next);
       // The store and the tree move together: a panel missing from the tree is silently not laid
       // out, and a leaf left behind holds space no panel is using.
-      let tree = store.getContainerState(ZONE) as SplitNode;
+      const current = store.getContainerState(ZONE);
+      if (!current) throw new Error('tube lab: the zone lost its layout tree');
+      let tree = current as SplitNode;
       for (const id of remove) {
-        store.unregisterNode(id as NodeId);
+        store.unregisterNode(asNodeId(id));
         tree = withoutLeaf(tree, id);
       }
-      // Emptying the field strands the tree on ids that no longer exist, so a refill starts over.
+      // Read after the removals and before the adds: an emptied zone has nothing to graft onto.
       const refilling = store.getChildren(ZONE).length === 0;
       const added = add.map((meta) => addPanel(store, meta));
       tree = refilling ? balancedTree(added) : added.reduce((t, id) => withLeaf(t, id), tree);
@@ -84,27 +86,41 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   );
 
   useEffect(() => {
-    let frame = 0;
+    let timer = 0;
     const flush = () => {
-      frame = 0;
+      timer = 0;
       save(store, letters, spec);
+    };
+    // Clear before flushing, or the armed timer fires later and writes this closure's stale values.
+    const flushPending = () => {
+      if (!timer) return;
+      clearTimeout(timer);
+      flush();
     };
     save(store, letters, spec);
     // A gutter drag never changes `letters` or `spec`, so the store itself has to say when to save.
     const unsubscribe = store.subscribe(() => {
-      if (!frame) frame = requestAnimationFrame(flush);
+      if (timer) clearTimeout(timer);
+      timer = window.setTimeout(flush, 200);
     });
+    // A reload does not unmount, so the cleanup alone would drop a drag made inside the window.
+    window.addEventListener('pagehide', flushPending);
     return () => {
       unsubscribe();
-      cancelAnimationFrame(frame);
+      window.removeEventListener('pagehide', flushPending);
+      flushPending();
     };
   }, [store, letters, spec]);
 
+  // Empty deps hold only while `chrome` closes over nothing; a per-panel `chrome` needs them.
+  const zone = useMemo(
+    () => <Container className="zone" parentId={ZONE} chrome={chrome} affordances />,
+    [],
+  );
+
   return (
     <div className="lab">
-      <div className="stage">
-        <Container className="zone" parentId={ZONE} chrome={chrome} affordances />
-      </div>
+      <div className="stage">{zone}</div>
       <div className="rail">
         <section className="rail__group">
           <h2>zone</h2>

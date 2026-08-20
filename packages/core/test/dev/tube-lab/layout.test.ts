@@ -5,6 +5,11 @@ import { balancedTree, withLeaf, withoutLeaf } from '../../../dev/tube-lab/src/t
 const CONTAINER = { w: 1200, h: 800 };
 const OPTIONS = { recursive: true, gutterSize: 6 };
 
+function placementsOf(ids: readonly string[], state: SplitNode) {
+  const items = ids.map((id) => ({ id }));
+  return splitStrategy.layout({ items, container: CONTAINER, state, options: OPTIONS }).placements;
+}
+
 function layoutOf(count: number) {
   const items = Array.from({ length: count }, (_, i) => ({ id: `p${i}` }));
   // The lab's own tree, not `splitStrategy.initialState` — see tree.ts for why.
@@ -75,27 +80,37 @@ describe('splitStrategy over the tube lab zone', () => {
 describe('editing the tree', () => {
   it('places a leaf that arrives, which windease will not do on its own', () => {
     const grown = withLeaf(balancedTree(['a', 'b', 'c', 'd']), 'e');
-    const items = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id }));
-    const { placements } = splitStrategy.layout({
-      items,
-      container: CONTAINER,
-      state: grown,
-      options: OPTIONS,
-    });
+    const placements = placementsOf(['a', 'b', 'c', 'd', 'e'], grown);
 
     expect(placements.size).toBe(5);
     for (const rect of placements.values()) expect(rect.w).toBeGreaterThan(0);
   });
 
+  it('splits the largest pane and leaves every other pane untouched', () => {
+    // Three leaves sit at depths 2, 2 and 1, so "largest" finally means something.
+    const base = balancedTree(['a', 'b', 'c']);
+    const before = placementsOf(['a', 'b', 'c'], base);
+    const after = placementsOf(['a', 'b', 'c', 'd'], withLeaf(base, 'd'));
+
+    expect(after.get('a')).toEqual(before.get('a'));
+    expect(after.get('b')).toEqual(before.get('b'));
+    expect(after.get('c')?.h).toBeLessThan(before.get('c')?.h as number);
+  });
+
+  it('keeps tiling a grid as leaves arrive rather than shaving stripes off one', () => {
+    let grown = balancedTree(['a']);
+    for (const id of ['b', 'c', 'd']) grown = withLeaf(grown, id);
+    const rects = [...placementsOf(['a', 'b', 'c', 'd'], grown).values()];
+    const areas = rects.map((r) => r.w * r.h);
+
+    expect(Math.max(...areas) / Math.min(...areas)).toBeLessThan(1.5);
+    expect(new Set(rects.map((r) => Math.round(r.x))).size).toBe(2);
+    expect(new Set(rects.map((r) => Math.round(r.y))).size).toBe(2);
+  });
+
   it('hands the removed pane space to its sibling rather than leaving a hole', () => {
     const shrunk = withoutLeaf(balancedTree(['a', 'b', 'c', 'd']), 'c');
-    const items = ['a', 'b', 'd'].map((id) => ({ id }));
-    const { placements } = splitStrategy.layout({
-      items,
-      container: CONTAINER,
-      state: shrunk,
-      options: OPTIONS,
-    });
+    const placements = placementsOf(['a', 'b', 'd'], shrunk);
 
     const covered = [...placements.values()].reduce((sum, r) => sum + r.w * r.h, 0);
     // Gutters are the only thing the panes do not cover, so 96% is generous but still fails the
@@ -108,5 +123,17 @@ describe('editing the tree', () => {
     const grown = withLeaf(dragged, 'c');
 
     expect((grown as { ratio: number }).ratio).toBe(0.8);
+  });
+
+  it('keeps the ratio a user dragged when a leaf leaves', () => {
+    const dragged: SplitNode = { ...balancedTree(['a', 'b', 'c']), ratio: 0.8 } as SplitNode;
+    const placements = placementsOf(['a', 'c'], withoutLeaf(dragged, 'b'));
+    const a = placements.get('a');
+    const c = placements.get('c');
+
+    expect((a as { w: number }).w / ((a as { w: number }).w + (c as { w: number }).w)).toBeCloseTo(
+      0.8,
+      2,
+    );
   });
 });
