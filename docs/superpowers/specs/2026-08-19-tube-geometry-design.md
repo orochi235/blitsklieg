@@ -200,6 +200,37 @@ Acceptance, all five:
 
 The plane the pigtail winds in must be chosen rather than inherited — see below.
 
+## A break is the one corner strategy with no counterpart in glass
+
+`break` cuts the run and leaves two ends. Two things are wrong with that, one a defect and one a
+model error.
+
+**The defect: run ends are not closed.** `buildTubeGeometry` (`sweep.ts`) emits the swept wall and
+nothing else — no cap at either end. Every run currently terminates in an open circular hole, which
+the backing's transparency renders as a hard cut edge. Cap both ends with a hemisphere of the tube's
+own radius, built from the same rotation-minimising frame as the last ring so the normals agree. This
+is a fix, not a look decision, and it needs no spec field.
+
+**The model error: a working neon unit has no free ends.** Every end is an electrode — a wider glass
+sleeve, routed behind the sign face — or a seal left by tipping the tube off, which is a rounded dome
+rather than a cut. Where a design needs a stroke to stop, a bender does not stop the tube: they bend
+it out of the plane, run it behind, and paint that stretch with blockout so it carries current
+without carrying light. The glass stays continuous; only the glow breaks.
+
+**So a break should become a return.** Draw the corner exactly as `connect` does — the same fillet at
+`ρmin` — and mark the stretch either side of it unlit. `Run` already carries `lit`, and `select`
+already decides which runs glow, so the geometry is unchanged and the change is in what is lit. What
+it buys is threefold: the silhouette stays whole, the invariant holds through a corner that used to
+end two runs at it, and the strategy that has become the ordinary case stops being the one the
+reference does not contain.
+
+It needs one spec field, `blockout`, weighting return against cut, because a cut is still right at a
+letter's real terminus — where an electrode would go. Default it to favour the return.
+
+**The interaction to get right:** a return is a `connect` whose fillet has to fit. Where it does not,
+the corner still cuts, and that cut end still needs its cap. Returns therefore do not remove the
+break path; they make it the fallback rather than the default.
+
 ## Path fidelity is unblocked by this work, not part of it
 
 The tube's path is not the font's curves. `glyphToShapes` yields real béziers; they are flattened at
