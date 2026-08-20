@@ -100,17 +100,7 @@ export function buildCell(input: CellInput): Cell {
     };
   }
 
-  const overrides: THREE.Material[] = [];
-  const hooks = input.tubeMaterial
-    ? {
-        tubeMaterial: (which: 'lit' | 'dark') => {
-          const material = input.tubeMaterial?.(which);
-          if (material) overrides.push(material);
-          return material;
-        },
-      }
-    : undefined;
-
+  // Word adopts an override into its own material lists and disposes it; the cell must not.
   const word = new Word(
     input.meta.letter,
     input.font,
@@ -118,7 +108,7 @@ export function buildCell(input: CellInput): Cell {
     budget(),
     false,
     undefined,
-    hooks,
+    input.tubeMaterial ? { tubeMaterial: input.tubeMaterial } : undefined,
   );
   word.apply(REST, 0);
   pivot.add(word.group);
@@ -133,7 +123,6 @@ export function buildCell(input: CellInput): Cell {
     dispose() {
       pivot.remove(word.group);
       word.dispose();
-      for (const material of overrides) material.dispose();
     },
   };
 }
