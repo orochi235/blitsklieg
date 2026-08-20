@@ -1,30 +1,56 @@
-# Handoff — lab layout and visual suite, 2026-08-19
+# Handoff — tube lab, 2026-08-19
 
-**For:** the next session picking this up. **Answers:** where the work sits, and what the next
-decision is.
+**For:** the next session picking this up. **Answers:** where the tube lab work sits, and what is
+next.
 
 ## State
 
-Two passes are merged into `main`: regroup and stages (`885368d`, pushed), then lab layout and the
-visual suite (`0d1f6bf`, **not pushed** — `main` deploys the lab, so that is a deliberate call the
-owner has not made yet). See **What just landed** for the second.
+Branch `tube-lab`, unpushed. The plan is
+`docs/superpowers/plans/2026-08-19-tube-lab.md` and its steps are checkboxed as they land — **tasks
+1 through 5 are done**, 6 through 10 remain. The spec it implements is
+`docs/superpowers/specs/2026-08-19-tube-lab-design.md`; read that rather than this file for what the
+lab is.
 
-Current work is the **tube lab** on branch `tube-lab`, one commit deep (`3dd8750`): the design doc
-only, no implementation.
+`npm run check` is green at 594 tests; `npm run test:visual` at 24. The lab runs with
+`npm run dev:tube-lab -w blitsklieg` and currently draws sixteen letters of `tubing`, one per panel,
+on one WebGL context. Every mode renders the same beauty view — `skeleton`, `ramp` and `orbit` are
+tasks 6, 7 and 8.
 
-- Spec: `docs/superpowers/specs/2026-08-19-tube-lab-design.md` — settled with the owner and
-  self-contained. Read it rather than this section.
-- Next step: an implementation plan from the writing-plans skill. Nothing has been built.
+**Execution is subagent-driven** (`superpowers:subagent-driven-development`): one implementer per
+task, then a spec-compliance review, then a code-quality review, fixing between. That loop has
+found a defect in the plan on **every** task so far, so keep it rather than trusting the plan text.
+The single highest-yield instruction has been "verify this by mutation" — it has found a hole in
+every task's tests, including ones already tightened once.
 
-Decisions made in conversation that the spec already carries, so do not re-litigate: it lives in
-`packages/core/dev/tube-lab` as package tooling rather than an `apps/` consumer; layout is
-`windease` (the owner's own library, 0.8.0) through its **React** bindings; panels are
-`{ letter, mode }` pairs at arbitrary count; `debug.ts` and `apps/lab/src/diagnostics.ts` are
-deleted as part of that work.
+## Blocked on windease, worked around
 
-The two geometry defects the lab exists to expose — the per-run radius clamp and the closed planar
-loop — are **out of scope** for it and get their own spec once the lab can measure them. Both are
-recorded at the end of the tube lab spec.
+`splitStrategy` in windease 0.8 cannot tile: `initialState` builds a right-leaning spine, and at
+sixteen panels nine land at zero-or-negative width and seven outside the container. It also silently
+drops a panel its tree does not know about — no error, no `unplaced` entry.
+
+The lab therefore owns its own `SplitNode` in `packages/core/dev/tube-lab/src/tree.ts` (build, graft
+a leaf, collapse a leaf) and seeds it via `setContainerState`. That is **throwaway by design**:
+windease has recorded a decision to delete `SplitNode` and replace `splitStrategy` with a
+`split(zoneId, …)` store operation, at which point `tree.ts` goes and the lab uses the verb. The
+consumer report is in windease's own `TODO.md` under "Replace `splitStrategy` with a split
+*operation*". Panel drag-to-rearrange is deferred until that lands; gutter resize works.
+
+## Traps this work has hit
+
+- **A rAF guard that returns early drops the newest state.** `if (frame) return` discards the later
+  call while the queued closure holds the older one, so the canvas stays permanently wrong. Keep the
+  newest body in a ref and have the frame call that.
+- **Gutter strips lie outside every panel's scissor**, so under `preserveDrawingBuffer` nothing
+  wipes them and a re-tile leaves slivers of the old frame. A full-canvas clear per redraw, kept out
+  of the per-panel `draw()`.
+- **A scissor survives into three's multisample resolve.** `blitFramebuffer` is scissor-clipped, so
+  scissoring a scene pass into an MSAA target strands the previous panel in the margins for the blur
+  to read back. Viewport-only there.
+- **`fitScale` caps enlargement at 2.2x**, so one glyph fills ~30% of a panel; the lab scales its own
+  pivot, and that scale has to solve at the **tube's** front plane, not the word's, or it overshoots
+  ~35% through perspective.
+- **A reload does not unmount**, so a debounced save needs a `pagehide` flush or a drag made inside
+  the window is lost.
 
 ### What just landed
 
