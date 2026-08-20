@@ -799,8 +799,14 @@ Expected: PASS, 4 tests.
 
 - [ ] **Step 5: Verify by mutation**
 
-Change `budget` from `rhoMin * 2` to `rhoMin * 100`. The first test must fail. A cap so generous it
-never binds is not a cap.
+Two mutations, and mind the direction — `budget` sits in the **denominator** of `ceiling`, so raising
+it tightens the cap rather than loosening it:
+
+1. Replace `Math.min(amplitude, ceiling)` with `amplitude`, disabling the cap. The short-run test
+   must fail — that is the defect this task exists to fix.
+2. Raise `budget` to `rhoMin * 100`. The **long-run** test must fail, because the cap now binds where
+   it should not. A cap that clamps everything is as wrong as one that clamps nothing, and only this
+   direction catches it.
 
 - [ ] **Step 6: Run the check and commit**
 

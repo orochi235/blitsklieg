@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import type { MaterialSpec } from '../decoration.js';
 import { assign, type SelectSpec } from './assign.js';
+import { minBendRadius } from './bend.js';
 import { generateConnectors, generatePaths } from './generators.js';
 import { type CornerRecord, type CornerWeights, cutIntoRuns, type Run } from './runs.js';
 import type { SurfaceKind } from './surfaces.js';
@@ -102,7 +103,7 @@ export function buildTubeBlueprint(
   const runs = assign(cut.runs, spec.select, spec.colors, seed);
   // After cutting and assigning: a run's final index, which seeds its wander, only exists once
   // the run list is settled.
-  wanderFaceRuns(runs, spec.amplitude ?? 0, seed);
+  wanderFaceRuns(runs, spec.amplitude ?? 0, seed, minBendRadius(spec.radius, spec.bend));
   // Cloned after wander, not before: wander moves run points in place, and every corner interior
   // to a run — every `connect` and `loop` — moves with them.
   const corners = cut.corners.map((c) => ({ ...c, point: c.point.clone() }));

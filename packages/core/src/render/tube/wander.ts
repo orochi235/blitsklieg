@@ -27,7 +27,7 @@ function cumulativeLengths(points: THREE.Vector3[]): number[] {
  * lobes)` is zero at s=0 and s=1 for any integer `lobes`, which pins both ends to their original
  * z for free: a run boundary stays put, so an adjacent run still meets it without a seam.
  */
-export function wanderFaceRuns(runs: Run[], amplitude: number, seed: number): void {
+export function wanderFaceRuns(runs: Run[], amplitude: number, seed: number, rhoMin: number): void {
   if (amplitude === 0) return;
 
   for (const run of runs) {
@@ -46,9 +46,20 @@ export function wanderFaceRuns(runs: Run[], amplitude: number, seed: number): vo
     const sign = random() < 0.5 ? -1 : 1;
     const scale = 0.7 + random() * 0.3;
 
+    // Wander is the last stage to touch a run's points, so nothing downstream re-checks its
+    // curvature. A sinusoid's tightest bend is `T^2 / (A * scale * pi^2 * lobes^2)`, at the crest
+    // where the slope term vanishes. Spend half the margin: curvature does not add linearly, so a
+    // run already near rhoMin after a fillet would otherwise dip below it once wandered.
+    const budget = rhoMin * 2;
+    const ceiling =
+      budget > 0
+        ? total ** 2 / (budget * Math.PI ** 2 * lobes ** 2 * scale)
+        : Number.POSITIVE_INFINITY;
+    const reach = Math.min(amplitude, ceiling);
+
     for (let i = 0; i < points.length; i++) {
       const s = (cum[i] as number) / total;
-      (points[i] as THREE.Vector3).z += amplitude * sign * scale * Math.sin(s * Math.PI * lobes);
+      (points[i] as THREE.Vector3).z += reach * sign * scale * Math.sin(s * Math.PI * lobes);
     }
   }
 }
