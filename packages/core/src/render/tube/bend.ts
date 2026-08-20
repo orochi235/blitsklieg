@@ -146,7 +146,10 @@ export function filletAt(
   axis.normalize();
 
   const sweep = radial.angleTo(end.clone().sub(centre));
-  const steps = Math.max(2, Math.ceil((sweep * rhoMin) / spacing));
+  // Half `spacing`, not `spacing`. The sweep smooths a run three times before measuring it, which
+  // is calibrated for the distance field's staircase noise on straightish stretches; on a coarsely
+  // sampled arc it shrinks the radius by around a tenth, enough to fail the invariant it checks.
+  const steps = Math.max(4, Math.ceil((sweep * rhoMin) / (spacing / 2)));
   const arc: THREE.Vector3[] = [];
   for (let i = 0; i <= steps; i++) {
     arc.push(centre.clone().add(radial.clone().applyAxisAngle(axis, (i / steps) * sweep)));

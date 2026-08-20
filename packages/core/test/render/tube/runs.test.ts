@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { minBendRadius } from '../../../src/render/tube/bend.js';
 import { ALL_BREAK, ALL_CONNECT, cutIntoRuns } from '../../../src/render/tube/runs.js';
+import { tightestBend } from '../../../src/render/tube/sweep.js';
 
 /**
  * A closed square path in 3D, four corners, sampled at the pipeline's own 0.02 spacing.
@@ -223,14 +225,29 @@ describe('corner records', () => {
       .sort((a, b) => (a[0] as number) - (b[0] as number) || (a[1] as number) - (b[1] as number));
   }
 
+  /**
+   * A filleted corner has had its vertex cut away, so the record sits on the arc that replaced it —
+   * near its own corner and nowhere near the middle of a side. Exact equality held only while
+   * `connect` left the corner vertex in place.
+   */
   it('lands each record on a corner of the path, not merely somewhere along it', () => {
     const { corners } = cutIntoRuns([PATH(squarePath())], {
       runs: 1,
       minRun: 0,
       corners: ALL_CONNECT,
+      radius: 0.03,
+      bend: 2,
     });
 
-    expect(cornerXY(corners)).toEqual(CORNERS);
+    expect(corners).toHaveLength(4);
+    const placed = cornerXY(corners);
+    placed.forEach((xy, i) => {
+      const want = CORNERS[i] as number[];
+      const dx = (xy[0] as number) - (want[0] as number);
+      const dy = (xy[1] as number) - (want[1] as number);
+      // rho_min is 0.06 here, so a 90-degree fillet pulls the path 0.025 in along the bisector.
+      expect(Math.hypot(dx, dy)).toBeLessThan(0.06);
+    });
   });
 
   it('reports the strategy that was actually drawn, not a constant', () => {
@@ -258,5 +275,69 @@ describe('corner records', () => {
     const { corners } = cutIntoRuns([PATH(circlePath())], { runs: 4, minRun: 0 });
 
     expect(corners).toEqual([]);
+  });
+});
+
+describe('hard corners', () => {
+  const RADIUS = 0.022;
+  const RHO_MIN = minBendRadius(RADIUS, 2);
+
+  /** An L with legs long enough to carry a fillet's setback, sampled at the pipeline's spacing. */
+  function elbowPath(turnDeg: number, leg: number): THREE.Vector3[] {
+    const turn = (turnDeg * Math.PI) / 180;
+    const points: THREE.Vector3[] = [];
+    const n = Math.round(leg / 0.02);
+    for (let i = n; i > 0; i--) points.push(new THREE.Vector3(-i * 0.02, 0, 0));
+    points.push(new THREE.Vector3(0, 0, 0));
+    for (let i = 1; i <= n; i++) {
+      points.push(new THREE.Vector3(Math.cos(turn) * i * 0.02, Math.sin(turn) * i * 0.02, 0));
+    }
+    return points;
+  }
+
+  const cut = (points: THREE.Vector3[], corners: typeof ALL_CONNECT) =>
+    cutIntoRuns([{ points, surface: 'front' as const, closed: false }], {
+      runs: 1,
+      minRun: 0,
+      corners,
+      radius: RADIUS,
+      bend: 2,
+      seed: 0,
+    });
+
+  // The invariant the whole model buys: a connected hard corner is filleted, not left kinked.
+  it('leaves no connected run bending tighter than rhoMin', () => {
+    for (const turnDeg of [30, 60, 90, 120, 150]) {
+      const { runs } = cut(elbowPath(turnDeg, 0.6), ALL_CONNECT);
+      for (const run of runs) {
+        expect(tightestBend(run), `${turnDeg} degrees, run ${run.index}`).toBeGreaterThanOrEqual(
+          RHO_MIN * 0.95,
+        );
+      }
+    }
+  });
+
+  // Setback is rhoMin * tan(theta/2); at 150 degrees that is 0.164 em, far more than a 0.06 leg.
+  it('breaks a corner whose fillet has no room rather than filleting it anyway', () => {
+    const { runs } = cut(elbowPath(150, 0.06), ALL_CONNECT);
+    expect(runs.length).toBeGreaterThan(1);
+  });
+
+  it('still breaks when the draw says break', () => {
+    const { runs } = cut(elbowPath(90, 0.6), ALL_BREAK);
+    expect(runs.length).toBe(2);
+  });
+});
+
+describe('hard corners on a closed contour', () => {
+  it('fillets a closed square, which is the shape every glyph contour actually is', () => {
+    const rhoMin = minBendRadius(0.022, 2);
+    const { runs } = cutIntoRuns(
+      [{ points: squarePath(), surface: 'front' as const, closed: true }],
+      { runs: 1, minRun: 0, corners: ALL_CONNECT, radius: 0.022, bend: 2, spacing: 0.02, seed: 0 },
+    );
+    for (const run of runs) {
+      expect(tightestBend(run), `run ${run.index}`).toBeGreaterThanOrEqual(rhoMin * 0.95);
+    }
   });
 });
