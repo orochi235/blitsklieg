@@ -15,9 +15,16 @@ interface Pass {
   scissorTest: boolean;
 }
 
+/** What a single clear() saw: the target and scissor state at the time it ran. */
+interface Clear {
+  target: THREE.WebGLRenderTarget | null;
+  scissorTest: boolean;
+}
+
 function harness(width = 640, height = 480) {
   const size = new THREE.Vector2(width, height);
   const passes: Pass[] = [];
+  const clears: Clear[] = [];
   let target: THREE.WebGLRenderTarget | null = null;
   let viewport: [number, number, number, number] | null = null;
   let scissor: [number, number, number, number] | null = null;
@@ -38,7 +45,9 @@ function harness(width = 640, height = 480) {
     setRenderTarget: vi.fn((next: THREE.WebGLRenderTarget | null) => {
       target = next;
     }),
-    clear: vi.fn(),
+    clear: vi.fn(() => {
+      clears.push({ target, scissorTest });
+    }),
     render: vi.fn((scene: THREE.Scene) => {
       const mesh = scene.children[0] as THREE.Mesh | undefined;
       const material = (mesh?.material as THREE.ShaderMaterial | undefined) ?? null;
@@ -58,7 +67,7 @@ function harness(width = 640, height = 480) {
     }),
   } as unknown as THREE.WebGLRenderer;
 
-  return { renderer, passes, size };
+  return { renderer, passes, clears, size };
 }
 
 function pass(passes: Pass[], index: number): Pass {
@@ -131,6 +140,7 @@ describe('BloomPath.render', () => {
 
     const composite = pass(passes, 6);
     expect(composite.target).toBeNull();
+    expect(composite.viewport).toEqual([0, 0, 640, 480]);
     expect(composite.source).toBe(pass(passes, 0).target?.texture);
     expect(composite.bloom).toBe(pass(passes, 5).target?.texture);
     expect(composite.material?.uniforms.strength?.value).toBe(DEFAULT_BLOOM.strength);
@@ -215,21 +225,32 @@ describe('BloomPath.dispose', () => {
 describe('BloomPath.render into a rect', () => {
   const RECT = { x: 100, y: 60, w: 200, h: 150 };
 
-  it('leaves the scissor alone when no rect is asked for', () => {
+  it('turns off a scissor and normalises a viewport the caller left behind', () => {
     const { renderer, passes } = harness(640, 480);
+    // Both armed first: agreeing with the harness's initial state would make this unable to fail.
+    renderer.setScissorTest(true);
+    renderer.setViewport(7, 7, 33, 33);
+    vi.mocked(renderer.setViewport).mockClear();
     new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
 
     for (const p of passes) expect(p.scissorTest).toBe(false);
+    // The harness's viewport persists across setRenderTarget, so a stale value from the scene
+    // pass would read as correct here too - only the call count proves the composite reset it.
+    expect(renderer.setViewport).toHaveBeenCalledTimes(2);
+    expect(pass(passes, 6).viewport).toEqual([0, 0, 640, 480]);
   });
 
-  it('renders the scene inside the rect and blurs the whole target', () => {
-    const { renderer, passes } = harness(640, 480);
+  it('renders the scene inside the rect viewport, unscissored, and blurs the whole target', () => {
+    const { renderer, passes, clears } = harness(640, 480);
     new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera(), RECT);
 
     const scenePass = pass(passes, 0);
-    expect(scenePass.scissorTest).toBe(true);
+    // A scissor here would clip the MSAA resolve blit and strand a neighbour in the margins.
+    expect(scenePass.scissorTest).toBe(false);
+    expect(scenePass.scissor).toBeNull();
     expect(scenePass.viewport).toEqual([100, 60, 200, 150]);
-    expect(scenePass.scissor).toEqual([100, 60, 200, 150]);
+    // Pins the clear ahead of the render: a clear armed with the scissor on would miss the margins.
+    expect(clears[0]).toEqual({ target: scenePass.target, scissorTest: false });
     // A scissored blur would clip the halo mid-pass and read the wrong texels back.
     for (const i of [1, 2, 3, 4, 5]) expect(pass(passes, i).scissorTest).toBe(false);
   });
@@ -244,5 +265,6 @@ describe('BloomPath.render into a rect', () => {
     expect(composite.viewport).toEqual([0, 0, 640, 480]);
     expect(composite.scissor).toEqual([100, 60, 200, 150]);
     expect(composite.scissorTest).toBe(true);
+    expect(renderer.setScissorTest).toHaveBeenLastCalledWith(false);
   });
 });

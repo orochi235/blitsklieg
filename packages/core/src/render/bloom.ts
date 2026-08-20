@@ -123,19 +123,19 @@ export class BloomPath {
   render(scene: THREE.Scene, camera: THREE.Camera, rect?: BloomRect): void {
     const r = this.renderer;
     this.resize();
+    const size = r.getSize(this.canvasSize);
 
     r.setRenderTarget(this.sceneRT);
-    // The whole target clears even for a rect draw: the blur reads all of it, so a neighbour
-    // left over from the previous panel would bleed its halo into this one.
+    // Owned, not inherited: the composite's setRenderTarget(null) restores the renderer's own
+    // viewport and scissor, so a caller who left either armed would clip or squash it.
     r.setScissorTest(false);
+    r.setViewport(0, 0, size.x, size.y);
     r.clear();
-    if (rect) {
-      r.setViewport(rect.x, rect.y, rect.w, rect.h);
-      r.setScissor(rect.x, rect.y, rect.w, rect.h);
-      r.setScissorTest(true);
-    }
+    // Viewport only, never a scissor: three resolves this target's multisample buffer with a
+    // blitFramebuffer that a scissor would clip, stranding the previous panel in the margins
+    // where the blur reads it back in.
+    if (rect) r.setViewport(rect.x, rect.y, rect.w, rect.h);
     r.render(scene, camera);
-    r.setScissorTest(false);
 
     this.thresholdSrc.value = this.sceneRT.texture;
     this.blit(this.thresholdMat, this.brightRT);
@@ -151,9 +151,8 @@ export class BloomPath {
 
     this.compositeBase.value = this.sceneRT.texture;
     this.compositeBloom.value = this.brightRT.texture;
+    r.setViewport(0, 0, size.x, size.y);
     if (rect) {
-      const size = r.getSize(this.canvasSize);
-      r.setViewport(0, 0, size.x, size.y);
       r.setScissor(rect.x, rect.y, rect.w, rect.h);
       r.setScissorTest(true);
     }
@@ -189,7 +188,8 @@ export class BloomPath {
   private blit(material: THREE.Material, target: THREE.WebGLRenderTarget | null): void {
     this.quad.material = material;
     this.renderer.setRenderTarget(target);
-    // Redundant while autoClear is on and the quad covers every pixel; keep it as the insurance.
+    // In rect mode this clear is scissored and load-bearing: with the scissor off here it
+    // would wipe the whole canvas instead of just this panel's already-drawn neighbours.
     this.renderer.clear();
     this.renderer.render(this.quadScene, this.quadCam);
   }
