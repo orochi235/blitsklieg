@@ -14,7 +14,7 @@ const SMOOTH_PASSES = 3;
  * the swept path itself, so the tube doesn't trace the staircase noise this smoothing exists to
  * see past.
  */
-function smoothedPoints(run: Run): THREE.Vector3[] {
+export function smoothedPoints(run: Run): THREE.Vector3[] {
   const flat = smooth(
     run.points.map((p) => ({ x: p.x, y: p.y })),
     SMOOTH_PASSES,

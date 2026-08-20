@@ -49,6 +49,14 @@ describe('reportOf', () => {
 
     expect(report.runs[0]?.dropped).toBe(true);
     expect(report.dropped).toBe(1);
+    expect(report.clamped).toBe(0);
+  });
+
+  it('drops every run at a zero radius without calling any of them clamped', () => {
+    const report = reportOf(blueprint([arcRun(0.1, 0), arcRun(0.02, 1)]), 0);
+
+    expect(report.dropped).toBe(2);
+    expect(report.clamped).toBe(0);
   });
 
   it('summarises as the panel reads it', () => {

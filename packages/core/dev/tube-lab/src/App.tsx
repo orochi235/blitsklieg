@@ -237,6 +237,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
         if (live.has(id)) continue;
         cell.dispose();
         cellsRef.current.delete(id);
+        setReport(id, '');
       }
       lab.draw(draws);
     };

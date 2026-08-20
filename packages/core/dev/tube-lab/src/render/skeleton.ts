@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import type { CornerStrategy } from '../../../../src/render/tube/index.js';
 import { buildTubeBlueprint, type TubeSpec } from '../../../../src/render/tube/index.js';
 import { surfacesOf } from '../../../../src/render/tube/surfaces.js';
+import { smoothedPoints } from '../../../../src/render/tube/sweep.js';
 import { type Report, reportOf } from '../report.js';
 
 const CONTOUR = 0x39415a;
 const LIT = 0xff2d95;
-const DARK = 0x6a4a60;
+const DARK = 0xa86a90;
 const CLAMPED = 0xffb020;
 const DROPPED = 0x00e5ff;
 const ENDPOINT = 0xe6e9f0;
@@ -62,7 +63,9 @@ export function buildSkeleton(shapes: THREE.Shape[], spec: TubeSpec, depth: numb
   blueprint.runs.forEach((run, i) => {
     const state = report.runs[i];
     const color = state?.dropped ? DROPPED : state?.clamped ? CLAMPED : run.lit ? LIT : DARK;
-    if (run.points.length >= 2) group.add(line(run.points, color));
+    // The swept path, not the one the run was handed: the curvature clamp is measured on this,
+    // so drawing the raw points would flag a run against geometry the panel never shows.
+    if (run.points.length >= 2) group.add(line(smoothedPoints(run), color));
     const first = run.points[0];
     const last = run.points[run.points.length - 1];
     if (first) ends.push(first.clone());
