@@ -1,54 +1,170 @@
-# Handoff — tube lab, 2026-08-19
+# Handoff — blitsklieg, 2026-08-20
 
-**For:** the next session picking this up. **Answers:** where the tube lab work sits, and what is
+**For:** the next session picking this up. **Answers:** what is on `main`, and what is worth doing
 next.
 
 ## State
 
-**The tube lab is done — all ten tasks plus an 8b, every step ticked** in
-`docs/superpowers/plans/2026-08-19-tube-lab.md`. Branch `tube-lab`, unpushed. `npm run check` green
-at 609 tests; `npm run test:visual` at 24 with no baseline moved by any of it.
+**`main` carries the tube lab and the tube geometry rewrite, both merged.** `npm run check` green at
+638 tests; `npx playwright test` green at 24. Nothing is in flight.
 
-Run it with `npm run dev:tube-lab -w blitsklieg`. Sixteen panels on one WebGL context, one letter
-each, three modes — `beauty`, `skeleton`, `ramp` — with pose orthogonal to mode: every panel drags
-to turn, wheel-zooms 0.5x–4x, and has a hover-revealed reset. A rail tunes the whole `TubeSpec` at
-once, including the `front`/`back`/`wall` checkboxes and `connectors` that let it trace an extruded
-letter rather than a flat contour.
+The geometry model is in `docs/superpowers/specs/2026-08-19-tube-geometry-design.md`, and its
+`## Acceptance, as measured` section has the numbers. In short: the tube holds one diameter, corners
+are classified by bend radius and filleted with a tangent arc at the material's minimum, run ends are
+sealed, a corner can carry the tube past the light unlit rather than cutting it, and the loop
+strategy is gone. Two runs of 231 on `tubing` and three of 47 on `piping` still bend tighter than
+their look's minimum, against every `piping` run clamped before.
 
-**Task 10 deleted `packages/core/src/debug.ts` and `apps/lab/src/diagnostics.ts`.** `apps/lab` now
-imports only from `blitsklieg`, and the second render path that once shipped a real bug — materials
-at three's default opacity because nothing called `apply()` — is gone. `WordDebugHooks` stays; it is
-a genuine narrow surface and the tube lab uses it.
+Run it with `npm run dev:tube-lab -w blitsklieg` — sixteen panels on one WebGL context, one letter
+each, `beauty` / `skeleton` / `ramp`, with a rail that tunes the whole `TubeSpec`.
 
-## What the lab found, and what happens next
+The spikes are the fast way back into any of it: `bend-acceptance.mjs` is the invariant across the
+alphabet, `where-under-bend.mjs <look> <letters>` says whether a bad bend is inside a fillet, at a
+join, or on plain path, `run-vertices.mjs` dumps one run, `corner-width.mjs` measures corner
+stretches against a synthetic control, and `fillet-view.mjs` draws the corner stage's decisions as an
+SVG page.
 
-It was built to make two geometry defects observable. It did, on day one, and the fix is specced:
+## What is worth doing next
 
-- **`docs/superpowers/specs/2026-08-19-tube-geometry-design.md`** — replace the per-run radius clamp
-  with a minimum-bend-radius model, and make loops real pigtails. All three of its open decisions are
-  settled: `bend` defaults to 2, the pigtail winds in the depth plane, the clearance query ships in
-  v1.
-- A second session is executing that from `docs/superpowers/plans/2026-08-20-tube-geometry.md` on
-  branch `tube-geometry`, in a worktree. It also owns a `pyrite` respec.
-- `spikes/clamp-vs-blur.mjs` re-derives the finding that ordered the work: **sharpening the tube's
-  path makes the clamp worse**, because the distance field's rasterisation blur rounds corners and
-  the clamp measures curvature. The blur is masking the defect, so the clamp model has to land before
-  path fidelity.
+Nothing is blocked, and these are independent. Roughly in order of value:
 
-Two measurements worth not rediscovering:
+- **Path fidelity.** The tube's path is not the font's curves: they are flattened, rasterised into a
+  256² distance field, re-extracted by marching squares and smoothed. That rounding is why the
+  letters read as melted. **This is now unblocked** — the old argument that it had to wait for the
+  clamp expired with the clamp, and `spikes/corner-width.mjs` shows the multi-vertex corner is a
+  resampling effect that survives at either fidelity. It carries its own risk: `piping` traces at
+  `level: -0.015`, so the field is doing real work there, and its even-odd rasterisation resolves
+  overlapping contours that a direct per-contour trace would not.
+- **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon. The
+  last unbuilt look item from tubing, and the owner rated it a bonus rather than the point.
+- **`pyrite` is built on the wrong model and should be respecced before it is tuned.** See below.
+- **The five runs still under the bend minimum.** Three are fillet arcs measuring 2% under the radius
+  they were built at. The other two are `piping`'s `S`, at a fillet's entry join — `.AA` in
+  `where-under-bend.mjs` — and the cause is not yet the one it looks like: neither tightening the
+  room test by a sample nor filleting the contour's seam moved them.
+- **`sequin` and `pyrite` both waste ~30% of their chunk pool on the back cap** (`decoration.ts:227`).
+  Rejecting back-facing samples changes which pool indices exist, so it changes how both published
+  looks render. That is a decision, not a patch.
 
-- **`NSRE` hides the worst cases.** A 26-letter sweep ranks tightest bend as M 0.32r, W 0.38r,
-  B 0.40r, V 0.40r, N 0.44r. The N is fifth. The lab's default letters are now `MWSB` for that
-  reason; `piping`'s extremes are a different set (Q, X, Y) because it traces inset at `level:
-  -0.015`.
-- **`piping`'s cord is clamped, not untuned** — all 5 runs, at 44–87% of its requested 0.03.
+## What was learned that is not in the plan
 
-## Known limitation
+- **`M` and `W` are the worst case, not `N`.** The standing `NSRE` string missed both extremes: `M`
+  bends at 0.32 of its own tube radius and `W` at 0.38, against `N`'s 0.44. Every acceptance check
+  uses `MWNSRE`. The tube lab's default letters are `MWSB` for the same reason.
+- **`ρmin` sits above `ρstyle`, and the spec's two-class model breaks on it.** At `bend = 2` the
+  stylistic band is empty, and a corner between `ρstyle` and `ρmin` is hard yet above the detection
+  threshold — never seen, never fixed, silently violating the invariant. 13 such corners on `tubing`
+  at `bend = 2`, **174 at `bend = 3`**, widening linearly, so the failure got worse exactly as
+  someone tuned toward stiffer material. Detection now runs at `max(ρmin, ρstyle)`. A genuinely
+  stylistic class requires `bend < 1.76`, not a change to `ρstyle`.
+- **`bend` does not classify — it sets setback.** 2 and 3 give near-identical hard-corner counts.
+  What moves is the fillet setback and so the fallback rate. Tune against the rejected-fillet count,
+  never the corner count.
+- **Filleting is the ordinary path**: 228 hard corners on `tubing` and 244 on `piping`, across all 26
+  letters of both. Robustness in the common case, not correctness in the rare one.
+- **A corner is a stretch because of resampling, not because of the field.** `spikes/corner-width.mjs`
+  measures a square with no distance field anywhere near it: arc-length resampling splits a perfectly
+  sharp corner across two vertices whenever a sample does not land on it, which is the generic case.
+  The direct contour carries the same stretches, and the same 20-degree shoulder outside them. Group
+  filleting is needed at either fidelity, and **path fidelity neither blocks nor is blocked by this
+  work** — the ordering question the spec reopened is closed.
+- **The corner keeps turning past its stretch.** That shoulder is why a leg direction is averaged over
+  four segments rather than taken from the segment next to the corner.
 
-A spec change rebuilds all sixteen cells, ~1.45s front-only and ~2.85s with `back`/`wall`/
-`connectors`. Sliders commit on release rather than per input, so a drag costs one rebuild instead of
-twenty — but a single step still waits. The honest fix is not rebuilding a whole `Word` per cell for
-a spec change; it was out of scope.
+## Traps this work hit
+
+- **`tightestBend` smooths three times before measuring**, which is calibrated for the distance
+  field's staircase noise on straightish stretches. On a coarsely sampled arc it shrinks the radius
+  about a tenth — enough to fail the invariant it is checking. Fillets are therefore sampled at half
+  `spacing`. Anything else that builds analytic geometry into a run needs the same care.
+- **Trimming a leg back by accumulated step length leaves a point *inside* the setback**, so the path
+  runs forward to it and then jumps back to the tangent point. That reversal reads as a *tighter*
+  bend than the corner it replaced. Trim by distance from the corner instead.
+- **A test fixture's sampling spacing is load-bearing now.** Bend radius is `s / (2 sin(θ/2))`, so a
+  90° turn at 0.1 spacing is a 0.071 em bend — wider than a 0.03 tube need bend, and no corner is
+  found at all. Nine pre-existing tests went red on a correct change for exactly this. Sample
+  fixtures at the pipeline's own 0.02.
+- **A room test measured on geometry the merge does not build passes on nothing.** The fillet was
+  computed twice from different inputs, so the check validated an arc that was never spliced. Any
+  test of fit has to run on the same object the caller uses.
+- **The sweep's smoothing is a denoiser for the field's staircase, and it was being applied to arcs
+  built analytically**, shaving 3–6% off a fillet at exactly `rhoMin`. Authored points are held fixed
+  through it now (`markAuthored` / `isAuthored` in `bend.ts`); anything else that builds exact
+  geometry into a run needs the same.
+- **Smoothing masks raw kinks.** Holding fillet points fixed made joins fail that had looked fine,
+  because the filter had been rounding them off. A green measurement through a smoother is not
+  evidence the path is clean.
+- **Do not `git add -A`**, and do not chain `npm run check && git commit` through a `grep` — the grep
+  succeeds and the failed check is swallowed. That committed a lint failure once tonight.
+
+## Verify by mutation
+
+The tube lab plan's two-stage review found a defect on all nine of its tasks, and the single
+highest-yield instruction was "verify this by mutation". It held here too, and it is worth keeping:
+
+- Two of my own tests passed with the code under test **deleted**. A closed-path seam test needed a
+  superellipse sampled finely enough that corners span several vertices before it could bite; a
+  square with single-vertex corners never straddles the seam at all.
+- A `report.ts` predicate comparing bend radius against the *tube radius* instead of `ρmin` returns
+  plausible booleans rather than failing, on the very panel used to judge whether the model worked.
+  There is now a test whose fixture sits between the two so it discriminates.
+- The plan's own mutation instruction for the wander cap had the direction backwards: `budget` is in
+  the denominator, so raising it *tightens* the cap. Corrected in the plan.
+
+## Traps
+
+**Eliminate a cheap hypothesis about render state before an expensive one about geometry.** The tube
+vanishing when thinned was diagnosed twice as a geometry bug and was one line of render state: a
+`transparent` material still writes depth by default, so tubing's 0.08 backing was culling its own
+tube. `519ae45` has the detail.
+
+**`tightestBend` smooths three times before measuring**, calibrated for the distance field's
+staircase noise. On a coarsely sampled arc it shrinks the radius about a tenth — enough to fail the
+invariant it is checking. Fillets are sampled at half `spacing` for that reason, and authored points
+are held out of the smoothing entirely (`markAuthored` / `isAuthored` in `bend.ts`). Anything else
+that builds exact geometry into a run needs the same care.
+
+**Smoothing masks raw kinks.** Holding fillet points fixed made joins fail that had looked fine,
+because the filter had been rounding them off. A green measurement through a smoother is not evidence
+the path is clean.
+
+**A room test measured on geometry the merge does not build passes on nothing.** The fillet was
+computed twice from different inputs, so the check validated an arc that was never spliced.
+
+**Trimming a leg back by accumulated step length leaves a point *inside* the setback**, so the path
+runs forward to it and then jumps back to the tangent point. That reversal reads as a *tighter* bend
+than the corner it replaced. Trim by distance from the corner instead.
+
+**A test fixture's sampling spacing is load-bearing.** Bend radius is `s / (2 sin(θ/2))`, so a 90°
+turn at 0.1 spacing is a 0.071 em bend — wider than a 0.03 tube need bend, and no corner is found at
+all. Sample fixtures at the pipeline's own 0.02.
+
+**A per-pixel `threshold` is what decides whether a visual baseline can see a change at all**, and
+the pixel-count ratio cannot substitute for it. Playwright's default 0.2 hid bloom entirely.
+`--update-snapshots=all` rewrites **every** baseline, so grep to the ones that move.
+
+**The visual suite cannot see `piping`'s cord.** It traces inset at `level: -0.015`, so the cord is
+inside the letter body in both framings and both its baselines are blind to the change that matters
+most for that look. Judge piping by `spikes/bend-acceptance.mjs` or a lab capture.
+
+**A bloomed look at DPR 2 can exhaust Playwright's default 5s screenshot budget** while the stability
+loop waits for two consecutive frames. `shoot()` passes `timeout: 20000`, and an occasional single
+failure on `tubing` is this rather than instability — re-run before believing it.
+
+**Never add `opacity` to `LookKey`.** `Word` rewrites `material.opacity` every frame, so a value
+applied through `PARAM_KEYS` is gone by the first tick — and it would pass any test that never calls
+`apply()`.
+
+**Do not `git add -A`**, and do not chain `npm run check && git commit` through a `grep` — the grep
+succeeds and the failed check is swallowed.
+
+## Verify by mutation
+
+The tube lab plan's two-stage review found a defect on all nine of its tasks, and the single
+highest-yield instruction was "verify this by mutation". It has held on everything since. Two tests
+written for this work passed with the code under test deleted, and a `report.ts` predicate comparing
+bend radius against the *tube radius* instead of `ρmin` returned plausible booleans rather than
+failing — on the very panel used to judge whether the model worked.
 
 ## windease: the workaround has an expiry date
 
@@ -57,123 +173,31 @@ a spec change; it was out of scope.
 width. It also silently drops a panel its tree does not know about.
 
 **Upstream has since replaced `splitStrategy` entirely**: `stripStrategy` plus a `store.split(id,
-input)` verb, with resize writing to `membership.placement.size` rather than separate strategy state.
-That fixes both bugs and the missing drag-to-rearrange. We are pinned at `windease@^0.8.0`, so
-nothing breaks today, but upgrading deletes `tree.ts` and rewrites the seeding — do it deliberately.
+input)` verb, with resize writing to `membership.placement.size`. That fixes both bugs and the missing
+drag-to-rearrange. We are pinned at `windease@^0.8.0`, so nothing breaks today, but upgrading deletes
+`tree.ts` and rewrites the seeding — do it deliberately.
 
-## Not done, carried over from tubing
+## `pyrite` is built on the wrong model
 
-- **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon.
-  This is the last unbuilt look item and the owner rated it a bonus, not the point.
+The chunk generator samples surface points and sticks a chunk on each — dip it in glue and roll it in
+sprinkles. That is right for `glitter` and roughly right for `sequin`, which genuinely are applied to
+a surface. Pyrite is *intergrown*: cubes grown out of the matrix, mostly buried, penetrating each
+other, faces parallel within a grain because they share a lattice.
 
-## Standing conventions for this work
-
-Test string is `NSR` — straight, curved, and mixed-with-counter. `E` spot-checks corner behavior.
-Captures at yaw 30 / pitch 13 degrees so they stay comparable. Judge by looking at the image, not
-by a green test run: the geometry has been correct while the render was visibly torn.
-
-## Defect being fixed: the lab reaches past the public surface
-
-**Task 10 of the tube lab plan deletes both diagnostic paths.** The section below is the reasoning;
-the plan carries the steps.
-
-`packages/core/src/debug.ts` re-exports `Word`, `Stage`, `Timeline`, `NONE`, `loadFont` and
-`surfacesOf`, and `apps/lab/src/diagnostics.ts` imports them through a deep relative path. The lab
-is consumer code, so this is the reach-past-the-public-surface pattern this project does not allow,
-even though `debug.ts` is absent from the package's `exports` and `files` and so cannot be reached
-from the published npm package.
-
-The concrete cost is not packaging, it is that **the lab now has two render paths**. Its diagnostic
-mode hand-rolls a `fire()` — mount a `Stage`, construct a `Word`, apply a rest pose, render once —
-bypassing the queue, the timeline and the bloom chain. It will drift from the real path, and it
-already produced one bug that way: materials sat at three's default opacity of 1 because nothing
-called `apply()`, so tubing's 0.08 backing rendered fully opaque.
-
-The other half of the same change is fine and should be kept: `WordDebugHooks`, an optional seventh
-constructor parameter on `Word` offering `tubeMaterial(which)` and `onLetter(cell, shapes, depth)`,
-inert when omitted. That is a real narrow surface.
-
-The fix is to route diagnostics through the public API so there is one render path — most likely a
-debug field on `FireOptions` or `BlitskliegOptions` that carries the same hooks — and then delete
-`debug.ts`. That is a public API shape decision, so it wants the owner's call rather than a
-unilateral one.
-
-## Queued
-
-**`pyrite` is built on the wrong model and should be respecced before it is tuned.** The chunk
-generator samples surface points and sticks a chunk on each — dip it in glue and roll it in
-sprinkles. That is right for `glitter` and roughly right for `sequin`, which genuinely are applied
-to a surface. Pyrite is *intergrown*: cubes grown out of the matrix, mostly buried, penetrating
-each other, faces parallel within a grain because they share a lattice.
-
-More crystals will not fix that. Three changes to the placement model would do more than raising
-the count 30x:
-
-- **Vary size.** Every chunk uses one `size`. Crystal beds are power-law — many small, a few large
-  — and that scale variation is most of what makes a texture read as grown rather than applied.
-- **Vary embedding.** `proud` is one value for every chunk, so all of them sit the same fraction
-  out, which is precisely the glued look. Most should barely break the surface.
-- **Allow interpenetration.** `chunkMatrices` draws sample points without replacement, so chunks
-  can never overlap. Real cubes grow into each other; combined with the existing `align` toward a
-  shared per-letter lattice, overlap is what turns scattered dice into one crystal mass.
+More crystals will not fix that. Three changes to the placement model would do more than raising the
+count 30x: **vary size** (crystal beds are power-law, and that scale variation is most of what makes a
+texture read as grown rather than applied); **vary embedding** (`proud` is one value for every chunk,
+so all of them sit the same fraction out, which is precisely the glued look); and **allow
+interpenetration** (`chunkMatrices` draws sample points without replacement, so chunks can never
+overlap — combined with the existing `align`, overlap is what turns scattered dice into one mass).
 
 If a respec still leaves it not worth shipping, killing it is the owner's call — but note that is a
-breaking change, since `pyrite` has been in the published `LookName` union since 0.4.0.
+breaking change, since `pyrite` has been in the published `LookName` union since 0.4.0. Separately,
+`POOL = 512` in `decoration.ts` bounds distinct positions for both chunk looks, and the clustering
+draw scans the whole pool per chunk, so raising it makes placement quadratic.
 
-Separately, and independent of the model question, two ceilings cap **both** chunk looks:
-`POOL = 512` in `decoration.ts` bounds distinct positions (past it `chunkMatrices` exhausts its
-probe loop and stacks chunks co-located), about 30% of that pool sits on the back cap, and the
-clustering draw scans the whole pool per chunk so raising it makes placement quadratic. The lab's
-`chunk count` slider also stops at 300, below even the current ceiling.
+## A known limitation of the lab
 
-## Open review findings
-
-From the 0.4.0 whole-branch review. The flake-seed and bloom-checkbox findings are now fixed; one
-is left, and it wants a decision rather than a patch:
-
-- **~30% of the chunk sample pool sits on the back cap**, so `sequin` builds ~1.4x the instances it
-  shows front-on (`decoration.ts:227`). Rejecting back-facing samples would fix the waste, but it
-  changes which pool indices exist and so **changes how both chunk looks render** — a visible
-  change to looks published since 0.4.0, in the same code a `pyrite` respec would rewrite.
-
-`insetContour`'s all-or-nothing contour rejection was the fourth. The tubing plan deletes that
-function, so it closes with the rewrite.
-
-**`piping`'s cord is not untuned — it is clamped.** Measured across `NSRE`, **every** piping run
-hits the per-run radius clamp (5 of 5), drawing at 44–87% of its requested 0.03. `piping` connects
-through its corners instead of breaking, so one run traverses the whole letter and the single
-tightest corner anywhere in the glyph sets the diameter for the entire cord. No slider fixes that;
-`docs/superpowers/specs/2026-08-19-tube-geometry-design.md` does. Reproduce with
-`spikes/clamp-vs-blur.mjs`.
-
-**`sequin` is landed untuned, by decision.** `sequin`'s flakes still go near-black
-(metalness 1 at roughness 0.08 facing away from the key light); `piping`'s cord draws nothing at
-all front-on at radius 0.03, and little enough at 30 degrees of yaw. Every decoration parameter has
-a lab slider — `npm run dev -w @blitsklieg/lab`, then re-record baselines. No code change needed.
-
-## Traps
-
-**Eliminate a cheap hypothesis about render state before an expensive one about geometry.** The
-tube vanishing when thinned was diagnosed twice as a geometry bug and was one line of render
-state: a `transparent` material still writes depth by default, so tubing's 0.08 backing was
-culling its own tube. `519ae45` has the detail.
-
-**A bloomed look at DPR 2 can exhaust Playwright's default 5s screenshot budget** while the
-stability loop waits for two consecutive frames. That is what it looks like when `tubing` fails to
-baseline; it is not instability, and eight back-to-back captures hash identically. `shoot()` now
-passes `timeout: 20000`.
-
-**A per-pixel `threshold` is what decides whether a visual baseline can see a change at all**, and
-the pixel-count ratio cannot substitute for it. Playwright's default 0.2 hid bloom entirely; see
-the visual-suite section above for the measured numbers. `--update-snapshots=all` rewrites **every**
-baseline, including looks the change cannot touch, so re-record deliberately.
-
-**Never add `opacity` to `LookKey`.** There is a comment at the declaration saying so. `Word`
-rewrites `material.opacity` every frame, so a value applied through `PARAM_KEYS` is gone by the
-first tick — and it would pass any test that never calls `apply()`.
-
-**Tubing needs an off-axis debug view before its geometry can be judged.** A run varying in depth
-is invisible head-on and idle yaw is only ~0.1 rad, so the visual baseline cannot see most of what
-the respec adds. Build it by yawing `word.group` between captures rather than by moving the
-camera: `viewportBudget()` treats `camera.position.z` as the distance to the word plane, so an
-off-axis camera drifts the fit until that is reworked. Deferred, and called out in the spec.
+A spec change rebuilds all sixteen cells, ~1.45s front-only and ~2.85s with `back`/`wall`/
+`connectors`. Sliders commit on release, so a drag costs one rebuild rather than twenty — but a single
+step still waits. The honest fix is not rebuilding a whole `Word` per cell for a spec change.
