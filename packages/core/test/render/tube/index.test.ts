@@ -140,5 +140,31 @@ describe('buildTubeBlueprint', () => {
 
     expect(blueprint.corners.length).toBeGreaterThan(0);
     for (const corner of blueprint.corners) expect(corner.strategy).toBe('connect');
+    blueprint.dispose();
+  });
+
+  it('tracks a corner record onto the wandered run it sits on, not its pre-wander position', () => {
+    const base: TubeSpec = {
+      ...SPEC,
+      corners: { break: 0, connect: 1, loop: 0 },
+      minRun: 0,
+      surfaces: ['front'],
+    };
+    const flat = buildTubeBlueprint([square()], { ...base, amplitude: 0 }, 0.3, 1);
+    const wandered = buildTubeBlueprint([square()], { ...base, amplitude: 0.05 }, 0.3, 1);
+
+    for (const corner of wandered.corners) {
+      const minDist = Math.min(
+        ...wandered.runs.flatMap((r) => r.points.map((p) => p.distanceTo(corner.point))),
+      );
+      expect(minDist).toBeLessThan(1e-9);
+    }
+
+    const flatZ = flat.corners.map((c) => c.point.z);
+    const wanderedZ = wandered.corners.map((c) => c.point.z);
+    expect(wanderedZ.some((z, i) => z !== flatZ[i])).toBe(true);
+
+    flat.dispose();
+    wandered.dispose();
   });
 });

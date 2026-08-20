@@ -97,6 +97,9 @@ export function buildTubeBlueprint(
   // After cutting and assigning: a run's final index, which seeds its wander, only exists once
   // the run list is settled.
   wanderFaceRuns(runs, spec.amplitude ?? 0, seed);
+  // Cloned after wander, not before: wander moves run points in place, and every corner interior
+  // to a run — every `connect` and `loop` — moves with them.
+  const corners = cut.corners.map((c) => ({ ...c, point: c.point.clone() }));
 
   const lit: THREE.BufferGeometry[] = [];
   const dark: THREE.BufferGeometry[] = [];
@@ -109,7 +112,7 @@ export function buildTubeBlueprint(
   return {
     kind: 'tube',
     runs,
-    corners: cut.corners,
+    corners,
     lit,
     dark,
     dispose() {
@@ -118,7 +121,7 @@ export function buildTubeBlueprint(
       lit.length = 0;
       dark.length = 0;
       runs.length = 0;
-      cut.corners.length = 0;
+      corners.length = 0;
     },
   };
 }

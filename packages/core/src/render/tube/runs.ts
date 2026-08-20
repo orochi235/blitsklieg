@@ -25,6 +25,7 @@ export interface CornerRecord {
 
 export interface CutResult {
   runs: Run[];
+  /** Corner points alias the input paths' own vectors; copy before anything mutates a run. */
   corners: CornerRecord[];
 }
 
@@ -294,11 +295,9 @@ function stitchPath(
   weights: CornerWeights,
   loopRadius: number,
   draw: () => number,
-  record: CornerRecord[],
-  points: THREE.Vector3[],
-): THREE.Vector3[][] {
+): { spans: THREE.Vector3[][]; decisions: CornerDecision[] } {
   const { arcs, corners } = raw;
-  if (corners.length === 0) return arcs;
+  if (corners.length === 0) return { spans: arcs, decisions: [] };
 
   const closed = arcs.length === corners.length;
   const loopDiameter = loopRadius * 2;
@@ -310,14 +309,6 @@ function stitchPath(
     const room = Math.min(polyLength(before), polyLength(after));
     return { ...c, strategy: pickStrategy(c.turn, room, loopDiameter, weights, draw) };
   });
-
-  for (const decision of decisions) {
-    record.push({
-      point: (points[decision.index] as THREE.Vector3).clone(),
-      strategy: decision.strategy,
-      turn: decision.turn,
-    });
-  }
 
   if (!closed) {
     const spans: THREE.Vector3[][] = [];
@@ -333,7 +324,7 @@ function stitchPath(
       }
     }
     spans.push(current);
-    return spans;
+    return { spans, decisions };
   }
 
   const n = arcs.length;
@@ -355,7 +346,7 @@ function stitchPath(
       }
     }
     if ((current[current.length - 1] as THREE.Vector3).distanceTo(start) > EPS) current.push(start);
-    return [current];
+    return { spans: [current], decisions };
   }
 
   // Rotate so the walk starts right after a break, reducing this to the open-path case.
@@ -372,7 +363,7 @@ function stitchPath(
     }
   }
   spans.push(current);
-  return spans;
+  return { spans, decisions };
 }
 
 /**
@@ -420,7 +411,15 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
   const spans: { points: THREE.Vector3[]; surface: SurfaceKind }[] = [];
   for (const path of paths) {
     const raw = rawSpansOf(path, DEFAULT_CORNER);
-    for (const pts of stitchPath(raw, weights, loopRadius, draw, cornerRecords, path.points)) {
+    const { spans: stitched, decisions } = stitchPath(raw, weights, loopRadius, draw);
+    for (const d of decisions) {
+      cornerRecords.push({
+        point: path.points[d.index] as THREE.Vector3,
+        strategy: d.strategy,
+        turn: d.turn,
+      });
+    }
+    for (const pts of stitched) {
       if (pts.length > 1) spans.push({ points: pts, surface: path.surface });
     }
   }

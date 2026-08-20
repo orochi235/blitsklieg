@@ -204,29 +204,49 @@ describe('corner strategies', () => {
 });
 
 describe('corner records', () => {
-  it('reports one record per corner, at the corner point, with the strategy drawn there', () => {
+  /** Where `squarePath`'s four corners actually are; every other vertex sits along a side. */
+  const CORNERS = [
+    [-0.5, -0.5],
+    [-0.5, 0.5],
+    [0.5, -0.5],
+    [0.5, 0.5],
+  ];
+
+  function cornerXY(corners: { point: THREE.Vector3 }[]): number[][] {
+    return corners
+      .map((c) => [c.point.x, c.point.y])
+      .sort((a, b) => (a[0] as number) - (b[0] as number) || (a[1] as number) - (b[1] as number));
+  }
+
+  it('lands each record on a corner of the path, not merely somewhere along it', () => {
     const { corners } = cutIntoRuns([PATH(squarePath())], {
       runs: 1,
       minRun: 0,
       corners: ALL_CONNECT,
     });
 
-    expect(corners).toHaveLength(4);
-    for (const corner of corners) {
-      expect(corner.strategy).toBe('connect');
-      expect(corner.turn).toBeGreaterThan(Math.PI / 6);
-      // Every vertex of the square path is a corner of it, so each record must land on one.
-      expect(squarePath().some((p) => p.distanceTo(corner.point) < 1e-9)).toBe(true);
-    }
+    expect(cornerXY(corners)).toEqual(CORNERS);
   });
 
-  it('draws the same records twice from one seed', () => {
+  it('reports the strategy that was actually drawn, not a constant', () => {
+    const opts = { runs: 1, minRun: 0 };
+    const connected = cutIntoRuns([PATH(squarePath())], { ...opts, corners: ALL_CONNECT });
+    const broken = cutIntoRuns([PATH(squarePath())], { ...opts, corners: ALL_BREAK });
+
+    expect(connected.corners.map((c) => c.strategy)).toEqual(Array(4).fill('connect'));
+    expect(broken.corners.map((c) => c.strategy)).toEqual(Array(4).fill('break'));
+  });
+
+  it('records every corner of a mixed draw, and the draw really does mix', () => {
     const weights = { break: 1, connect: 1, loop: 1 };
     const opts = { runs: 1, minRun: 0, corners: weights, seed: 7 };
     const a = cutIntoRuns([PATH(squarePath())], opts);
     const b = cutIntoRuns([PATH(squarePath())], opts);
 
+    expect(a.corners).toHaveLength(4);
+    expect(new Set(a.corners.map((c) => c.strategy)).size).toBeGreaterThan(1);
     expect(a.corners.map((c) => c.strategy)).toEqual(b.corners.map((c) => c.strategy));
+    for (const corner of a.corners) expect(corner.turn).toBeGreaterThan(Math.PI / 6);
   });
 
   it('records nothing for a path with no corner', () => {
