@@ -99,7 +99,8 @@ function legLengths(points, closed, corners) {
 function measure(lookName) {
   const spec = specOf(lookName).decoration;
   const r = spec.radius;
-  const rhoStyle = 1.76 * r;
+  const styleFlag = process.argv.indexOf('--style');
+  const rhoStyle = (styleFlag === -1 ? 1.76 : Number(process.argv[styleFlag + 1])) * r;
   const rows = [];
 
   ALPHABET.split('').forEach((ch, i) => {

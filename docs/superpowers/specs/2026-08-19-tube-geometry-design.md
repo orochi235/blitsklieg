@@ -60,13 +60,23 @@ both knobs instead of neither.
 That yields two classes of corner, both detected in one pass over the original path:
 
 - **Hard** — `ρ < ρmin`. The glass physically cannot go round it. Across the alphabet at `bend = 2`:
-  212 of them on `tubing`, spread over 25 of 26 glyphs — `O` is the only letter with none. Three to
-  thirteen per glyph. **Filleting is the common path, not the exception**, and the model has to be
-  robust in the ordinary case rather than merely correct in the rare one.
+  228 of them on `tubing` and 244 on `piping`, over every letter of both. **Filleting is the common
+  path, not the exception**, and the model has to be robust in the ordinary case rather than merely
+  correct in the rare one.
 - **Stylistic** — `ρmin ≤ ρ < ρstyle`. The glass could carry through; whether it does is a look
   decision, and `corners: { break, connect, loop }` keeps drawing it exactly as today. `ρstyle` is a
   second multiple of `r`; 1.76 reproduces today's `DEFAULT_CORNER` at the shipped spacing, which is
   the value to start tuning from.
+
+**Detect at `max(ρmin, ρstyle)`, not at `ρstyle`.** The two thresholds are not ordered: `ρstyle` is
+`1.76 r` and `ρmin` is `bend · r`, so at the settled `bend = 2` the stylistic band is empty and — the
+part that bites — a corner between `ρstyle` and `ρmin` is hard yet falls above the detection
+threshold, so no stage ever sees it and the one-diameter invariant fails with no local cause.
+Measured, that strands 13 hard corners on `tubing` at `bend = 2` and 174 at `bend = 3`.
+
+A genuinely stylistic class therefore requires `bend < 1.76`, not a change to `ρstyle`. At the
+shipped value every detected corner is hard, and filleting is the ordinary path: 228 hard corners on
+`tubing` and 244 on `piping`, across all 26 letters of both.
 
 Detect once, before any geometry changes. A fillet built at `ρmin` has per-vertex turns of
 `s / ρmin`, which at the shipped numbers is 26° — within a few degrees of `DEFAULT_CORNER`. Any
