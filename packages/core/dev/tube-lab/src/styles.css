@@ -55,6 +55,10 @@ body {
   position: relative;
   min-height: 0;
 }
+.panel__body--orbit {
+  cursor: grab;
+  user-select: none;
+}
 [data-affordance] {
   background: #2a3142;
 }

@@ -30,6 +30,31 @@ function minSideFill(pivot: THREE.Group, aspect: number): number {
   );
 }
 
+/**
+ * The farthest any corner of the content reaches from the panel's center, as a fraction of the
+ * half-side. The box's own corners, not the world AABB's: a turned box swells its AABB.
+ */
+function cornerReach(pivot: THREE.Group, aspect: number): number {
+  const camera = labCamera();
+  camera.aspect = aspect;
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+  pivot.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(pivotWithBox());
+  let reach = 0;
+  for (const x of [box.min.x, box.max.x])
+    for (const y of [box.min.y, box.max.y])
+      for (const z of [box.min.z, box.max.z]) {
+        const ndc = new THREE.Vector3(x, y, z).applyMatrix4(pivot.matrixWorld).project(camera);
+        reach = Math.max(
+          reach,
+          Math.abs(ndc.x) * Math.max(1, aspect),
+          Math.abs(ndc.y) * Math.max(1, 1 / aspect),
+        );
+      }
+  return reach;
+}
+
 describe('the tube lab panel fit', () => {
   // A fit measured on the word plane instead of the tube's overshoots to ~0.98 at every aspect,
   // which the scissor then cuts. The spread of aspects is what pins the min-side rule.
@@ -38,6 +63,37 @@ describe('the tube lab panel fit', () => {
     fitter(pivot)(aspect);
 
     expect(minSideFill(pivot, aspect)).toBeCloseTo(FILL, 4);
+  });
+
+  // The measured box is cached at build time, so a turned letter is fit against a projection the
+  // fitter never saw unless it re-measures: at the seeded 30/13 the flat fit overflows its scissor.
+  it.each([
+    [30, 13],
+    [-45, 25],
+    [90, 0],
+    [60, -60],
+  ])('keeps a letter turned %f/%f inside the panel', (yaw, pitch) => {
+    const pivot = pivotWithBox();
+    // Built before the turn, as the cell builds it: the measurement is of the letter, not the pose.
+    const fit = fitter(pivot);
+    pivot.rotation.set((pitch * Math.PI) / 180, (yaw * Math.PI) / 180, 0);
+    fit(1);
+
+    expect(cornerReach(pivot, 1)).toBeLessThanOrEqual(FILL + 1e-6);
+    expect(cornerReach(pivot, 1)).toBeGreaterThan(FILL / 2);
+  });
+
+  // Zoom deviates from the fit; the fit stays the source of truth for what fills the panel, so
+  // re-fitting a zoomed panel — every gutter drag does — must neither drop it nor compound it.
+  it('multiplies the fitted size by zoom, however often it is re-fit', () => {
+    const pivot = pivotWithBox();
+    const fit = fitter(pivot);
+    fit(1);
+    const fitted = pivot.scale.x;
+    fit(1, 4);
+    fit(1, 4);
+
+    expect(pivot.scale.x).toBeCloseTo(fitted * 4, 10);
   });
 
   it('leaves a rejected aspect unscaled', () => {

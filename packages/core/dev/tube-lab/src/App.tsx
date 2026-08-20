@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { asNodeId, createPanel, type NodeId, type SplitNode, type Store } from 'windease';
 import {
   type ChromeArgs,
@@ -50,7 +57,41 @@ function addPanel(store: Store, meta: PanelMeta): NodeId {
   return id;
 }
 
-function chromeFor(store: Store, reports: Record<string, string>, onChange: () => void) {
+/** How an orbit panel is being looked at. In memory only, like the layout is not. */
+interface View {
+  yaw: number;
+  pitch: number;
+  zoom: number;
+}
+
+const HEAD_ON: View = { yaw: 0, pitch: 0, zoom: 1 };
+
+/** The off-axis baseline's yaw, with enough pitch to show a planar loop ring as an ellipse. */
+const ORBIT_SEED: View = { yaw: (30 * Math.PI) / 180, pitch: (13 * Math.PI) / 180, zoom: 1 };
+
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 4;
+
+/**
+ * Wheel and pinch both arrive as `deltaY`, an order of magnitude apart: a mouse notch is ~100,
+ * where a trackpad pinch streams a few per event. Divisors of an exponent, so either gesture
+ * covers about the same ground: a notch is 1.22x, and a pinch of ~100 accumulated is 2.7x.
+ */
+const WHEEL_STEP = 500;
+const PINCH_STEP = 100;
+
+interface OrbitProps {
+  'data-orbit': string;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onDoubleClick: () => void;
+}
+
+function chromeFor(
+  store: Store,
+  reports: Record<string, string>,
+  onChange: () => void,
+  orbitProps: (id: string) => OrbitProps,
+) {
   return function chrome({ node }: ChromeArgs) {
     const meta = metaOf(node.meta);
     const summary = reports[node.id];
@@ -79,7 +120,10 @@ function chromeFor(store: Store, reports: Record<string, string>, onChange: () =
             ) : null}
           </div>
         </DragHandle>
-        <div className="panel__body">
+        <div
+          className={meta.mode === 'orbit' ? 'panel__body panel__body--orbit' : 'panel__body'}
+          {...(meta.mode === 'orbit' ? orbitProps(node.id) : null)}
+        >
           {summary ? <p className="panel__readout">{summary}</p> : null}
         </div>
       </div>
@@ -156,6 +200,9 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const labRef = useRef<LabRenderer | null>(null);
   const cellsRef = useRef(new Map<string, Cell>());
+  const views = useRef(new Map<string, View>());
+  const oneFrame = useRef(0);
+  const dirty = useRef<string | null>(null);
   const frame = useRef(0);
   const latest = useRef<() => void>(() => {});
   const [font, setFont] = useState<LoadedFont | null>(null);
@@ -181,7 +228,9 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     const cells = cellsRef.current;
     return () => {
       if (frame.current) cancelAnimationFrame(frame.current);
+      if (oneFrame.current) cancelAnimationFrame(oneFrame.current);
       frame.current = 0;
+      oneFrame.current = 0;
       for (const cell of cells.values()) cell.dispose();
       cells.clear();
       lab.dispose();
@@ -198,9 +247,101 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     });
   }, []);
 
+  // `fit` is absolute, so the view can be re-applied any number of times without compounding.
+  const pose = useCallback((cell: Cell, id: string, aspect: number) => {
+    const view = views.current.get(id) ?? HEAD_ON;
+    cell.pivot.rotation.set(view.pitch, view.yaw, 0);
+    cell.fit(aspect, view.zoom);
+  }, []);
+
+  // The only draw a gesture runs, and the only one that skips `clear()`: the other fifteen panels
+  // are never redrawn, so their pixels have to survive in the framebuffer. The frame reads the
+  // panel to draw when it runs, so a burst of events coalesces onto its own newest state.
+  const drawOne = useCallback(
+    (id: string) => {
+      dirty.current = id;
+      if (oneFrame.current) return;
+      oneFrame.current = requestAnimationFrame(() => {
+        oneFrame.current = 0;
+        const target = dirty.current;
+        dirty.current = null;
+        const lab = labRef.current;
+        if (!target || !lab) return;
+        const cell = cellsRef.current.get(target);
+        const rect = placements.get(asNodeId(target));
+        if (!cell || !rect) return;
+        pose(cell, target, rect.w / rect.h);
+        lab.draw([{ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom }]);
+      });
+    },
+    [placements, pose],
+  );
+
+  const orbitProps = useCallback(
+    (id: string): OrbitProps => ({
+      'data-orbit': id,
+      onPointerDown: (event) => {
+        // The title bar above is the DragHandle that rearranges panels; a turn must not reach it.
+        event.stopPropagation();
+        const target = event.currentTarget;
+        target.setPointerCapture(event.pointerId);
+        let last = { x: event.clientX, y: event.clientY };
+        const move = (e: PointerEvent) => {
+          const view = views.current.get(id) ?? HEAD_ON;
+          // A half turn across the panel's own width, so the gesture scales with the panel.
+          const span = Math.max(1, target.clientWidth);
+          views.current.set(id, {
+            ...view,
+            yaw: view.yaw + ((e.clientX - last.x) / span) * Math.PI,
+            pitch: view.pitch + ((e.clientY - last.y) / span) * Math.PI,
+          });
+          last = { x: e.clientX, y: e.clientY };
+          drawOne(id);
+        };
+        const up = () => {
+          if (target.hasPointerCapture(event.pointerId))
+            target.releasePointerCapture(event.pointerId);
+          target.removeEventListener('pointermove', move);
+          target.removeEventListener('pointerup', up);
+          target.removeEventListener('pointercancel', up);
+        };
+        target.addEventListener('pointermove', move);
+        target.addEventListener('pointerup', up);
+        target.addEventListener('pointercancel', up);
+      },
+      onDoubleClick: () => {
+        views.current.set(id, ORBIT_SEED);
+        drawOne(id);
+      },
+    }),
+    [drawOne],
+  );
+
+  // React attaches wheel passively at its root, where preventDefault does nothing and a trackpad
+  // pinch zooms the whole page instead of the letter. Hence a listener of our own on the stage.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (event: WheelEvent) => {
+      const id = (event.target as Element | null)
+        ?.closest('[data-orbit]')
+        ?.getAttribute('data-orbit');
+      if (!id) return;
+      event.preventDefault();
+      const view = views.current.get(id) ?? HEAD_ON;
+      // ctrlKey is how a macOS trackpad pinch reaches the page.
+      const step = event.ctrlKey ? PINCH_STEP : WHEEL_STEP;
+      const zoom = view.zoom * Math.exp(-event.deltaY / step);
+      views.current.set(id, { ...view, zoom: Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom)) });
+      drawOne(id);
+    };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', onWheel);
+  }, [drawOne]);
+
   const chromeWithReports = useMemo(
-    () => chromeFor(store, reports, drawAll),
-    [store, reports, drawAll],
+    () => chromeFor(store, reports, drawAll, orbitProps),
+    [store, reports, drawAll, orbitProps],
   );
 
   // The frame calls the newest body, never the one that queued it: coalescing on the call would
@@ -253,20 +394,21 @@ export function App({ letters: initialLetters, spec }: AppProps) {
           cell.key = key;
           cellsRef.current.set(id, cell);
         }
-        cell.pivot.rotation.set(0, 0, 0);
-        cell.fit(rect.w / rect.h);
+        if (meta.mode === 'orbit' && !views.current.has(id)) views.current.set(id, ORBIT_SEED);
+        pose(cell, id, rect.w / rect.h);
         draws.push({ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom });
       }
       for (const [id, cell] of cellsRef.current) {
         if (live.has(id)) continue;
         cell.dispose();
         cellsRef.current.delete(id);
+        views.current.delete(id);
         setReport(id, '');
       }
       lab.draw(draws);
     };
     drawAll();
-  }, [drawAll, font, placements, spec, specKey, look, store, setReport]);
+  }, [drawAll, font, placements, spec, specKey, look, store, setReport, pose]);
 
   return (
     <div className="lab">

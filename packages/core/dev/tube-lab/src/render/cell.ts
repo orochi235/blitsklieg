@@ -37,20 +37,43 @@ function budget(): { width: number; height: number } {
   return { width: extent, height: extent };
 }
 
+function cornersOf(box: THREE.Box3): THREE.Vector3[] {
+  const corners: THREE.Vector3[] = [];
+  for (const x of [box.min.x, box.max.x])
+    for (const y of [box.min.y, box.max.y])
+      for (const z of [box.min.z, box.max.z]) corners.push(new THREE.Vector3(x, y, z));
+  return corners;
+}
+
 /**
  * Sizes the letter to its panel: `fitScale`'s 2.2 cap is a page effect's fit, a third of the panel
- * and useless for reading tube geometry. Solved at the tube's own plane, a glyph depth in front of
- * the word, because the flat fit overshoots by that plane's magnification and gets scissored.
+ * and useless for reading tube geometry. Every corner is solved on the plane it sits on and the
+ * tightest one wins: the tube stands most of a glyph depth in front of the word, and a fit
+ * measured on the word plane overshoots by that plane's magnification and gets scissored.
+ *
+ * Measured once, in the pose the pivot is in when the fitter is made, then re-solved on each call
+ * under the pivot's current rotation. Reach is from the pivot's own axis rather than across the
+ * box because the camera is fixed on that axis: a turn hangs the letter's depth over one edge.
+ *
+ * `zoom` multiplies the solved scale, so the fit stays absolute and idempotent however often a
+ * zoomed panel is re-fit. Above 1 the letter is meant to overrun the panel and be scissored.
  */
-export function fitter(pivot: THREE.Group): (aspect: number) => void {
-  const box = new THREE.Box3().setFromObject(pivot);
-  const size = box.getSize(new THREE.Vector3());
-  const extent = Math.max(size.x, size.y);
-  const front = Math.max(0, box.max.z);
-  return (aspect) => {
-    if (extent <= 0 || !Number.isFinite(aspect) || aspect <= 0) return;
+export function fitter(pivot: THREE.Group): (aspect: number, zoom?: number) => void {
+  const corners = cornersOf(new THREE.Box3().setFromObject(pivot));
+  const turned = new THREE.Vector3();
+  return (aspect, zoom = 1) => {
+    if (!Number.isFinite(aspect) || aspect <= 0) return;
     const span = FILL * Math.min(1, aspect) * VIEW_HEIGHT;
-    pivot.scale.setScalar(span / (extent + (span * front) / DISTANCE));
+    let scale = Number.POSITIVE_INFINITY;
+    for (const corner of corners) {
+      turned.copy(corner).applyEuler(pivot.rotation);
+      const reach = 2 * Math.max(Math.abs(turned.x), Math.abs(turned.y));
+      // A corner far enough behind shrinks faster than it reaches out, and binds nothing.
+      const bound = reach + (span * turned.z) / DISTANCE;
+      if (bound > 0) scale = Math.min(scale, span / bound);
+    }
+    if (!Number.isFinite(scale) || scale <= 0) return;
+    pivot.scale.setScalar(scale * zoom);
   };
 }
 
@@ -61,8 +84,8 @@ export interface Cell {
   camera: THREE.PerspectiveCamera;
   /** Yawed and pitched by orbit. The camera never moves; the fit is solved against `DISTANCE`. */
   pivot: THREE.Group;
-  /** Sizes the letter to the panel it is about to be drawn into, `w / h`. */
-  fit(aspect: number): void;
+  /** Sizes the letter to the panel it is about to be drawn into, `w / h`, times `zoom`. */
+  fit(aspect: number, zoom?: number): void;
   bloom: boolean;
   dispose(): void;
 }
