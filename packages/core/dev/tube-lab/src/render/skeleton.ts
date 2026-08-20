@@ -15,7 +15,6 @@ const ENDPOINT = 0xe6e9f0;
 const CORNER_COLOR: Record<CornerStrategy, number> = {
   break: 0xff3b30,
   connect: 0x35d0a5,
-  loop: 0x7aa2ff,
   return: 0xa86a90,
 };
 

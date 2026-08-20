@@ -162,27 +162,8 @@ describe('corner strategies', () => {
     expect(runs).toHaveLength(1);
   });
 
-  it('a loop inserts geometry and leaves the run continuous', () => {
-    const { runs: broken } = cutIntoRuns([PATH(squarePath())], {
-      runs: 1,
-      minRun: 0,
-      corners: ALL_BREAK,
-    });
-    const { runs: looped } = cutIntoRuns([PATH(squarePath())], {
-      runs: 1,
-      minRun: 0,
-      corners: { break: 0, connect: 0, loop: 1 },
-      radius: 0.02,
-    });
-    // Still one continuous run around the square, not four.
-    expect(looped).toHaveLength(1);
-    // But a lot longer than the plain square outline: four loops were spliced in.
-    const brokenTotal = broken.reduce((a, r) => a + r.length, 0);
-    expect((looped[0] as { length: number }).length).toBeGreaterThan(brokenTotal * 1.3);
-  });
-
   it('is deterministic for a seed and differs across seeds', () => {
-    const weights = { break: 1, connect: 1, loop: 1 };
+    const weights = { break: 1, connect: 1 };
     const { runs: a } = cutIntoRuns([PATH(squarePath())], {
       runs: 1,
       minRun: 0,
@@ -261,7 +242,7 @@ describe('corner records', () => {
   });
 
   it('records every corner of a mixed draw, and the draw really does mix', () => {
-    const weights = { break: 1, connect: 1, loop: 1 };
+    const weights = { break: 1, connect: 1 };
     const opts = { runs: 1, minRun: 0, corners: weights, seed: 7 };
     const a = cutIntoRuns([PATH(squarePath())], opts);
     const b = cutIntoRuns([PATH(squarePath())], opts);

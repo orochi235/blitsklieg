@@ -77,7 +77,7 @@ describe('buildTubeBlueprint', () => {
     const cut = buildTubeBlueprint([square()], { ...SPEC, runs: 1 }, 0.3, 0);
     const uncut = buildTubeBlueprint(
       [square()],
-      { ...SPEC, runs: 1, corners: { break: 0, connect: 1, loop: 0 } },
+      { ...SPEC, runs: 1, corners: { break: 0, connect: 1 } },
       0.3,
       0,
     );
@@ -90,7 +90,7 @@ describe('buildTubeBlueprint', () => {
   it('does not pinch the depth wander at a corner an all-connect distribution carries through', () => {
     const bp = buildTubeBlueprint(
       [square()],
-      { ...SPEC, runs: 1, corners: { break: 0, connect: 1, loop: 0 }, amplitude: 0.02 },
+      { ...SPEC, runs: 1, corners: { break: 0, connect: 1 }, amplitude: 0.02 },
       0.3,
       0,
     );
@@ -135,7 +135,7 @@ describe('buildTubeBlueprint', () => {
   });
 
   it('carries a corner record for every corner the cut decided', () => {
-    const spec: TubeSpec = { ...SPEC, corners: { break: 0, connect: 1, loop: 0 } };
+    const spec: TubeSpec = { ...SPEC, corners: { break: 0, connect: 1 } };
     const blueprint = buildTubeBlueprint([square()], spec, 0.3, 1);
 
     expect(blueprint.corners.length).toBeGreaterThan(0);
@@ -146,7 +146,7 @@ describe('buildTubeBlueprint', () => {
   it('tracks a corner record onto the wandered run it sits on, not its pre-wander position', () => {
     const base: TubeSpec = {
       ...SPEC,
-      corners: { break: 0, connect: 1, loop: 0 },
+      corners: { break: 0, connect: 1 },
       minRun: 0,
       surfaces: ['front'],
     };

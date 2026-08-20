@@ -104,7 +104,6 @@ const CONTROL_IDS = [
   'wallRise',
   'cornerBreak',
   'cornerConnect',
-  'cornerLoop',
   'surfaces',
   'count',
   'chunkSize',
@@ -195,7 +194,6 @@ function chosenLook(): Look {
       corners: {
         break: number('cornerBreak'),
         connect: number('cornerConnect'),
-        loop: number('cornerLoop'),
       },
       surfaces: SURFACE_PRESETS[surfacesInput.value] ?? decoration.surfaces,
     };
@@ -244,10 +242,9 @@ function seedSliders(): void {
       Math.round((decoration.wallDepth ?? 0.5) * 100),
     );
     el<HTMLInputElement>('wallRise').value = String(Math.round((decoration.wallRise ?? 0) * 100));
-    const corners = decoration.corners ?? { break: 1, connect: 0, loop: 0 };
+    const corners = decoration.corners ?? { break: 1, connect: 0 };
     el<HTMLInputElement>('cornerBreak').value = String(Math.round(corners.break * 100));
     el<HTMLInputElement>('cornerConnect').value = String(Math.round(corners.connect * 100));
-    el<HTMLInputElement>('cornerLoop').value = String(Math.round(corners.loop * 100));
     surfacesInput.value = surfacesKeyFor(decoration.surfaces);
   } else if (decoration?.kind === 'chunks') {
     el<HTMLInputElement>('count').value = String(decoration.count);
@@ -439,7 +436,6 @@ function syncDisabled(): void {
     'wallRise',
     'cornerBreak',
     'cornerConnect',
-    'cornerLoop',
   ]) {
     el<HTMLInputElement>(id).disabled = !tube;
   }

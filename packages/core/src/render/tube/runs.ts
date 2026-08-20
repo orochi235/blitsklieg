@@ -26,7 +26,7 @@ export interface Run {
   color: number;
 }
 
-export type CornerStrategy = 'break' | 'connect' | 'loop' | 'return';
+export type CornerStrategy = 'break' | 'connect' | 'return';
 
 /** What one corner's strategy draw decided, in the path's own coordinates. */
 export interface CornerRecord {
@@ -46,13 +46,12 @@ export interface CutResult {
 export interface CornerWeights {
   break: number;
   connect: number;
-  loop: number;
 }
 
 /** Every corner cuts — today's only behavior, and the default when a spec sets nothing. */
-export const ALL_BREAK: CornerWeights = { break: 1, connect: 0, loop: 0 };
+export const ALL_BREAK: CornerWeights = { break: 1, connect: 0 };
 /** Every corner bends through instead of cutting — a continuous cord, what `piping` wants. */
-export const ALL_CONNECT: CornerWeights = { break: 0, connect: 1, loop: 0 };
+export const ALL_CONNECT: CornerWeights = { break: 0, connect: 1 };
 
 export interface CutOptions {
   /** Requested run count per glyph. Cannot go below the corner count. */
@@ -61,7 +60,7 @@ export interface CutOptions {
   minRun: number;
   /** Weight distribution over what each corner does. Defaults to every corner breaking. */
   corners?: CornerWeights;
-  /** Requested tube radius in em; an inserted loop is sized relative to it. */
+  /** Requested tube radius in em. */
   radius?: number;
   /** Minimum bend radius as a multiple of `radius`. Floored at 1.25. */
   bend?: number;
@@ -77,10 +76,6 @@ export interface CutOptions {
   blockout?: number;
 }
 
-/** Loop radius as a multiple of the requested tube radius. sweepRadius's 0.8 curvature
- *  clearance needs >= 1.25x to preserve full radius through a loop; this sits well clear of it. */
-const LOOP_RADIUS_FACTOR = 4;
-const LOOP_SEGMENTS = 28;
 /** A weight factor never fully zeroes an option biasing can't rule out entirely. */
 const FLOOR = 0.05;
 /** Turn past which glass is treated as unable to bend without kinking. */
@@ -185,71 +180,16 @@ function rawSpansOf(path: GeneratedPath, rhoMin: number, rhoStyle: number): RawS
 
 /**
  * Which strategy a corner draws, biased toward what the geometry can plausibly carry: a sharp
- * turn favors break, a shallow one favors connect, and loop needs both a turn to sit at and
- * straight tube on either side to loop through. A pure distribution (one weight nonzero) always
- * picks that one — the bias multiplies a weight, and multiplying zero by anything stays zero.
+ * turn favors break and a shallow one favors connect. A pure distribution (one weight nonzero)
+ * always picks that one — the bias multiplies a weight, and multiplying zero by anything stays zero.
  */
-function pickStrategy(
-  turn: number,
-  room: number,
-  loopDiameter: number,
-  weights: CornerWeights,
-  draw: () => number,
-): CornerStrategy {
+function pickStrategy(turn: number, weights: CornerWeights, draw: () => number): CornerStrategy {
   const wBreak = weights.break * clamp(turn / Math.PI, FLOOR, 1);
   const wConnect = weights.connect * clamp(1 - turn / CONNECT_LIMIT, FLOOR, 1);
-  const roomFactor = clamp(room / (loopDiameter * 1.5), 0, 1);
-  const turnFactor = clamp(turn / (Math.PI * 0.5), 0.3, 1);
-  const wLoop = weights.loop * Math.max(FLOOR, roomFactor * turnFactor);
 
-  const total = wBreak + wConnect + wLoop;
+  const total = wBreak + wConnect;
   if (total <= 0) return 'break';
-  const r = draw() * total;
-  if (r < wBreak) return 'break';
-  if (r < wBreak + wConnect) return 'connect';
-  return 'loop';
-}
-
-/**
- * A full turn spliced at `corner`, tangent-continuous with the incoming direction so it reads as
- * the path carrying past the corner rather than kinking into a new one. Excludes the corner point
- * itself (the caller already has it) but includes the closing point, which lands back on it.
- */
-function buildLoop(
-  corner: THREE.Vector3,
-  tangentIn: THREE.Vector3,
-  radius: number,
-): THREE.Vector3[] {
-  const v = seedNormal(tangentIn);
-  const center = corner.clone().addScaledVector(v, radius);
-  const points: THREE.Vector3[] = [];
-  for (let s = 1; s <= LOOP_SEGMENTS; s++) {
-    const theta = (s / LOOP_SEGMENTS) * Math.PI * 2;
-    points.push(
-      center
-        .clone()
-        .addScaledVector(v, -radius * Math.cos(theta))
-        .addScaledVector(tangentIn, radius * Math.sin(theta)),
-    );
-  }
-  return points;
-}
-
-/** The direction arriving at `corner`, falling back to the outgoing arc when there's no history. */
-function tangentInto(
-  corner: THREE.Vector3,
-  before: THREE.Vector3 | undefined,
-  after: THREE.Vector3 | undefined,
-): THREE.Vector3 {
-  if (before) {
-    const d = corner.clone().sub(before);
-    if (d.lengthSq() > 1e-18) return d.normalize();
-  }
-  if (after) {
-    const d = after.clone().sub(corner);
-    if (d.lengthSq() > 1e-18) return d.normalize();
-  }
-  return new THREE.Vector3(1, 0, 0);
+  return draw() * total < wBreak ? 'break' : 'connect';
 }
 
 /**
@@ -393,17 +333,18 @@ function dropTail(span: THREE.Vector3[], count: number): THREE.Vector3[] {
 
 /**
  * Splits a span that has just been merged through a return into the lit stretch before it, the dark
- * stretch carrying the corner, and the lit stretch after. The dark stretch runs `rhoMin` of leg
- * either side of the fillet, so the blockout reads as covering the return rather than the join.
+ * stretch carrying the corner, and the lit stretch after. The dark stretch is the fillet and one
+ * sample either side — the same corner a break used to remove outright, so the lit strokes land
+ * where they always did and only the glass between them is new.
  */
-function splitReturn(span: THREE.Vector3[], fillet: Fillet, rhoMin: number): [Span, Span, Span] {
+function splitReturn(span: THREE.Vector3[], fillet: Fillet, margin: number): [Span, Span, Span] {
   const entry = span.indexOf(fillet.points[0] as THREE.Vector3);
   const exit = span.indexOf(fillet.points[fillet.points.length - 1] as THREE.Vector3);
   const back = (from: number) => {
     let along = 0;
     for (let i = from; i > 0; i--) {
       along += (span[i] as THREE.Vector3).distanceTo(span[i - 1] as THREE.Vector3);
-      if (along >= rhoMin) return i - 1;
+      if (along >= margin) return i - 1;
     }
     return 0;
   };
@@ -411,7 +352,7 @@ function splitReturn(span: THREE.Vector3[], fillet: Fillet, rhoMin: number): [Sp
     let along = 0;
     for (let i = from; i + 1 < span.length; i++) {
       along += (span[i] as THREE.Vector3).distanceTo(span[i + 1] as THREE.Vector3);
-      if (along >= rhoMin) return i + 1;
+      if (along >= margin) return i + 1;
     }
     return span.length - 1;
   };
@@ -457,23 +398,14 @@ function eatenBy(
   };
 }
 
-/** Appends `next` onto `target`, which already ends at the shared corner; splices a loop first. */
+/** Appends `next` onto `target`, which already ends at the shared corner. */
 function mergeArc(
   target: THREE.Vector3[],
   next: THREE.Vector3[],
   decision: CornerDecision,
-  loopRadius: number,
   fillet: Fillet | null,
   spacing: number,
 ): void {
-  if (decision.strategy === 'loop') {
-    const cornerPt = target[target.length - 1] as THREE.Vector3;
-    const before = target[target.length - 2];
-    const tangentIn = tangentInto(cornerPt, before, next[1]);
-    for (const p of buildLoop(cornerPt, tangentIn, loopRadius)) target.push(p);
-    for (let i = 1; i < next.length; i++) target.push(next[i] as THREE.Vector3);
-    return;
-  }
   if (fillet) {
     const n = fillet.points.length;
     const entry = fillet.points[0] as THREE.Vector3;
@@ -523,7 +455,6 @@ interface Span {
 function stitchPath(
   raw: RawSpans,
   weights: CornerWeights,
-  loopRadius: number,
   rhoMin: number,
   spacing: number,
   blockout: number,
@@ -533,7 +464,6 @@ function stitchPath(
   if (corners.length === 0) return { spans: arcs.map((points) => ({ points })), decisions: [] };
 
   const closed = arcs.length === corners.length;
-  const loopDiameter = loopRadius * 2;
   // `before` ends at the corner and `after` starts there, in both the open and closed layouts.
   const legsOf = (k: number) => ({
     before: closed
@@ -544,8 +474,7 @@ function stitchPath(
 
   const decisions: CornerDecision[] = corners.map((c, k) => {
     const { before, after } = legsOf(k);
-    const room = Math.min(polyLength(before), polyLength(after));
-    let strategy: CornerStrategy = pickStrategy(c.turn, room, loopDiameter, weights, draw);
+    let strategy: CornerStrategy = pickStrategy(c.turn, weights, draw);
     // A hard corner drawn `connect` must fillet, and a fillet that will not fit breaks instead.
     // `CONNECT_LIMIT` used to guess this from the angle; now it is measured.
     let fillet =
@@ -602,9 +531,9 @@ function stitchPath(
         spans.push({ points: dropTail(current, decision.groupBefore + 1) });
         current = dropHead(next.slice(), decision.groupAfter + 1);
       } else {
-        mergeArc(current, next, decision, loopRadius, decision.fillet ?? null, spacing);
+        mergeArc(current, next, decision, decision.fillet ?? null, spacing);
         if (decision.strategy === 'return' && decision.fillet) {
-          const [head, dark, tail] = splitReturn(current, decision.fillet, rhoMin);
+          const [head, dark, tail] = splitReturn(current, decision.fillet, spacing);
           spans.push(head, dark);
           current = tail.points;
         }
@@ -623,29 +552,14 @@ function stitchPath(
     let current = (arcs[0] as THREE.Vector3[]).slice();
     for (let k = 1; k < n; k++) {
       const decision = decisions[k] as CornerDecision;
-      mergeArc(
-        current,
-        arcs[k] as THREE.Vector3[],
-        decision,
-        loopRadius,
-        decision.fillet ?? null,
-        spacing,
-      );
+      mergeArc(current, arcs[k] as THREE.Vector3[], decision, decision.fillet ?? null, spacing);
       if (decision.strategy === 'return' && decision.fillet) {
-        const [head, dark, tail] = splitReturn(current, decision.fillet, rhoMin);
+        const [head, dark, tail] = splitReturn(current, decision.fillet, spacing);
         closedSpans.push(head, dark);
         current = tail.points;
       }
     }
     const start = (arcs[0] as THREE.Vector3[])[0] as THREE.Vector3;
-    const closing = decisions[0] as CornerDecision;
-    if (closing.strategy === 'loop') {
-      const cornerPt = current[current.length - 1] as THREE.Vector3;
-      const before = current[current.length - 2];
-      for (const p of buildLoop(cornerPt, tangentInto(cornerPt, before, undefined), loopRadius)) {
-        current.push(p);
-      }
-    }
     if ((current[current.length - 1] as THREE.Vector3).distanceTo(start) > EPS) current.push(start);
     closedSpans.push({ points: current });
     return { spans: closedSpans, decisions };
@@ -666,12 +580,11 @@ function stitchPath(
         current,
         arcs[arcIdx] as THREE.Vector3[],
         decision,
-        loopRadius,
         decision.fillet ?? null,
         spacing,
       );
       if (decision.strategy === 'return' && decision.fillet) {
-        const [head, dark, tail] = splitReturn(current, decision.fillet, rhoMin);
+        const [head, dark, tail] = splitReturn(current, decision.fillet, spacing);
         spans.push(head, dark);
         current = tail.points;
       }
@@ -721,7 +634,6 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
   const rhoMin = minBendRadius(radius, opts.bend);
   const rhoStyle = radius * STYLE_FACTOR;
   const spacing = opts.spacing ?? FALLBACK_SPACING;
-  const loopRadius = LOOP_RADIUS_FACTOR * radius;
   const seed = opts.seed ?? 0;
   let cornerCounter = 0;
   const draw = () => rng(cornerSeed(seed, cornerCounter++))();
@@ -733,7 +645,6 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
     const { spans: stitched, decisions } = stitchPath(
       raw,
       weights,
-      loopRadius,
       rhoMin,
       spacing,
       opts.blockout ?? DEFAULT_BLOCKOUT,

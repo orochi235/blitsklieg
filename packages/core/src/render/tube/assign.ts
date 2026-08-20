@@ -26,6 +26,9 @@ function rng(seed: number): () => number {
  */
 export function assign(runs: Run[], select: SelectSpec, colors: number[], seed: number): Run[] {
   if (runs.length === 0) return runs;
+  // Blockout is paint, not selection: a return carries the tube past a corner unlit whatever
+  // `select` picked, and it must not spend that selection's budget on the way.
+  const lightable = runs.filter((r) => !r.dark);
 
   if (select.by === 'index' && select.stride && select.stride > 1) {
     const stride = Math.round(select.stride);
@@ -33,20 +36,20 @@ export function assign(runs: Run[], select: SelectSpec, colors: number[], seed: 
   } else {
     const count =
       select.amount > 1
-        ? Math.min(runs.length, Math.round(select.amount))
-        : Math.round(Math.min(1, Math.max(0, select.amount)) * runs.length);
+        ? Math.min(lightable.length, Math.round(select.amount))
+        : Math.round(Math.min(1, Math.max(0, select.amount)) * lightable.length);
 
     let order: number[];
     if (select.by === 'length') {
-      order = runs
+      order = lightable
         .map((r) => [r.length, r.index] as const)
         .sort((a, b) => b[0] - a[0])
         .map(([, i]) => i);
     } else if (select.by === 'index') {
-      order = runs.map((r) => r.index);
+      order = lightable.map((r) => r.index);
     } else {
       const random = rng(Math.round(seed * 2654435761) ^ 0x5eed);
-      order = runs
+      order = lightable
         .map((r) => [random(), r.index] as const)
         .sort((a, b) => a[0] - b[0])
         .map(([, i]) => i);
@@ -56,8 +59,6 @@ export function assign(runs: Run[], select: SelectSpec, colors: number[], seed: 
     for (const run of runs) run.lit = chosen.has(run.index);
   }
 
-  // Blockout is paint, not a selection: a return carries the tube past a corner without lighting
-  // it whatever `select` picked.
   for (const run of runs) if (run.dark) run.lit = false;
 
   const palette = colors.length > 0 ? colors : [0xffffff];

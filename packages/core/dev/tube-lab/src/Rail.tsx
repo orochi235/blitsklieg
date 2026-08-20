@@ -178,7 +178,7 @@ export interface RailProps {
 
 export function Rail(props: RailProps) {
   const { spec, onSpec } = props;
-  const corners = spec.corners ?? { break: 1, connect: 0, loop: 0 };
+  const corners = spec.corners ?? { break: 1, connect: 0 };
   const patch = (part: Partial<TubeSpec>) => onSpec({ ...spec, ...part });
   // `generateConnectors` returns nothing without both faces, so the controls say so rather than
   // sitting live and doing nothing.
@@ -217,7 +217,7 @@ export function Rail(props: RailProps) {
 
       <section className="rail__group">
         <h2>corners</h2>
-        {(['break', 'connect', 'loop'] as const).map((kind) => (
+        {(['break', 'connect'] as const).map((kind) => (
           <Range
             key={kind}
             label={kind}

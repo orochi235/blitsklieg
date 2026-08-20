@@ -181,9 +181,9 @@ export const LOOKS: Record<LookName, LookSpec> = {
       // Most cuts are returns: a bender paints the tube over a return bend rather than ending it,
       // and a letter has two electrodes rather than thirty.
       blockout: 0.7,
-      // A convincing sign mixes all three: mostly breaks, connects where the glass would take
-      // it, and the occasional loop as the bender's flourish.
-      corners: { break: 0.55, connect: 0.3, loop: 0.15 },
+      // Mostly returns — the tube carries through and the light stops — and connects where the
+      // glass would take the corner outright.
+      corners: { break: 0.7, connect: 0.3 },
       select: { by: 'seed', amount: 0.85 },
       colors: [0xff2d95],
       look: {

@@ -18,12 +18,11 @@ const buf = readFileSync(new URL('../apps/lab/public/font.ttf', import.meta.url)
 const font = opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
-// Loops are still the old buildLoop, which lands its turn back on the corner it left; measuring
-// tubing with them off separates what the corner stage owes from what the pigtail does.
+// Wander is the one stage that can still bend a run after the corner stage has passed over it, so
+// measuring with it off separates what the corner stage owes from what wander does.
 const CASES = [
   ['tubing', specOf('tubing').decoration],
-  ['tubing no loop', { ...specOf('tubing').decoration, corners: { break: 0.55, connect: 0.45, loop: 0 } }],
-  ['tubing no loop no wander', { ...specOf('tubing').decoration, corners: { break: 0.55, connect: 0.45, loop: 0 }, amplitude: 0 }],
+  ['tubing no wander', { ...specOf('tubing').decoration, amplitude: 0 }],
   ['piping', specOf('piping').decoration],
 ];
 
