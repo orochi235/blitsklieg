@@ -23,10 +23,11 @@ export function tintByRunColor(material: THREE.Material, channel: TintChannel): 
   else target.color = new THREE.Color(0xffffff);
 
   material.onBeforeCompile = (shader) => {
-    shader.vertexShader = `attribute vec3 ${RUN_COLOR_ATTRIBUTE};\nvarying vec3 vRunColor;\n${shader.vertexShader}`.replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>\n  vRunColor = ${RUN_COLOR_ATTRIBUTE};`,
-    );
+    shader.vertexShader =
+      `attribute vec3 ${RUN_COLOR_ATTRIBUTE};\nvarying vec3 vRunColor;\n${shader.vertexShader}`.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>\n  vRunColor = ${RUN_COLOR_ATTRIBUTE};`,
+      );
     shader.fragmentShader = `varying vec3 vRunColor;\n${shader.fragmentShader}`.replace(
       channel === 'emissive' ? '#include <emissivemap_fragment>' : '#include <color_fragment>',
       channel === 'emissive'

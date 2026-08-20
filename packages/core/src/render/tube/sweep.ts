@@ -3,8 +3,8 @@ import { isAuthored } from './bend.js';
 import type { Point2 } from './field.js';
 import { type Frame, rotationMinimizingFrames } from './frames.js';
 import { minCurvatureRadius3, smooth } from './resample.js';
-import { RUN_COLOR_ATTRIBUTE } from './tint.js';
 import type { Run } from './runs.js';
+import { RUN_COLOR_ATTRIBUTE } from './tint.js';
 
 /** Smoothing happens here rather than upstream: a run ends at a corner, so it never crosses one. */
 const SMOOTH_PASSES = 3;
