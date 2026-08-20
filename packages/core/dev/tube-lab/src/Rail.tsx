@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PathSource, SurfaceKind, TubeSpec } from '../../../src/render/tube/index.js';
+import type {
+  CornerWeights,
+  PathSource,
+  SurfaceKind,
+  TubeSpec,
+} from '../../../src/render/tube/index.js';
 import { lettersOf, MODES, type PanelMode } from './panels.js';
 import { TUBE_LOOKS, type TubeLook } from './spec.js';
 
@@ -52,6 +57,12 @@ const PATH_SOURCES: PathSource[] = ['field', 'exact', 'direct'];
 
 /** The three kinds `surfacesOf` actually produces; `connector` is a count, not a surface. */
 const SURFACE_KINDS: SurfaceKind[] = ['front', 'back', 'wall'];
+
+/** The one meaningful number behind two weights: 1 is every corner breaking, 0 every corner bending. */
+function cornerMix(weights: CornerWeights): number {
+  const total = weights.break + weights.connect;
+  return total > 0 ? weights.break / total : 1;
+}
 
 function hex(value: number): string {
   return `#${value.toString(16).padStart(6, '0')}`;
@@ -224,17 +235,16 @@ export function Rail(props: RailProps) {
 
       <section className="rail__group">
         <h2>corners</h2>
-        {(['break', 'connect'] as const).map((kind) => (
-          <Range
-            key={kind}
-            label={kind}
-            min={0}
-            max={100}
-            step={1}
-            value={Math.round(corners[kind] * 100)}
-            onCommit={(next) => patch({ corners: { ...corners, [kind]: next / 100 } })}
-          />
-        ))}
+        {/* Ends are {1,0} and {0,1}: {0,0} returns before drawing, leaving the RNG unadvanced,
+            which is a different corner sequence rather than a louder all-break. */}
+        <Range
+          label="connect ← → break"
+          min={0}
+          max={100}
+          step={1}
+          value={Math.round(cornerMix(corners) * 100)}
+          onCommit={(next) => patch({ corners: { break: next / 100, connect: 1 - next / 100 } })}
+        />
       </section>
 
       <section className="rail__group">
