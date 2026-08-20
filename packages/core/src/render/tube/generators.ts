@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { isoContours, refineExact, signedDistanceField } from './field.js';
+import { type Field, isoContours, type Point2, refineExact, signedDistanceField } from './field.js';
 import { offsetRing } from './offset.js';
 import { resample } from './resample.js';
 import { type Surface, type SurfaceKind, wallPointAt } from './surfaces.js';
@@ -39,6 +39,34 @@ export function generatePaths(
 ): GeneratedPath[] {
   const want = new Set(enabled);
   const out: GeneratedPath[] = [];
+  const source = opts.source ?? 'field';
+
+  // `surfacesOf` hands front and back the same `polygons` array — they are one contour at two
+  // depths — so everything up to the z assignment is shared. Keyed by identity rather than by
+  // value: two faces of one glyph are the same object, and nothing else is.
+  const cooked = new Map<Point2[][], Point2[][]>();
+  const contoursOf = (polygons: Point2[][]): Point2[][] => {
+    const hit = cooked.get(polygons);
+    if (hit) return hit;
+    const lines: Point2[][] = [];
+    if (source === 'direct') {
+      for (const ring of polygons) {
+        const line = resample(offsetRing(ring, opts.level), opts.spacing);
+        if (line.length >= 4) lines.push(line);
+      }
+    } else {
+      const base = signedDistanceField(polygons, { resolution: opts.resolution, pad: opts.pad });
+      const field: Field = source === 'exact' ? refineExact(base, polygons, opts.level) : base;
+      for (const raw of isoContours(field, opts.level)) {
+        // Deliberately unsmoothed: cutting detects corners on these points, and smoothing a
+        // square's 90 degree corner down to 26 degrees puts it under the detection threshold.
+        const line = resample(raw, opts.spacing);
+        if (line.length >= 4) lines.push(line);
+      }
+    }
+    cooked.set(polygons, lines);
+    return lines;
+  };
 
   for (const surface of surfaces) {
     if (!want.has(surface.kind)) continue;
@@ -57,33 +85,11 @@ export function generatePaths(
       continue;
     }
 
-    const source = opts.source ?? 'field';
-
-    if (source === 'direct') {
-      for (const ring of surface.polygons) {
-        const cooked = resample(offsetRing(ring, opts.level), opts.spacing);
-        if (cooked.length < 4) continue;
-        out.push({
-          points: cooked.map((p) => new THREE.Vector3(p.x, p.y, surface.z)),
-          surface: surface.kind,
-          closed: true,
-        });
-      }
-      continue;
-    }
-
-    const base = signedDistanceField(surface.polygons, {
-      resolution: opts.resolution,
-      pad: opts.pad,
-    });
-    const field = source === 'exact' ? refineExact(base, surface.polygons, opts.level) : base;
-    for (const line of isoContours(field, opts.level)) {
-      // Deliberately unsmoothed: cutting detects corners on these points, and smoothing a
-      // square's 90 degree corner down to 26 degrees puts it under the detection threshold.
-      const cooked = resample(line, opts.spacing);
-      if (cooked.length < 4) continue;
+    for (const line of contoursOf(surface.polygons)) {
+      // A fresh Vector3 per surface: wander moves run points in place, and the two faces must not
+      // share the points it moves.
       out.push({
-        points: cooked.map((p) => new THREE.Vector3(p.x, p.y, surface.z)),
+        points: line.map((p) => new THREE.Vector3(p.x, p.y, surface.z)),
         surface: surface.kind,
         closed: true,
       });
