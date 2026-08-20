@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { ALL_BREAK, ALL_CONNECT, cutIntoRuns } from '../../../src/render/tube/runs.js';
 
-/** A closed square path in 3D, four corners, evenly sampled along each side. */
+/**
+ * A closed square path in 3D, four corners, sampled at the pipeline's own 0.02 spacing.
+ * The spacing is load-bearing: corners are classified by bend radius now, and `s / (2 sin(theta/2))`
+ * makes a 90-degree turn a gentle bend at coarse sampling. At 0.1 it reads as 0.071 em, wider than
+ * a 0.03 tube can be asked to bend, and no corner is found at all.
+ */
 function squarePath(): THREE.Vector3[] {
   const corners = [
     [-0.5, -0.5],
@@ -14,8 +19,8 @@ function squarePath(): THREE.Vector3[] {
   for (let c = 0; c < 4; c++) {
     const [ax, ay] = corners[c] as number[];
     const [bx, by] = corners[(c + 1) % 4] as number[];
-    for (let i = 0; i < 10; i++) {
-      const t = i / 10;
+    for (let i = 0; i < 50; i++) {
+      const t = i / 50;
       pts.push(
         new THREE.Vector3(
           (ax as number) + ((bx as number) - (ax as number)) * t,

@@ -95,6 +95,7 @@ export function buildTubeBlueprint(
     runs: spec.runs,
     minRun: spec.minRun,
     corners: spec.corners,
+    bend: spec.bend,
     radius: spec.radius,
     seed,
   });

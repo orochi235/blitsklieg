@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { type Corner, cornersByBend, minBendRadius, STYLE_FACTOR } from './bend.js';
 import { seedNormal } from './frames.js';
 import type { GeneratedPath } from './generators.js';
 import type { SurfaceKind } from './surfaces.js';
@@ -50,12 +51,12 @@ export interface CutOptions {
   corners?: CornerWeights;
   /** Requested tube radius in em; an inserted loop is sized relative to it. */
   radius?: number;
+  /** Minimum bend radius as a multiple of `radius`. Floored at 1.25. */
+  bend?: number;
   /** Seeds the per-corner strategy draw so a word builds identically twice. */
   seed?: number;
 }
 
-/** Tangent break counted as a corner at all, independent of what strategy runs there. */
-const DEFAULT_CORNER = Math.PI / 6;
 /** Loop radius as a multiple of the requested tube radius. sweepRadius's 0.8 curvature
  *  clearance needs >= 1.25x to preserve full radius through a loop; this sits well clear of it. */
 const LOOP_RADIUS_FACTOR = 4;
@@ -93,60 +94,8 @@ function polyLength(points: THREE.Vector3[]): number {
   return total;
 }
 
-interface CornerInfo {
-  index: number;
-  turn: number;
-}
-
-interface CornerDecision extends CornerInfo {
+interface CornerDecision extends Corner {
   strategy: CornerStrategy;
-}
-
-/**
- * Indices where the direction breaks by more than `angle`, with adjacent breaks merged to their
- * sharpest vertex. A closed path tests every index including 0 (wrapping to `points[n - 1]` as
- * its predecessor); an open path never treats its own endpoints as corners.
- */
-function cornersOf(points: THREE.Vector3[], closed: boolean, angle: number): CornerInfo[] {
-  const n = points.length;
-  if (n < 3) return [];
-  const broken: CornerInfo[] = [];
-  const count = closed ? n : n - 2;
-  const first = closed ? 0 : 1;
-  for (let k = 0; k < count; k++) {
-    const i = first + k;
-    const prev = points[(i - 1 + n) % n] as THREE.Vector3;
-    const cur = points[i] as THREE.Vector3;
-    const next = points[(i + 1) % n] as THREE.Vector3;
-    const a = cur.clone().sub(prev);
-    const b = next.clone().sub(cur);
-    if (a.lengthSq() < 1e-18 || b.lengthSq() < 1e-18) continue;
-    const turn = a.normalize().angleTo(b.normalize());
-    if (turn > angle) broken.push({ index: i, turn });
-  }
-  if (broken.length === 0) return [];
-
-  // Collapse each run of consecutive indices to its sharpest vertex.
-  const groups: CornerInfo[][] = [[broken[0] as CornerInfo]];
-  for (let k = 1; k < broken.length; k++) {
-    const b = broken[k] as CornerInfo;
-    const group = groups[groups.length - 1] as CornerInfo[];
-    const prev = group[group.length - 1] as CornerInfo;
-    if (b.index === prev.index + 1) group.push(b);
-    else groups.push([b]);
-  }
-  // On a closed path a corner straddling the seam splits into a group ending at n - 1 and one
-  // starting at 0; they are adjacent by wraparound and belong to the same corner.
-  if (closed && groups.length > 1) {
-    const firstGroup = groups[0] as CornerInfo[];
-    const lastGroup = groups[groups.length - 1] as CornerInfo[];
-    if (firstGroup[0]?.index === 0 && lastGroup[lastGroup.length - 1]?.index === n - 1) {
-      groups[0] = lastGroup.concat(firstGroup);
-      groups.pop();
-    }
-  }
-
-  return groups.map((group) => group.reduce((a, b) => (b.turn > a.turn ? b : a)));
 }
 
 /**
@@ -170,12 +119,12 @@ interface RawSpans {
    * `corners[k]` and `arcs[k + 1]` starts there, so `arcs.length === corners.length + 1`.
    */
   arcs: THREE.Vector3[][];
-  corners: CornerInfo[];
+  corners: Corner[];
 }
 
-function rawSpansOf(path: GeneratedPath, angle: number): RawSpans {
+function rawSpansOf(path: GeneratedPath, rhoMin: number, rhoStyle: number): RawSpans {
   const { points, closed } = path;
-  const corners = cornersOf(points, closed, angle);
+  const corners = cornersByBend(points, closed, rhoMin, rhoStyle);
 
   if (corners.length === 0) {
     const whole = closed ? [...points, points[0] as THREE.Vector3] : points.slice();
@@ -185,8 +134,8 @@ function rawSpansOf(path: GeneratedPath, angle: number): RawSpans {
   if (closed) {
     const arcs: THREE.Vector3[][] = [];
     for (let k = 0; k < corners.length; k++) {
-      const start = corners[k] as CornerInfo;
-      const end = corners[(k + 1) % corners.length] as CornerInfo;
+      const start = corners[k] as Corner;
+      const end = corners[(k + 1) % corners.length] as Corner;
       arcs.push(arc(points, start.index, end.index));
     }
     return { arcs, corners };
@@ -402,7 +351,10 @@ function slice(span: THREE.Vector3[], pieces: number): THREE.Vector3[][] {
  */
 export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult {
   const weights = opts.corners ?? ALL_BREAK;
-  const loopRadius = LOOP_RADIUS_FACTOR * (opts.radius ?? FALLBACK_RADIUS);
+  const radius = opts.radius ?? FALLBACK_RADIUS;
+  const rhoMin = minBendRadius(radius, opts.bend);
+  const rhoStyle = radius * STYLE_FACTOR;
+  const loopRadius = LOOP_RADIUS_FACTOR * radius;
   const seed = opts.seed ?? 0;
   let cornerCounter = 0;
   const draw = () => rng(cornerSeed(seed, cornerCounter++))();
@@ -410,7 +362,7 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult
   const cornerRecords: CornerRecord[] = [];
   const spans: { points: THREE.Vector3[]; surface: SurfaceKind }[] = [];
   for (const path of paths) {
-    const raw = rawSpansOf(path, DEFAULT_CORNER);
+    const raw = rawSpansOf(path, rhoMin, rhoStyle);
     const { spans: stitched, decisions } = stitchPath(raw, weights, loopRadius, draw);
     for (const d of decisions) {
       cornerRecords.push({
