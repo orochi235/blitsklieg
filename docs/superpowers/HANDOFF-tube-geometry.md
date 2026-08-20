@@ -42,8 +42,12 @@ tubing no wander    1/207                      worst 1.91r
 piping              3/47                       worst 1.43r
 ```
 
-Five runs of 278. All but `piping`'s `S` are within 5% of the invariant. Chasing them is optional
-work, not a blocker.
+Five runs of 278, and `spikes/where-under-bend.mjs <look> <letters>` names each one. Three are
+fillet arcs measuring 2% under the radius they were built at. The other two are `piping`'s `S`, at a
+fillet's **entry join** — the same class the join-clearance rule fixed for tubing, surviving here
+because the trim stops at the two-point floor when the leg it is trimming is that short. The room
+test measures the raw leg; the merge trims the accumulated span, which by then can be shorter.
+Optional work, not a blocker.
 
 ## What was learned that is not in the plan
 

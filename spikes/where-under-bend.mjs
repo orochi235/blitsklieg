@@ -20,7 +20,7 @@ import { glyphToShapes } from '../packages/core/dist/text/glyphs.js';
 
 const buf = readFileSync(new URL('../apps/lab/public/font.ttf', import.meta.url));
 const font = opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-const spec = specOf('tubing').decoration;
+const spec = specOf(process.argv[2] ?? 'tubing').decoration;
 const rhoMin = minBendRadius(spec.radius, spec.bend);
 /** A fillet is built at exactly rhoMin, so the invariant is `not below it`, not `strictly above`. */
 const TOL = rhoMin * 1e-6;
@@ -40,7 +40,7 @@ function tightestAt(points) {
   return { best, at };
 }
 
-for (const ch of 'MWNSRE') {
+for (const ch of process.argv[3] ?? 'MWNSRE') {
   const shapes = glyphToShapes(font, ch, 1);
   const paths = generatePaths(surfacesOf(shapes, 0.3), spec.surfaces, {
     level: spec.level,
@@ -52,7 +52,7 @@ for (const ch of 'MWNSRE') {
   const { runs } = cutIntoRuns(paths, {
     runs: spec.runs,
     minRun: spec.minRun,
-    corners: { break: 0, connect: 1, loop: 0 },
+    corners: spec.corners,
     radius: spec.radius,
     bend: spec.bend,
     spacing: spec.spacing,
