@@ -138,6 +138,7 @@ beforeEach(() => {
   renderer = {
     getDrawingBufferSize: (out: THREE.Vector2) => out.set(320, 240),
     setRenderTarget: vi.fn(),
+    setScissorTest: vi.fn(),
     clear: vi.fn(),
     render: vi.fn(() => {
       renders++;

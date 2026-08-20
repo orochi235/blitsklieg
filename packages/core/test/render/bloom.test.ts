@@ -10,15 +10,31 @@ interface Pass {
   source: THREE.Texture | null;
   bloom: THREE.Texture | null;
   dir: THREE.Vector2 | null;
+  viewport: [number, number, number, number] | null;
+  scissor: [number, number, number, number] | null;
+  scissorTest: boolean;
 }
 
 function harness(width = 640, height = 480) {
   const size = new THREE.Vector2(width, height);
   const passes: Pass[] = [];
   let target: THREE.WebGLRenderTarget | null = null;
+  let viewport: [number, number, number, number] | null = null;
+  let scissor: [number, number, number, number] | null = null;
+  let scissorTest = false;
 
   const renderer = {
     getDrawingBufferSize: (out: THREE.Vector2) => out.copy(size),
+    getSize: (out: THREE.Vector2) => out.copy(size),
+    setViewport: vi.fn((x: number, y: number, w: number, h: number) => {
+      viewport = [x, y, w, h];
+    }),
+    setScissor: vi.fn((x: number, y: number, w: number, h: number) => {
+      scissor = [x, y, w, h];
+    }),
+    setScissorTest: vi.fn((on: boolean) => {
+      scissorTest = on;
+    }),
     setRenderTarget: vi.fn((next: THREE.WebGLRenderTarget | null) => {
       target = next;
     }),
@@ -35,6 +51,9 @@ function harness(width = 640, height = 480) {
         source: ((uniforms?.tDiffuse ?? uniforms?.tBase)?.value ?? null) as THREE.Texture | null,
         bloom: (uniforms?.tBloom?.value ?? null) as THREE.Texture | null,
         dir: dir ? dir.clone() : null,
+        viewport,
+        scissor,
+        scissorTest,
       });
     }),
   } as unknown as THREE.WebGLRenderer;
@@ -190,5 +209,40 @@ describe('BloomPath.dispose', () => {
 
     path.dispose();
     expect(disposed()).toBe(7);
+  });
+});
+
+describe('BloomPath.render into a rect', () => {
+  const RECT = { x: 100, y: 60, w: 200, h: 150 };
+
+  it('leaves the scissor alone when no rect is asked for', () => {
+    const { renderer, passes } = harness(640, 480);
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    for (const p of passes) expect(p.scissorTest).toBe(false);
+  });
+
+  it('renders the scene inside the rect and blurs the whole target', () => {
+    const { renderer, passes } = harness(640, 480);
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera(), RECT);
+
+    const scenePass = pass(passes, 0);
+    expect(scenePass.scissorTest).toBe(true);
+    expect(scenePass.viewport).toEqual([100, 60, 200, 150]);
+    expect(scenePass.scissor).toEqual([100, 60, 200, 150]);
+    // A scissored blur would clip the halo mid-pass and read the wrong texels back.
+    for (const i of [1, 2, 3, 4, 5]) expect(pass(passes, i).scissorTest).toBe(false);
+  });
+
+  it('composites over the whole canvas but writes only inside the rect', () => {
+    const { renderer, passes } = harness(640, 480);
+    new BloomPath(renderer).render(new THREE.Scene(), new THREE.PerspectiveCamera(), RECT);
+
+    const composite = pass(passes, 6);
+    expect(composite.target).toBeNull();
+    // The full-size quad is what keeps vUv aligned with the full-size targets it samples.
+    expect(composite.viewport).toEqual([0, 0, 640, 480]);
+    expect(composite.scissor).toEqual([100, 60, 200, 150]);
+    expect(composite.scissorTest).toBe(true);
   });
 });

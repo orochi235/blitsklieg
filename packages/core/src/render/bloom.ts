@@ -12,6 +12,14 @@ export interface BloomOptions {
 
 export const DEFAULT_BLOOM: BloomOptions = { strength: 1.1, threshold: 0.72, alphaBoost: 0.9 };
 
+/** A sub-rectangle of the canvas, in three's own bottom-left-origin logical pixels. */
+export interface BloomRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 type Sampler = THREE.IUniform<THREE.Texture | null>;
 
 /** Half-res texels per tap, one separable pass each: a tight core under a wider halo. */
@@ -24,6 +32,7 @@ export class BloomPath {
 
   private readonly allocated = new THREE.Vector2();
   private readonly drawingBuffer = new THREE.Vector2();
+  private readonly canvasSize = new THREE.Vector2();
 
   private readonly quadScene = new THREE.Scene();
   private readonly quadCam = new THREE.Camera();
@@ -111,13 +120,22 @@ export class BloomPath {
     this.resize();
   }
 
-  render(scene: THREE.Scene, camera: THREE.Camera): void {
+  render(scene: THREE.Scene, camera: THREE.Camera, rect?: BloomRect): void {
     const r = this.renderer;
     this.resize();
 
     r.setRenderTarget(this.sceneRT);
+    // The whole target clears even for a rect draw: the blur reads all of it, so a neighbour
+    // left over from the previous panel would bleed its halo into this one.
+    r.setScissorTest(false);
     r.clear();
+    if (rect) {
+      r.setViewport(rect.x, rect.y, rect.w, rect.h);
+      r.setScissor(rect.x, rect.y, rect.w, rect.h);
+      r.setScissorTest(true);
+    }
     r.render(scene, camera);
+    r.setScissorTest(false);
 
     this.thresholdSrc.value = this.sceneRT.texture;
     this.blit(this.thresholdMat, this.brightRT);
@@ -133,7 +151,14 @@ export class BloomPath {
 
     this.compositeBase.value = this.sceneRT.texture;
     this.compositeBloom.value = this.brightRT.texture;
+    if (rect) {
+      const size = r.getSize(this.canvasSize);
+      r.setViewport(0, 0, size.x, size.y);
+      r.setScissor(rect.x, rect.y, rect.w, rect.h);
+      r.setScissorTest(true);
+    }
     this.blit(this.compositeMat, null);
+    if (rect) r.setScissorTest(false);
   }
 
   /** Per frame because the stage resizes the drawing buffer without knowing these targets exist. */
