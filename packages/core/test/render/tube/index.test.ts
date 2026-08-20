@@ -133,4 +133,12 @@ describe('buildTubeBlueprint', () => {
     withConnectors.dispose();
     without.dispose();
   });
+
+  it('carries a corner record for every corner the cut decided', () => {
+    const spec: TubeSpec = { ...SPEC, corners: { break: 0, connect: 1, loop: 0 } };
+    const blueprint = buildTubeBlueprint([square()], spec, 0.3, 1);
+
+    expect(blueprint.corners.length).toBeGreaterThan(0);
+    for (const corner of blueprint.corners) expect(corner.strategy).toBe('connect');
+  });
 });

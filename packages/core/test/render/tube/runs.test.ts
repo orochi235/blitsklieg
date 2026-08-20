@@ -60,19 +60,19 @@ describe('corner detection', () => {
     for (const p of circlePath()) {
       doubled.push(p, p.clone());
     }
-    const runs = cutIntoRuns([PATH(doubled)], { runs: 3, minRun: 0 });
+    const { runs } = cutIntoRuns([PATH(doubled)], { runs: 3, minRun: 0 });
     expect(runs).toHaveLength(3);
   });
 });
 
 describe('cutIntoRuns', () => {
   it('cuts a square at its four corners', () => {
-    const runs = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0 });
+    const { runs } = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0 });
     expect(runs).toHaveLength(4);
   });
 
   it('cuts a cornerless loop by count alone', () => {
-    const runs = cutIntoRuns([PATH(circlePath())], { runs: 5, minRun: 0 });
+    const { runs } = cutIntoRuns([PATH(circlePath())], { runs: 5, minRun: 0 });
     expect(runs).toHaveLength(5);
   });
 
@@ -80,18 +80,18 @@ describe('cutIntoRuns', () => {
     // A single-span cornerless loop with no floor: nothing but slice()'s own arithmetic can
     // cost a run here. Low counts (a handful of cuts) can't show compounding drift; these can.
     for (const requested of [13, 30, 60]) {
-      const runs = cutIntoRuns([PATH(circlePath())], { runs: requested, minRun: 0 });
+      const { runs } = cutIntoRuns([PATH(circlePath())], { runs: requested, minRun: 0 });
       expect(runs.length, `requested ${requested}, got ${runs.length}`).toBe(requested);
     }
   });
 
   it('never returns fewer runs than there are corners', () => {
-    const runs = cutIntoRuns([PATH(squarePath())], { runs: 2, minRun: 0 });
+    const { runs } = cutIntoRuns([PATH(squarePath())], { runs: 2, minRun: 0 });
     expect(runs).toHaveLength(4);
   });
 
   it('reaches the requested count when it exceeds the corner count', () => {
-    const runs = cutIntoRuns([PATH(squarePath())], { runs: 8, minRun: 0 });
+    const { runs } = cutIntoRuns([PATH(squarePath())], { runs: 8, minRun: 0 });
     expect(runs).toHaveLength(8);
   });
 
@@ -100,15 +100,15 @@ describe('cutIntoRuns', () => {
     // threshold. Counting them separately cuts a sliver out of the corner.
     const pts = squarePath();
     const rounded = pts.map((p, i) => (i === 10 ? new THREE.Vector3(0.47, -0.47, 0) : p));
-    const runs = cutIntoRuns([PATH(rounded)], { runs: 1, minRun: 0 });
+    const { runs } = cutIntoRuns([PATH(rounded)], { runs: 1, minRun: 0 });
     expect(runs).toHaveLength(4);
   });
 
   it('drops runs under the floor and keeps the rest', () => {
     // 18 requested over 4 equal-length sides splits unevenly by largest-remainder: two sides
     // get 5 pieces (length 0.2), two get 4 (length 0.25). A 0.22 floor keeps only the latter.
-    const loose = cutIntoRuns([PATH(squarePath())], { runs: 18, minRun: 0 });
-    const floored = cutIntoRuns([PATH(squarePath())], { runs: 18, minRun: 0.22 });
+    const { runs: loose } = cutIntoRuns([PATH(squarePath())], { runs: 18, minRun: 0 });
+    const { runs: floored } = cutIntoRuns([PATH(squarePath())], { runs: 18, minRun: 0.22 });
     // Some must survive: a floor that drops everything satisfies the per-run assertion vacuously.
     expect(floored.length).toBeGreaterThan(0);
     expect(floored.length).toBeLessThan(loose.length);
@@ -116,7 +116,7 @@ describe('cutIntoRuns', () => {
   });
 
   it('carries surface, length and index on every run', () => {
-    const runs = cutIntoRuns([PATH(squarePath())], { runs: 4, minRun: 0 });
+    const { runs } = cutIntoRuns([PATH(squarePath())], { runs: 4, minRun: 0 });
     runs.forEach((run, i) => {
       expect(run.surface).toBe('front');
       expect(run.index).toBe(i);
@@ -125,24 +125,28 @@ describe('cutIntoRuns', () => {
   });
 
   it('cuts an open path at an interior corner without treating its endpoints as corners', () => {
-    const runs = cutIntoRuns([OPEN_PATH(openLPath())], { runs: 2, minRun: 0 });
+    const { runs } = cutIntoRuns([OPEN_PATH(openLPath())], { runs: 2, minRun: 0 });
     expect(runs).toHaveLength(2);
   });
 });
 
 describe('corner strategies', () => {
   it('an all-break distribution reproduces the plain corner-cut run count', () => {
-    const runs = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: ALL_BREAK });
+    const { runs } = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: ALL_BREAK });
     expect(runs).toHaveLength(4);
   });
 
   it('an all-connect distribution on a closed contour yields one run', () => {
-    const runs = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: ALL_CONNECT });
+    const { runs } = cutIntoRuns([PATH(squarePath())], {
+      runs: 1,
+      minRun: 0,
+      corners: ALL_CONNECT,
+    });
     expect(runs).toHaveLength(1);
   });
 
   it('an all-connect distribution keeps an open path in one piece too', () => {
-    const runs = cutIntoRuns([OPEN_PATH(openLPath())], {
+    const { runs } = cutIntoRuns([OPEN_PATH(openLPath())], {
       runs: 1,
       minRun: 0,
       corners: ALL_CONNECT,
@@ -151,8 +155,12 @@ describe('corner strategies', () => {
   });
 
   it('a loop inserts geometry and leaves the run continuous', () => {
-    const broken = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: ALL_BREAK });
-    const looped = cutIntoRuns([PATH(squarePath())], {
+    const { runs: broken } = cutIntoRuns([PATH(squarePath())], {
+      runs: 1,
+      minRun: 0,
+      corners: ALL_BREAK,
+    });
+    const { runs: looped } = cutIntoRuns([PATH(squarePath())], {
       runs: 1,
       minRun: 0,
       corners: { break: 0, connect: 0, loop: 1 },
@@ -167,13 +175,23 @@ describe('corner strategies', () => {
 
   it('is deterministic for a seed and differs across seeds', () => {
     const weights = { break: 1, connect: 1, loop: 1 };
-    const a = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: weights, seed: 3 });
-    const b = cutIntoRuns([PATH(squarePath())], { runs: 1, minRun: 0, corners: weights, seed: 3 });
+    const { runs: a } = cutIntoRuns([PATH(squarePath())], {
+      runs: 1,
+      minRun: 0,
+      corners: weights,
+      seed: 3,
+    });
+    const { runs: b } = cutIntoRuns([PATH(squarePath())], {
+      runs: 1,
+      minRun: 0,
+      corners: weights,
+      seed: 3,
+    });
     expect(a.map((r) => r.length)).toEqual(b.map((r) => r.length));
 
     const lengths = new Set<number>();
     for (let seed = 0; seed < 8; seed++) {
-      const runs = cutIntoRuns([PATH(squarePath())], {
+      const { runs } = cutIntoRuns([PATH(squarePath())], {
         runs: 1,
         minRun: 0,
         corners: weights,
@@ -182,5 +200,38 @@ describe('corner strategies', () => {
       lengths.add(runs.length);
     }
     expect(lengths.size).toBeGreaterThan(1);
+  });
+});
+
+describe('corner records', () => {
+  it('reports one record per corner, at the corner point, with the strategy drawn there', () => {
+    const { corners } = cutIntoRuns([PATH(squarePath())], {
+      runs: 1,
+      minRun: 0,
+      corners: ALL_CONNECT,
+    });
+
+    expect(corners).toHaveLength(4);
+    for (const corner of corners) {
+      expect(corner.strategy).toBe('connect');
+      expect(corner.turn).toBeGreaterThan(Math.PI / 6);
+      // Every vertex of the square path is a corner of it, so each record must land on one.
+      expect(squarePath().some((p) => p.distanceTo(corner.point) < 1e-9)).toBe(true);
+    }
+  });
+
+  it('draws the same records twice from one seed', () => {
+    const weights = { break: 1, connect: 1, loop: 1 };
+    const opts = { runs: 1, minRun: 0, corners: weights, seed: 7 };
+    const a = cutIntoRuns([PATH(squarePath())], opts);
+    const b = cutIntoRuns([PATH(squarePath())], opts);
+
+    expect(a.corners.map((c) => c.strategy)).toEqual(b.corners.map((c) => c.strategy));
+  });
+
+  it('records nothing for a path with no corner', () => {
+    const { corners } = cutIntoRuns([PATH(circlePath())], { runs: 4, minRun: 0 });
+
+    expect(corners).toEqual([]);
   });
 });

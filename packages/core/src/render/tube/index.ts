@@ -2,14 +2,14 @@ import type * as THREE from 'three';
 import type { MaterialSpec } from '../decoration.js';
 import { assign, type SelectSpec } from './assign.js';
 import { generateConnectors, generatePaths } from './generators.js';
-import { type CornerWeights, cutIntoRuns, type Run } from './runs.js';
+import { type CornerRecord, type CornerWeights, cutIntoRuns, type Run } from './runs.js';
 import type { SurfaceKind } from './surfaces.js';
 import { surfacesOf } from './surfaces.js';
 import { sweepRun } from './sweep.js';
 import { wanderFaceRuns } from './wander.js';
 
 export type { SelectSpec } from './assign.js';
-export type { CornerStrategy, CornerWeights, Run } from './runs.js';
+export type { CornerRecord, CornerStrategy, CornerWeights, Run } from './runs.js';
 export { ALL_BREAK, ALL_CONNECT } from './runs.js';
 export type { SurfaceKind } from './surfaces.js';
 
@@ -53,6 +53,8 @@ export interface TubeSpec {
 export interface TubeBlueprint {
   kind: 'tube';
   runs: Run[];
+  /** One entry per corner the cut walked, in draw order. Diagnostic; nothing renders it. */
+  corners: CornerRecord[];
   lit: THREE.BufferGeometry[];
   dark: THREE.BufferGeometry[];
   dispose(): void;
@@ -84,18 +86,14 @@ export function buildTubeBlueprint(
           overshoot: spec.connectorOvershoot ?? 0.05,
         })
       : [];
-  const runs = assign(
-    cutIntoRuns([...paths, ...links], {
-      runs: spec.runs,
-      minRun: spec.minRun,
-      corners: spec.corners,
-      radius: spec.radius,
-      seed,
-    }),
-    spec.select,
-    spec.colors,
+  const cut = cutIntoRuns([...paths, ...links], {
+    runs: spec.runs,
+    minRun: spec.minRun,
+    corners: spec.corners,
+    radius: spec.radius,
     seed,
-  );
+  });
+  const runs = assign(cut.runs, spec.select, spec.colors, seed);
   // After cutting and assigning: a run's final index, which seeds its wander, only exists once
   // the run list is settled.
   wanderFaceRuns(runs, spec.amplitude ?? 0, seed);
@@ -111,6 +109,7 @@ export function buildTubeBlueprint(
   return {
     kind: 'tube',
     runs,
+    corners: cut.corners,
     lit,
     dark,
     dispose() {
@@ -119,6 +118,7 @@ export function buildTubeBlueprint(
       lit.length = 0;
       dark.length = 0;
       runs.length = 0;
+      cut.corners.length = 0;
     },
   };
 }

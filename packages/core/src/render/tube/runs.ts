@@ -15,6 +15,19 @@ export interface Run {
 
 export type CornerStrategy = 'break' | 'connect' | 'loop';
 
+/** What one corner's strategy draw decided, in the path's own coordinates. */
+export interface CornerRecord {
+  point: THREE.Vector3;
+  strategy: CornerStrategy;
+  /** Turn angle in radians, the same measure `pickStrategy` biases on. */
+  turn: number;
+}
+
+export interface CutResult {
+  runs: Run[];
+  corners: CornerRecord[];
+}
+
 /** Relative weights over what a corner does; need not sum to 1. */
 export interface CornerWeights {
   break: number;
@@ -281,6 +294,8 @@ function stitchPath(
   weights: CornerWeights,
   loopRadius: number,
   draw: () => number,
+  record: CornerRecord[],
+  points: THREE.Vector3[],
 ): THREE.Vector3[][] {
   const { arcs, corners } = raw;
   if (corners.length === 0) return arcs;
@@ -295,6 +310,14 @@ function stitchPath(
     const room = Math.min(polyLength(before), polyLength(after));
     return { ...c, strategy: pickStrategy(c.turn, room, loopDiameter, weights, draw) };
   });
+
+  for (const decision of decisions) {
+    record.push({
+      point: (points[decision.index] as THREE.Vector3).clone(),
+      strategy: decision.strategy,
+      turn: decision.turn,
+    });
+  }
 
   if (!closed) {
     const spans: THREE.Vector3[][] = [];
@@ -386,21 +409,22 @@ function slice(span: THREE.Vector3[], pieces: number): THREE.Vector3[][] {
  * guarantee — it cannot go below the count of spans a corner's `break` draws produce, and the
  * floor can take the result lower still.
  */
-export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): Run[] {
+export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): CutResult {
   const weights = opts.corners ?? ALL_BREAK;
   const loopRadius = LOOP_RADIUS_FACTOR * (opts.radius ?? FALLBACK_RADIUS);
   const seed = opts.seed ?? 0;
   let cornerCounter = 0;
   const draw = () => rng(cornerSeed(seed, cornerCounter++))();
 
+  const cornerRecords: CornerRecord[] = [];
   const spans: { points: THREE.Vector3[]; surface: SurfaceKind }[] = [];
   for (const path of paths) {
     const raw = rawSpansOf(path, DEFAULT_CORNER);
-    for (const points of stitchPath(raw, weights, loopRadius, draw)) {
-      if (points.length > 1) spans.push({ points, surface: path.surface });
+    for (const pts of stitchPath(raw, weights, loopRadius, draw, cornerRecords, path.points)) {
+      if (pts.length > 1) spans.push({ points: pts, surface: path.surface });
     }
   }
-  if (spans.length === 0) return [];
+  if (spans.length === 0) return { runs: [], corners: cornerRecords };
 
   const lengths = spans.map((s) => polyLength(s.points));
   const total = lengths.reduce((a, b) => a + b, 0);
@@ -431,5 +455,5 @@ export function cutIntoRuns(paths: GeneratedPath[], opts: CutOptions): Run[] {
       });
     }
   });
-  return out;
+  return { runs: out, corners: cornerRecords };
 }
