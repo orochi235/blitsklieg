@@ -8,7 +8,7 @@ const CONTOUR = 0x39415a;
 const LIT = 0xff2d95;
 const DARK = 0x6a4a60;
 const CLAMPED = 0xffb020;
-const DROPPED = 0xff3b30;
+const DROPPED = 0x00e5ff;
 const ENDPOINT = 0xe6e9f0;
 
 const CORNER_COLOR: Record<CornerStrategy, number> = {
