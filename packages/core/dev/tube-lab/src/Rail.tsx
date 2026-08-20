@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type {
   CornerWeights,
   PathSource,
@@ -32,6 +32,8 @@ interface NumberField {
   scale: number;
   /** What the builder uses when the spec omits the field, which is what the slider must read. */
   unset?: number;
+  /** Values the drag catches on, in the slider's own integer units. */
+  stops?: number[];
 }
 
 const TUBE_FIELDS: NumberField[] = [
@@ -41,14 +43,27 @@ const TUBE_FIELDS: NumberField[] = [
   { key: 'bend', label: 'bend', min: 125, max: 400, step: 5, scale: 100, unset: 2 },
   { key: 'segments', label: 'segments', min: 3, max: 32, step: 1, scale: 1 },
   { key: 'spacing', label: 'spacing', min: 2, max: 80, step: 1, scale: 1000 },
-  { key: 'level', label: 'level', min: -120, max: 120, step: 1, scale: 1000 },
+  // Zero is the only level with a geometric meaning — the path rides the outline. Either side of it
+  // the contour count is a step function over glyph topology, not a scale.
+  { key: 'level', label: 'level', min: -120, max: 120, step: 1, scale: 1000, stops: [0] },
   // Blockout darkens tube that `select` never gets to light, so `lit` alone cannot reach a fully
   // lit letter: at blockout 0.7 the most `lit` can do is 92% of tubing's length.
   { key: 'blockout', label: 'blockout', min: 0, max: 100, step: 1, scale: 100, unset: 0 },
   { key: 'runs', label: 'runs', min: 1, max: 24, step: 1, scale: 1 },
   { key: 'minRun', label: 'min run', min: 0, max: 300, step: 5, scale: 1000 },
   { key: 'amplitude', label: 'amplitude', min: 0, max: 80, step: 1, scale: 1000 },
-  { key: 'wallDepth', label: 'wall depth', min: 0, max: 100, step: 1, scale: 100, unset: 0.5 },
+  // `wallDepth + rise` is clamped to the depth, so a half-depth run is the only one whose rise
+  // swings symmetrically; off-centre, half the perimeter flattens against the clamp.
+  {
+    key: 'wallDepth',
+    label: 'wall depth',
+    min: 0,
+    max: 100,
+    step: 1,
+    scale: 100,
+    unset: 0.5,
+    stops: [50],
+  },
   { key: 'wallRise', label: 'wall rise', min: 0, max: 100, step: 1, scale: 100 },
 ];
 
@@ -122,11 +137,29 @@ interface RangeProps {
   step: number;
   value: number;
   disabled?: boolean;
+  /** Values the drag catches on, in the slider's own integer units. */
+  stops?: number[];
   onCommit: (next: number) => void;
 }
 
-function Range({ label, min, max, step, value, disabled, onCommit }: RangeProps) {
+function Range({ label, min, max, step, value, disabled, stops, onCommit }: RangeProps) {
   const { shown, edit, commit } = useDeferred(value, onCommit);
+  const listId = useId();
+  // A detent worth 3% of the track: narrower is unhittable at this width, wider swallows the
+  // values next to the stop and makes them unreachable.
+  const grab = Math.max(step, (max - min) * 0.03);
+  const snap = (next: number) => {
+    let best = next;
+    let bestGap = grab;
+    for (const stop of stops ?? []) {
+      const gap = Math.abs(next - stop);
+      if (gap <= bestGap) {
+        best = stop;
+        bestGap = gap;
+      }
+    }
+    return best;
+  };
   return (
     <label>
       {label}
@@ -136,12 +169,20 @@ function Range({ label, min, max, step, value, disabled, onCommit }: RangeProps)
         max={max}
         step={step}
         value={shown}
+        list={stops && stops.length > 0 ? listId : undefined}
         disabled={disabled}
-        onChange={(e) => edit(Number(e.target.value))}
+        onChange={(e) => edit(snap(Number(e.target.value)))}
         onPointerUp={commit}
         onKeyUp={commit}
         onBlur={commit}
       />
+      {stops && stops.length > 0 ? (
+        <datalist id={listId}>
+          {stops.map((stop) => (
+            <option key={stop} value={stop} />
+          ))}
+        </datalist>
+      ) : null}
     </label>
   );
 }
@@ -219,6 +260,7 @@ export function Rail(props: RailProps) {
             min={field.min}
             max={field.max}
             step={field.step}
+            stops={field.stops}
             value={Math.round((spec[field.key] ?? field.unset ?? 0) * field.scale)}
             onCommit={(next) => onSpec({ ...spec, [field.key]: next / field.scale })}
           />
@@ -242,6 +284,7 @@ export function Rail(props: RailProps) {
           min={0}
           max={100}
           step={1}
+          stops={[0, 100]}
           value={Math.round(cornerMix(corners) * 100)}
           onCommit={(next) => patch({ corners: { break: next / 100, connect: 1 - next / 100 } })}
         />
