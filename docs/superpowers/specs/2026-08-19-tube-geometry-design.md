@@ -16,16 +16,26 @@ seed 0.
 `sweepRadius` (`sweep.ts`) measures a run's tightest curvature radius and sweeps at `CLEARANCE = 0.8`
 of it. One sharp corner therefore sets the thickness of the whole run it sits in:
 
+Measured across all 26 letters by `spikes/alphabet-sweep.mjs`:
+
 | | worst run | runs clamped |
 | --- | --- | --- |
-| `tubing` N | 31% of requested | 2 of 7 |
+| `tubing` W | 18% of requested | 2 of 7 |
+| `tubing` M | 19% | 2 of 8 |
+| `tubing` N | 31% | 2 of 7 |
 | `tubing` E | 96% | 1 of 6 |
+| `piping` M | 26% | 1 of 1 |
 | `piping` N | 45% | 1 of 1 |
 | `piping` E | 68% | 1 of 1 |
 
+**`M` and `W` are the worst case, not `N`.** `N` is only the fifth-tightest glyph; the standing
+`NSRE` test string misses the extremes entirely and every earlier number in this document was taken
+from it. `M` asks the tube to bend at 0.32 of its own radius, `W` at 0.38, against `N`'s 0.44.
+
 `piping` fares worst because it asks for one run per contour, so a single corner starves an entire
-letter: its cord is drawn at 0.013–0.020 em against a requested 0.03, everywhere. The standing
-complaint that piping's cord "draws nothing front-on at radius 0.03" is this clamp, not the radius.
+letter: **every one of the 26 clamps**, 26 to 69% of the requested 0.03, and only `O` escapes. The
+standing complaint that piping's cord "draws nothing front-on at radius 0.03" is this clamp, not the
+radius.
 
 The clamp exists for a real reason. Sweeping a circle of radius `r` along a path whose local
 curvature radius is smaller than `r` drives the inner wall through itself and the surface turns
@@ -49,8 +59,10 @@ both knobs instead of neither.
 
 That yields two classes of corner, both detected in one pass over the original path:
 
-- **Hard** — `ρ < ρmin`. The glass physically cannot go round it. Six to thirteen per glyph on `NSRE`
-  at `bend = 2`, median turn 47°–93°.
+- **Hard** — `ρ < ρmin`. The glass physically cannot go round it. Across the alphabet at `bend = 2`:
+  212 of them on `tubing`, spread over 25 of 26 glyphs — `O` is the only letter with none. Three to
+  thirteen per glyph. **Filleting is the common path, not the exception**, and the model has to be
+  robust in the ordinary case rather than merely correct in the rare one.
 - **Stylistic** — `ρmin ≤ ρ < ρstyle`. The glass could carry through; whether it does is a look
   decision, and `corners: { break, connect, loop }` keeps drawing it exactly as today. `ρstyle` is a
   second multiple of `r`; 1.76 reproduces today's `DEFAULT_CORNER` at the shipped spacing, which is
@@ -71,9 +83,8 @@ scheme that re-detects corners after filleting will find the fillets.
   because a letter full of flourishes is not a letter.
 
 **A fillet cuts the corner back, and that has to fit.** The setback along each leg is
-`T = ρmin · tan(θ/2)`. At `bend = 2` the largest setback across `NSRE` runs 0.04 em on E's square
-corners to 0.12 em on N's diagonal apex; at `bend = 3` it reaches 0.18 em, a whole stroke. Two tests decide
-whether a fillet is admissible:
+`T = ρmin · tan(θ/2)`. Across the alphabet the largest is 0.112 em at `bend = 2` (`M`'s apex) and
+0.167 em at `bend = 3`. Two tests decide whether a fillet is admissible:
 
 1. **Room.** Each adjacent leg must be at least `T` long, and where both ends of a leg fillet, the
    two setbacks must fit in it together.
@@ -190,10 +201,15 @@ they fillet, and the requested `runs` count fills in the rest by arc length as i
 
 ## Settled
 
-- **`bend` defaults to 2.** Measured-plausible for the lab font at `radius: 0.022`; 3 already eats
-  strokes on N and S. It stays a per-look field, and `piping` is the candidate for a lower value —
-  fabric cord bends tighter relative to its diameter than glass — but that is a tuning call the lab
-  answers once the model is in, not a second default to guess now.
+- **`bend` defaults to 2**, and the alphabet sweep supports it for a different reason than the one
+  first given. `bend` barely classifies anything: the glyphs' corners are so much tighter than any
+  admissible `ρmin` that 2 and 3 yield an **identical** hard-corner count (212 on `tubing`, 227 on
+  `piping`). What `bend` actually sets is setback, and therefore how many fillets have no room and
+  fall back to `break` — 2 on `tubing` and 7 on `piping` at `bend = 2`, against 9 and 17 at
+  `bend = 3`. Two is the knee: under 1% of `tubing`'s fillets rejected, against 4% at three.
+  It stays a per-look field, and `piping` is the candidate for a lower value — fabric cord bends
+  tighter relative to its diameter than glass — but that is a tuning call the lab answers once the
+  model is in, not a second default to guess now.
 - **The pigtail winds in the depth plane.** It keeps the letter's silhouette intact, which matters
   most for a look whose job is to read as a sign, and it avoids the 0.175 em excursion outside the
   glyph bbox that the face plane produces today. It costs `2R = 0.176 em` of forward reach against a
