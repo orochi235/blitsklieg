@@ -54,8 +54,9 @@ describe('splitStrategy over the tube lab zone', () => {
     const min = Math.min(...areas);
     const max = Math.max(...areas);
 
-    // The degenerate spine `splitStrategy.initialState` builds spans a factor of 2^15 here, so
-    // this is what fails if anyone swaps the lab's tree back for it.
+    // Guard the sign first: the degenerate spine `splitStrategy.initialState` builds drives panes
+    // negative, and a negative `min` makes the ratio below pass without meaning anything.
+    expect(min).toBeGreaterThan(0);
     expect(max / min).toBeLessThan(1.5);
   });
 });
