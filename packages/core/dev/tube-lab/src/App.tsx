@@ -174,7 +174,8 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
   const [lookName, setLookName] = useState(initialLook);
   const [bloom, setBloom] = useState(true);
   const look = useMemo(() => specOf(lookName), [lookName]);
-  const specKey = `${JSON.stringify(spec)}|${lookName}|${bloom}`;
+  // Bloom stays out of the key: the renderer reads it per draw, so toggling it costs a draw.
+  const specKey = `${JSON.stringify(spec)}|${lookName}`;
 
   /** Changing look reseeds the rail, so the controls keep reading as that look's own tuning. */
   const changeLook = useCallback((next: TubeLook) => {
@@ -320,10 +321,12 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
         const rect = placements.get(asNodeId(target));
         if (!cell || !rect) return;
         pose(cell, target, rect.w / rect.h);
-        lab.draw([{ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom }]);
+        lab.draw([
+          { rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloomable && bloom },
+        ]);
       });
     },
-    [placements, pose],
+    [bloom, placements, pose],
   );
 
   const resetView = useCallback(
@@ -429,7 +432,6 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
               look: { ...look, decoration: spec },
               font,
               environment: lab.environmentTexture,
-              bloom,
               content: skeleton.object,
             });
             const inner = cell.dispose;
@@ -445,7 +447,6 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
               look: { ...look, decoration: spec },
               font,
               environment: lab.environmentTexture,
-              bloom,
               ...(ramp ? { tubeMaterial: ramp.material } : null),
             });
             ramp?.fit(cell.pivot);
@@ -455,7 +456,12 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
           cellsRef.current.set(id, cell);
         }
         pose(cell, id, rect.w / rect.h);
-        draws.push({ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom });
+        draws.push({
+          rect,
+          scene: cell.scene,
+          camera: cell.camera,
+          bloom: cell.bloomable && bloom,
+        });
       }
       for (const [id, cell] of cellsRef.current) {
         if (live.has(id)) continue;

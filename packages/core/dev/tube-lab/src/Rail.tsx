@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SurfaceKind, TubeSpec } from '../../../src/render/tube/index.js';
 import { lettersOf, MODES, type PanelMode } from './panels.js';
 import { TUBE_LOOKS, type TubeLook } from './spec.js';
@@ -50,6 +50,115 @@ function unhex(value: string): number {
   return Number.parseInt(value.slice(1), 16);
 }
 
+interface Deferred<T> {
+  /** What the control displays: the draft while it is being dragged, the spec's own value after. */
+  shown: T;
+  edit(next: T): void;
+  commit(): void;
+}
+
+/**
+ * A control whose value reaches the spec on release rather than on every input event. One spec
+ * change rebuilds all sixteen cells, so writing through per input turns a drag into a lockup.
+ */
+function useDeferred<T>(value: T, onCommit: (next: T) => void): Deferred<T> {
+  const [draft, setDraft] = useState<T | null>(null);
+  const [seen, setSeen] = useState(value);
+  const pending = useRef<T | null>(null);
+  const latest = useRef({ value, onCommit });
+  latest.current = { value, onCommit };
+
+  // A value from elsewhere — the look picker reseeding every field — outranks a draft, which would
+  // otherwise leave the control reading as the old look's number.
+  if (seen !== value) {
+    setSeen(value);
+    setDraft(null);
+    pending.current = null;
+  }
+
+  const commit = useCallback(() => {
+    const next = pending.current;
+    pending.current = null;
+    setDraft(null);
+    if (next !== null && next !== latest.current.value) latest.current.onCommit(next);
+  }, []);
+
+  return {
+    shown: draft ?? value,
+    edit(next: T) {
+      pending.current = next;
+      setDraft(next);
+    },
+    commit,
+  };
+}
+
+interface RangeProps {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  disabled?: boolean;
+  onCommit: (next: number) => void;
+}
+
+function Range({ label, min, max, step, value, disabled, onCommit }: RangeProps) {
+  const { shown, edit, commit } = useDeferred(value, onCommit);
+  return (
+    <label>
+      {label}
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={shown}
+        disabled={disabled}
+        onChange={(e) => edit(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+    </label>
+  );
+}
+
+interface ColorProps {
+  label: string;
+  value: number;
+  onCommit: (next: number) => void;
+}
+
+function Color({ label, value, onCommit }: ColorProps) {
+  const { shown, edit, commit } = useDeferred(value, onCommit);
+  const input = useRef<HTMLInputElement>(null);
+
+  // The picker is a window of its own: no pointer release lands on the input and focus never
+  // leaves it, so the native `change` it fires on close is the only commit that arrives.
+  useEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.addEventListener('change', commit);
+    return () => el.removeEventListener('change', commit);
+  }, [commit]);
+
+  return (
+    <label>
+      {label}
+      <input
+        ref={input}
+        type="color"
+        value={hex(shown)}
+        onChange={(e) => edit(unhex(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+    </label>
+  );
+}
+
 export interface RailProps {
   spec: TubeSpec;
   onSpec: (next: TubeSpec) => void;
@@ -67,7 +176,6 @@ export function Rail(props: RailProps) {
   const { spec, onSpec } = props;
   const corners = spec.corners ?? { break: 1, connect: 0, loop: 0 };
   const patch = (part: Partial<TubeSpec>) => onSpec({ ...spec, ...part });
-  const patchNumber = (key: NumberKey, value: number) => onSpec({ ...spec, [key]: value });
   // `generateConnectors` returns nothing without both faces, so the controls say so rather than
   // sitting live and doing nothing.
   const bothFaces = spec.surfaces.includes('front') && spec.surfaces.includes('back');
@@ -83,49 +191,38 @@ export function Rail(props: RailProps) {
       <section className="rail__group">
         <h2>tube</h2>
         {TUBE_FIELDS.map((field) => (
-          <label key={field.key}>
-            {field.label}
-            <input
-              type="range"
-              min={field.min}
-              max={field.max}
-              step={field.step}
-              value={Math.round((spec[field.key] ?? field.unset ?? 0) * field.scale)}
-              onChange={(e) => patchNumber(field.key, Number(e.target.value) / field.scale)}
-            />
-          </label>
-        ))}
-        <label>
-          lit
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={Math.round(spec.select.amount * 100)}
-            onChange={(e) =>
-              patch({ select: { ...spec.select, amount: Number(e.target.value) / 100 } })
-            }
+          <Range
+            key={field.key}
+            label={field.label}
+            min={field.min}
+            max={field.max}
+            step={field.step}
+            value={Math.round((spec[field.key] ?? field.unset ?? 0) * field.scale)}
+            onCommit={(next) => onSpec({ ...spec, [field.key]: next / field.scale })}
           />
-        </label>
+        ))}
+        <Range
+          label="lit"
+          min={0}
+          max={100}
+          step={1}
+          value={Math.round(spec.select.amount * 100)}
+          onCommit={(next) => patch({ select: { ...spec.select, amount: next / 100 } })}
+        />
       </section>
 
       <section className="rail__group">
         <h2>corners</h2>
         {(['break', 'connect', 'loop'] as const).map((kind) => (
-          <label key={kind}>
-            {kind}
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={Math.round(corners[kind] * 100)}
-              onChange={(e) =>
-                patch({ corners: { ...corners, [kind]: Number(e.target.value) / 100 } })
-              }
-            />
-          </label>
+          <Range
+            key={kind}
+            label={kind}
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(corners[kind] * 100)}
+            onCommit={(next) => patch({ corners: { ...corners, [kind]: next / 100 } })}
+          />
         ))}
       </section>
 
@@ -149,64 +246,47 @@ export function Rail(props: RailProps) {
             />
           </label>
         ))}
-        <label>
-          connectors
-          <input
-            type="range"
-            min={0}
-            max={8}
-            step={1}
-            value={spec.connectors ?? 0}
-            disabled={!bothFaces}
-            onChange={(e) => patch({ connectors: Number(e.target.value) })}
-          />
-        </label>
-        <label>
-          overshoot
-          <input
-            type="range"
-            min={0}
-            max={200}
-            step={1}
-            value={Math.round((spec.connectorOvershoot ?? 0.05) * 1000)}
-            disabled={!bothFaces}
-            onChange={(e) => patch({ connectorOvershoot: Number(e.target.value) / 1000 })}
-          />
-        </label>
+        <Range
+          label="connectors"
+          min={0}
+          max={8}
+          step={1}
+          value={spec.connectors ?? 0}
+          disabled={!bothFaces}
+          onCommit={(next) => patch({ connectors: next })}
+        />
+        <Range
+          label="overshoot"
+          min={0}
+          max={200}
+          step={1}
+          value={Math.round((spec.connectorOvershoot ?? 0.05) * 1000)}
+          disabled={!bothFaces}
+          onCommit={(next) => patch({ connectorOvershoot: next / 1000 })}
+        />
         {bothFaces ? null : <p className="rail__note">connectors need front and back</p>}
       </section>
 
       <section className="rail__group">
         <h2>material</h2>
-        <label>
-          emissive
-          <input
-            type="color"
-            value={hex(spec.look.emissive ?? 0xffffff)}
-            onChange={(e) => patch({ look: { ...spec.look, emissive: unhex(e.target.value) } })}
-          />
-        </label>
-        <label>
-          intensity
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={Math.round((spec.look.emissiveIntensity ?? 0) * 10)}
-            onChange={(e) =>
-              patch({ look: { ...spec.look, emissiveIntensity: Number(e.target.value) / 10 } })
-            }
-          />
-        </label>
-        <label>
-          run colour
-          <input
-            type="color"
-            value={hex(spec.colors[0] ?? 0xffffff)}
-            onChange={(e) => patch({ colors: [unhex(e.target.value)] })}
-          />
-        </label>
+        <Color
+          label="emissive"
+          value={spec.look.emissive ?? 0xffffff}
+          onCommit={(next) => patch({ look: { ...spec.look, emissive: next } })}
+        />
+        <Range
+          label="intensity"
+          min={0}
+          max={100}
+          step={1}
+          value={Math.round((spec.look.emissiveIntensity ?? 0) * 10)}
+          onCommit={(next) => patch({ look: { ...spec.look, emissiveIntensity: next / 10 } })}
+        />
+        <Color
+          label="run colour"
+          value={spec.colors[0] ?? 0xffffff}
+          onCommit={(next) => patch({ colors: [next] })}
+        />
         <label>
           bloom
           <input
