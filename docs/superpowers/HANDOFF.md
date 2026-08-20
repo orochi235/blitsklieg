@@ -52,76 +52,6 @@ consumer report is in windease's own `TODO.md` under "Replace `splitStrategy` wi
 - **A reload does not unmount**, so a debounced save needs a `pagehide` flush or a drag made inside
   the window is lost.
 
-### What just landed
-
-The lab's four corner panels are gone, replaced by two full-width docks. The word occupies the
-middle 62% of the width but only 30% of the height, so the bands above and below it are the
-largest region controls can hold without ever sitting under the type; the corners could not be
-made to work at 800x600, where the top and bottom panel in a column overlapped by 32px because
-`max-height` was being applied content-box. Four groups per dock, controls that shrink instead of
-overflowing their column.
-
-Also closed, all with `npm run check` and the 24 Playwright specs green:
-
-- **`visual.spec.ts` could not click `#wrap`** — it sat under the overlapping tube panel. Fixed by
-  the dock layout; the spec passes untouched.
-- **The bloom checkbox was one-way.** It is now a three-way `auto`/`on`/`off` select: unchecked
-  could only ever mean "unset", because `FireOptions.bloom` wins over a look's own request, so
-  there was no way to switch neon's bloom off. `auto` and `on` render identically for neon; `off`
-  is a different image.
-- **A restored hash is now announced.** A saved `enter: none` / `active: none` survives reload and
-  reads as a lab that stopped animating, and only editing the address bar cleared it. The session
-  group now names what was restored and offers a reset.
-- **`decorMaterial` never got the per-letter flake seed.** Every material a letter owns now takes
-  it, body and decoration alike, via one `seedFlake` helper. Covered by a test proven to die when
-  the call is removed.
-- **The chunk count slider stopped at 300**, below the real `POOL = 512` ceiling. The probe loop in
-  `chunkMatrices` places exactly `POOL` distinct chunks and stacks only past it, so 512 is the
-  slider's correct maximum.
-
-### The visual suite now guards the type, not the page
-
-`shoot()` injects `main, .dock { display: none; }` before capturing, so a baseline is a function of
-the look alone and no control-panel edit can invalidate one again. All 15 were re-recorded, which
-also retires the stale pre-rewrite `tubing` and `piping` baselines.
-
-**Pointing the capture at the canvas locator — the fix this doc used to propose — would not have
-worked.** The canvas is transparent everywhere the letters do not draw, so an element screenshot
-still composites the page and panels through it.
-
-**The tolerance that mattered was `threshold`, not `maxDiffPixelRatio`.** Bloom is a wide,
-low-amplitude halo: turning it off moves 8.3% of pixels but by a median of 8/255 and a maximum of
-54/255, so at Playwright's default per-pixel `threshold: 0.2` nothing was counted and no ratio,
-however tight, could have caught it. Now at `threshold: 0.02` / `maxDiffPixelRatio: 0.001`, which
-fails on bloom-off at ratio 0.04 and passes on repeated clean runs.
-
-### `piping` ships a decoration that barely renders
-
-Front-on, `look-piping-darwin.png` was **byte-identical** to `look-leather-darwin.png` — the cord
-contributed not one pixel, so that baseline guarded the body and nothing the decoration adds. A new
-`off axis` describe yaws the word group 30 degrees, matching the standing convention below, and
-records `tubing` and `piping` there. `tubing` shows its tube plainly; `piping` differs from a yawed
-`leather` only slightly. Tuning it is the untuned-by-decision item under **Open review findings**.
-
-The word group is yawed rather than the camera: `viewportBudget()` reads `camera.position.z` as the
-distance to the word plane, so an off-axis camera drifts the fit instead.
-
-### Traps this work has already hit
-
-- **The plan's placement assertions were wrong twice over.** Positions are glyph *origins* centred
-  on the advance span, so a two-letter line is `[-STEP, 0]`, not `[∓STEP/2]`. Corrected throughout,
-  but check any new assertion against `word.test.ts`'s own `inkCenter` helper.
-- **Biome rejects a write-only private field** (`noUnusedPrivateClassMembers`), so a field cannot
-  be declared in an earlier task than the one that reads it. This is why the fit tween is folded
-  into the regroup task rather than standing alone.
-- **`word.test.ts` cannot see per-letter seeding.** Task 1's review proved it: injecting `i + 1`
-  into the flake/tube/chunk seed sites diverges the render by 36k lines of fingerprint while all 48
-  tests stay green. A refactor near `buildCell` needs a differential check, not a test run.
-- **Two independent sources of "does this glyph draw"** now exist — `placeBlock`'s `drawsInk`
-  predicate, and the null entries in the `geoMinY`/`geoMaxY` arrays handed to `fitOf`. They agree
-  inside `Word`. A caller that lets them disagree gets width and height measured over different
-  glyph sets.
-
 ## Not done, carried over from tubing
 
 - **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon.
@@ -133,7 +63,10 @@ Test string is `NSR` — straight, curved, and mixed-with-counter. `E` spot-chec
 Captures at yaw 30 / pitch 13 degrees so they stay comparable. Judge by looking at the image, not
 by a green test run: the geometry has been correct while the render was visibly torn.
 
-## Defect to fix: the lab reaches past the public surface
+## Defect being fixed: the lab reaches past the public surface
+
+**Task 10 of the tube lab plan deletes both diagnostic paths.** The section below is the reasoning;
+the plan carries the steps.
 
 `packages/core/src/debug.ts` re-exports `Word`, `Stage`, `Timeline`, `NONE`, `loadFont` and
 `surfacesOf`, and `apps/lab/src/diagnostics.ts` imports them through a deep relative path. The lab
