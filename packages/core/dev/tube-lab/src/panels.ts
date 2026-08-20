@@ -1,5 +1,9 @@
-export const MODES = ['beauty', 'orbit', 'skeleton', 'ramp'] as const;
+export const MODES = ['beauty', 'skeleton', 'ramp'] as const;
 export type PanelMode = (typeof MODES)[number];
+
+/** Where a panel is looked at from, which every mode answers separately from what it draws. */
+export const POSES = ['head-on', 'turned'] as const;
+export type Pose = (typeof POSES)[number];
 
 export const RAMP_SOURCES = ['depth', 'arc'] as const;
 export type RampSource = (typeof RAMP_SOURCES)[number];
@@ -11,6 +15,7 @@ export const DEFAULT_LETTERS = 'NSRE';
 export interface PanelMeta {
   letter: string;
   mode: PanelMode;
+  pose: Pose;
   source: RampSource;
 }
 
@@ -27,6 +32,10 @@ export function isPanelMode(value: unknown): value is PanelMode {
   return MODES.includes(value as PanelMode);
 }
 
+export function isPose(value: unknown): value is Pose {
+  return POSES.includes(value as Pose);
+}
+
 export function isRampSource(value: unknown): value is RampSource {
   return RAMP_SOURCES.includes(value as RampSource);
 }
@@ -36,10 +45,21 @@ export function lettersOf(text: string): string[] {
   return [...new Set([...text.replace(/\s+/g, '')])];
 }
 
+/**
+ * A letter's starting set: the head-on beauty render everything else is judged against, the same
+ * render turned, and the two diagnostics. This is the only place a starting pose is set.
+ */
+export function panelsFor(letter: string): PanelMeta[] {
+  return [
+    { letter, mode: 'beauty', pose: 'head-on', source: 'depth' },
+    { letter, mode: 'beauty', pose: 'turned', source: 'depth' },
+    { letter, mode: 'skeleton', pose: 'head-on', source: 'depth' },
+    { letter, mode: 'ramp', pose: 'head-on', source: 'depth' },
+  ];
+}
+
 export function seedPanels(letters: string): PanelMeta[] {
-  return lettersOf(letters).flatMap((letter) =>
-    MODES.map((mode) => ({ letter, mode, source: 'depth' as RampSource })),
-  );
+  return lettersOf(letters).flatMap(panelsFor);
 }
 
 /**
@@ -55,9 +75,7 @@ export function reconcileLetters(
   const have = new Set(existing.map((p) => p.letter));
   const keep = new Set(wanted);
   return {
-    add: wanted
-      .filter((l) => !have.has(l))
-      .flatMap((letter) => MODES.map((mode) => ({ letter, mode, source: 'depth' as RampSource }))),
+    add: wanted.filter((l) => !have.has(l)).flatMap(panelsFor),
     remove: existing.filter((p) => !keep.has(p.letter)).map((p) => p.id),
   };
 }

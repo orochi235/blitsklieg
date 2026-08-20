@@ -2,14 +2,20 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_LETTERS,
   lettersOf,
-  MODES,
+  type MODES,
   type PanelRecord,
   reconcileLetters,
   seedPanels,
 } from '../../../dev/tube-lab/src/panels.js';
 
 function records(...pairs: [string, (typeof MODES)[number]][]): PanelRecord[] {
-  return pairs.map(([letter, mode], i) => ({ id: `p${i}`, letter, mode, source: 'depth' }));
+  return pairs.map(([letter, mode], i) => ({
+    id: `p${i}`,
+    letter,
+    mode,
+    pose: 'head-on',
+    source: 'depth',
+  }));
 }
 
 describe('lettersOf', () => {
@@ -19,20 +25,30 @@ describe('lettersOf', () => {
 });
 
 describe('seedPanels', () => {
-  it('builds every mode for every letter', () => {
+  it('gives every letter a head-on reference, a turned one, and the two diagnostics', () => {
     const seeded = seedPanels(DEFAULT_LETTERS);
 
-    expect(seeded).toHaveLength(4 * MODES.length);
-    expect(seeded.filter((p) => p.letter === 'N').map((p) => p.mode)).toEqual([...MODES]);
+    expect(seeded).toHaveLength(4 * 4);
+    expect(seeded.filter((p) => p.letter === 'N').map((p) => `${p.mode}:${p.pose}`)).toEqual([
+      'beauty:head-on',
+      'beauty:turned',
+      'skeleton:head-on',
+      'ramp:head-on',
+    ]);
   });
 });
 
 describe('reconcileLetters', () => {
-  it('adds one panel per mode for a letter that arrived', () => {
+  it('adds the seeded set for a letter that arrived', () => {
     const { add, remove } = reconcileLetters(records(['N', 'beauty']), 'NE');
 
     expect(remove).toEqual([]);
-    expect(add.map((p) => `${p.letter}:${p.mode}`)).toEqual(MODES.map((m) => `E:${m}`));
+    expect(add.map((p) => `${p.letter}:${p.mode}:${p.pose}`)).toEqual([
+      'E:beauty:head-on',
+      'E:beauty:turned',
+      'E:skeleton:head-on',
+      'E:ramp:head-on',
+    ]);
   });
 
   it('removes every panel of a letter that left', () => {

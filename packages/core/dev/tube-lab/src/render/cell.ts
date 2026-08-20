@@ -82,7 +82,7 @@ export interface Cell {
   key: string;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  /** Yawed and pitched by orbit. The camera never moves; the fit is solved against `DISTANCE`. */
+  /** Yawed and pitched by the pose. The camera never moves; the fit solves against `DISTANCE`. */
   pivot: THREE.Group;
   /** Sizes the letter to the panel it is about to be drawn into, `w / h`, times `zoom`. */
   fit(aspect: number, zoom?: number): void;
@@ -95,7 +95,7 @@ export interface CellInput {
   look: LookSpec;
   font: LoadedFont;
   environment: THREE.Texture;
-  /** Whatever the mode wants drawn instead of a Word; `beauty` and `orbit` pass nothing. */
+  /** Whatever the mode wants drawn instead of a Word; `beauty` passes nothing. */
   content?: THREE.Object3D;
   /** Replaces both tube materials, for the ramp mode. */
   tubeMaterial?: (which: 'lit' | 'dark') => THREE.Material | undefined;

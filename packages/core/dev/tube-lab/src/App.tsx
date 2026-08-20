@@ -21,9 +21,11 @@ import { DEFAULT_GLYPH_OPTIONS, glyphToShapes } from '../../../src/text/glyphs.j
 import { labFont } from './font.js';
 import {
   isPanelMode,
+  isPose,
   isRampSource,
   type PanelMeta,
   type PanelRecord,
+  type Pose,
   RAMP_SOURCES,
   reconcileLetters,
 } from './panels.js';
@@ -39,8 +41,9 @@ export const ZONE = asNodeId('zone');
 export function metaOf(raw: Record<string, unknown> | undefined): PanelMeta {
   const letter = typeof raw?.letter === 'string' ? raw.letter : '?';
   const mode = isPanelMode(raw?.mode) ? raw.mode : 'beauty';
+  const pose = isPose(raw?.pose) ? raw.pose : 'head-on';
   const source = isRampSource(raw?.source) ? raw.source : 'depth';
-  return { letter, mode, source };
+  return { letter, mode, pose, source };
 }
 
 function createPanelNode(id: NodeId, meta: PanelMeta) {
@@ -57,7 +60,7 @@ function addPanel(store: Store, meta: PanelMeta): NodeId {
   return id;
 }
 
-/** How an orbit panel is being looked at. In memory only, like the layout is not. */
+/** How a panel is being looked at. In memory only, unlike the layout. */
 interface View {
   yaw: number;
   pitch: number;
@@ -66,8 +69,12 @@ interface View {
 
 const HEAD_ON: View = { yaw: 0, pitch: 0, zoom: 1 };
 
-/** The off-axis baseline's yaw, with enough pitch to show a planar loop ring as an ellipse. */
-const ORBIT_SEED: View = { yaw: (30 * Math.PI) / 180, pitch: (13 * Math.PI) / 180, zoom: 1 };
+/** The turned pose's yaw, with enough pitch to show a planar loop ring as an ellipse. */
+const TURNED: View = { yaw: (30 * Math.PI) / 180, pitch: (13 * Math.PI) / 180, zoom: 1 };
+
+function initialView(pose: Pose): View {
+  return pose === 'turned' ? TURNED : HEAD_ON;
+}
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 4;
@@ -80,8 +87,8 @@ const ZOOM_MAX = 4;
 const WHEEL_STEP = 500;
 const PINCH_STEP = 100;
 
-interface OrbitProps {
-  'data-orbit': string;
+interface ViewProps {
+  'data-view': string;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onDoubleClick: () => void;
 }
@@ -90,7 +97,8 @@ function chromeFor(
   store: Store,
   reports: Record<string, string>,
   onChange: () => void,
-  orbitProps: (id: string) => OrbitProps,
+  viewProps: (id: string, pose: Pose) => ViewProps,
+  onReset: (id: string, pose: Pose) => void,
 ) {
   return function chrome({ node }: ChromeArgs) {
     const meta = metaOf(node.meta);
@@ -120,10 +128,30 @@ function chromeFor(
             ) : null}
           </div>
         </DragHandle>
-        <div
-          className={meta.mode === 'orbit' ? 'panel__body panel__body--orbit' : 'panel__body'}
-          {...(meta.mode === 'orbit' ? orbitProps(node.id) : null)}
-        >
+        <div className="panel__body" {...viewProps(node.id, meta.pose)}>
+          <button
+            type="button"
+            className="panel__reset"
+            aria-label={`reset the ${meta.letter} ${meta.mode} view`}
+            // The button sits on the drag surface: without this a click starts a turn instead.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onReset(node.id, meta.pose)}
+          >
+            <svg
+              viewBox="0 0 16 16"
+              width="12"
+              height="12"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M14 8a6 6 0 1 1-1.8-4.3" />
+              <path d="M12.2 3.7 8.9 3.1M12.2 3.7 11.5 6.6" />
+            </svg>
+          </button>
           {summary ? <p className="panel__readout">{summary}</p> : null}
         </div>
       </div>
@@ -277,9 +305,17 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     [placements, pose],
   );
 
-  const orbitProps = useCallback(
-    (id: string): OrbitProps => ({
-      'data-orbit': id,
+  const resetView = useCallback(
+    (id: string, pose: Pose) => {
+      views.current.set(id, initialView(pose));
+      drawOne(id);
+    },
+    [drawOne],
+  );
+
+  const viewProps = useCallback(
+    (id: string, pose: Pose): ViewProps => ({
+      'data-view': id,
       onPointerDown: (event) => {
         // The title bar above is the DragHandle that rearranges panels; a turn must not reach it.
         event.stopPropagation();
@@ -309,12 +345,9 @@ export function App({ letters: initialLetters, spec }: AppProps) {
         target.addEventListener('pointerup', up);
         target.addEventListener('pointercancel', up);
       },
-      onDoubleClick: () => {
-        views.current.set(id, ORBIT_SEED);
-        drawOne(id);
-      },
+      onDoubleClick: () => resetView(id, pose),
     }),
-    [drawOne],
+    [drawOne, resetView],
   );
 
   // React attaches wheel passively at its root, where preventDefault does nothing and a trackpad
@@ -324,8 +357,8 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     if (!stage) return;
     const onWheel = (event: WheelEvent) => {
       const id = (event.target as Element | null)
-        ?.closest('[data-orbit]')
-        ?.getAttribute('data-orbit');
+        ?.closest('[data-view]')
+        ?.getAttribute('data-view');
       if (!id) return;
       event.preventDefault();
       const view = views.current.get(id) ?? HEAD_ON;
@@ -340,8 +373,8 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   }, [drawOne]);
 
   const chromeWithReports = useMemo(
-    () => chromeFor(store, reports, drawAll, orbitProps),
-    [store, reports, drawAll, orbitProps],
+    () => chromeFor(store, reports, drawAll, viewProps, resetView),
+    [store, reports, drawAll, viewProps, resetView],
   );
 
   // The frame calls the newest body, never the one that queued it: coalescing on the call would
@@ -394,7 +427,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
           cell.key = key;
           cellsRef.current.set(id, cell);
         }
-        if (meta.mode === 'orbit' && !views.current.has(id)) views.current.set(id, ORBIT_SEED);
+        if (!views.current.has(id)) views.current.set(id, initialView(meta.pose));
         pose(cell, id, rect.w / rect.h);
         draws.push({ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom });
       }
