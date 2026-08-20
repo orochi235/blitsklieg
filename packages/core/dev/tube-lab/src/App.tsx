@@ -1,13 +1,13 @@
 import { asNodeId } from 'windease';
 import { type ChromeArgs, Container, DragHandle } from 'windease/react';
-import { isPanelMode, type PanelMeta } from './panels.js';
+import { isPanelMode, isRampSource, type PanelMeta } from './panels.js';
 
 export const ZONE = asNodeId('zone');
 
 export function metaOf(raw: Record<string, unknown> | undefined): PanelMeta {
   const letter = typeof raw?.letter === 'string' ? raw.letter : '?';
   const mode = isPanelMode(raw?.mode) ? raw.mode : 'beauty';
-  const source = raw?.source === 'arc' ? 'arc' : 'depth';
+  const source = isRampSource(raw?.source) ? raw.source : 'depth';
   return { letter, mode, source };
 }
 

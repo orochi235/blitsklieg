@@ -5,7 +5,8 @@ type Direction = 'horizontal' | 'vertical';
 /**
  * A balanced tree over `ids`, alternating direction by depth so the panels tile a grid, each split
  * in proportion to the leaves it carries. windease 0.8's own `initialState` halves each pane in
- * turn instead — see `HANDOFF.md` in the windease repo, and delete this when that lands.
+ * turn instead; this goes away when `splitStrategy` is replaced by a `split(zoneId, …)` store
+ * operation.
  */
 export function balancedTree(
   ids: readonly string[],

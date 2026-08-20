@@ -50,13 +50,24 @@ describe('splitStrategy over the tube lab zone', () => {
   });
 
   it('tiles evenly rather than halving each pane in turn', () => {
-    const areas = [...layoutOf(16).placements.values()].map((r) => r.w * r.h);
-    const min = Math.min(...areas);
-    const max = Math.max(...areas);
+    // Not only at 16: at a power of two `mid / ids.length` is 0.5 at every level, so a hardcoded
+    // ratio is indistinguishable there.
+    for (const count of [3, 7, 16]) {
+      const areas = [...layoutOf(count).placements.values()].map((r) => r.w * r.h);
+      const min = Math.min(...areas);
+      const max = Math.max(...areas);
 
-    // Guard the sign first: the degenerate spine `splitStrategy.initialState` builds drives panes
-    // negative, and a negative `min` makes the ratio below pass without meaning anything.
-    expect(min).toBeGreaterThan(0);
-    expect(max / min).toBeLessThan(1.5);
+      // Guard the sign first: the degenerate spine drives panes negative, and a negative `min`
+      // makes the ratio pass without meaning anything.
+      expect(min, `${count} panels`).toBeGreaterThan(0);
+      expect(max / min, `${count} panels`).toBeLessThan(1.5);
+    }
+  });
+
+  it('lays out a grid, not a row of stripes', () => {
+    const rects = [...layoutOf(16).placements.values()];
+
+    expect(new Set(rects.map((r) => Math.round(r.x))).size).toBe(4);
+    expect(new Set(rects.map((r) => Math.round(r.y))).size).toBe(4);
   });
 });

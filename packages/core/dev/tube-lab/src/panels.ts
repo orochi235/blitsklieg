@@ -27,6 +27,10 @@ export function isPanelMode(value: unknown): value is PanelMode {
   return MODES.includes(value as PanelMode);
 }
 
+export function isRampSource(value: unknown): value is RampSource {
+  return RAMP_SOURCES.includes(value as RampSource);
+}
+
 /** The field's distinct characters in typed order; whitespace is not a letter. */
 export function lettersOf(text: string): string[] {
   return [...new Set([...text.replace(/\s+/g, '')])];
