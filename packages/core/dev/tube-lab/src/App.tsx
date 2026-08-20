@@ -10,6 +10,7 @@ import {
 import { specOf } from '../../../src/render/looks.js';
 import type { TubeSpec } from '../../../src/render/tube/index.js';
 import type { LoadedFont } from '../../../src/text/font.js';
+import { DEFAULT_GLYPH_OPTIONS, glyphToShapes } from '../../../src/text/glyphs.js';
 import { labFont } from './font.js';
 import {
   isPanelMode,
@@ -21,6 +22,7 @@ import {
 import { clear, save } from './persist.js';
 import { buildCell, type Cell } from './render/cell.js';
 import { LabRenderer, type PanelDraw } from './render/lab.js';
+import { buildSkeleton } from './render/skeleton.js';
 import { balancedTree, withLeaf, withoutLeaf } from './tree.js';
 
 export const ZONE = asNodeId('zone');
@@ -46,19 +48,24 @@ function addPanel(store: Store, meta: PanelMeta): NodeId {
   return id;
 }
 
-function chrome({ node }: ChromeArgs) {
-  const meta = metaOf(node.meta);
-  return (
-    <div className="panel">
-      <DragHandle nodeId={node.id}>
-        <div className="panel__bar">
-          <span className="panel__letter">{meta.letter}</span>
-          <span className="panel__mode">{meta.mode}</span>
+function chromeFor(reports: Record<string, string>) {
+  return function chrome({ node }: ChromeArgs) {
+    const meta = metaOf(node.meta);
+    const summary = reports[node.id];
+    return (
+      <div className="panel">
+        <DragHandle nodeId={node.id}>
+          <div className="panel__bar">
+            <span className="panel__letter">{meta.letter}</span>
+            <span className="panel__mode">{meta.mode}</span>
+          </div>
+        </DragHandle>
+        <div className="panel__body">
+          {summary ? <p className="panel__readout">{summary}</p> : null}
         </div>
-      </DragHandle>
-      <div className="panel__body" />
-    </div>
-  );
+      </div>
+    );
+  };
 }
 
 export interface AppProps {
@@ -133,7 +140,13 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   const frame = useRef(0);
   const latest = useRef<() => void>(() => {});
   const [font, setFont] = useState<LoadedFont | null>(null);
+  const [reports, setReports] = useState<Record<string, string>>({});
   const { placements } = useContainerLayout(ZONE, stageRef);
+  const chromeWithReports = useMemo(() => chromeFor(reports), [reports]);
+
+  const setReport = useCallback((id: string, summary: string) => {
+    setReports((prev) => (prev[id] === summary ? prev : { ...prev, [id]: summary }));
+  }, []);
 
   useEffect(() => {
     labFont().then(setFont, (err: unknown) => console.error('tube lab: font failed', err));
@@ -188,12 +201,31 @@ export function App({ letters: initialLetters, spec }: AppProps) {
         let cell = cellsRef.current.get(id);
         if (!cell || cell.key !== key) {
           cell?.dispose();
-          cell = buildCell({
-            meta,
-            look: { ...look, decoration: spec },
-            font,
-            environment: lab.environmentTexture,
-          });
+          if (meta.mode === 'skeleton') {
+            const shapes = glyphToShapes(font.font, meta.letter, 1);
+            const skeleton = buildSkeleton(shapes, spec, DEFAULT_GLYPH_OPTIONS.depth);
+            cell = buildCell({
+              meta,
+              look: { ...look, decoration: spec },
+              font,
+              environment: lab.environmentTexture,
+              content: skeleton.object,
+            });
+            const inner = cell.dispose;
+            cell.dispose = () => {
+              inner();
+              skeleton.dispose();
+            };
+            setReport(id, skeleton.report.summary);
+          } else {
+            cell = buildCell({
+              meta,
+              look: { ...look, decoration: spec },
+              font,
+              environment: lab.environmentTexture,
+            });
+            setReport(id, '');
+          }
           cell.key = key;
           cellsRef.current.set(id, cell);
         }
@@ -209,13 +241,13 @@ export function App({ letters: initialLetters, spec }: AppProps) {
       lab.draw(draws);
     };
     drawAll();
-  }, [drawAll, font, placements, spec, specKey, look, store]);
+  }, [drawAll, font, placements, spec, specKey, look, store, setReport]);
 
   return (
     <div className="lab">
       <div className="stage" ref={stageRef}>
         <canvas ref={canvasRef} />
-        <Container className="zone" parentId={ZONE} chrome={chrome} affordances />
+        <Container className="zone" parentId={ZONE} chrome={chromeWithReports} affordances />
       </div>
       <div className="rail">
         <section className="rail__group">
