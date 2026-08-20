@@ -13,6 +13,19 @@ replaces the distance field with a trace of the glyph's own contour, and it subs
 failures below — read it before picking up either. `TubeSpec.pathSource` (`field` | `exact` |
 `direct`) is already in the tree, defaulting to `field`, and the tube lab's rail switches it.
 
+**A run's colour now renders.** `assign` had always set `run.color` and nothing ever read it —
+`word.ts` gave every lit run one shared material, and both looks hid it by setting `colors` to the
+value the material already carried. The sweep writes a per-vertex `runColor` attribute and
+`tint.ts` patches the look's own channel from it: emissive for `tubing`, base colour for `piping`,
+since three's `vertexColors` only reaches diffuse. `TubeSpec.surfaceColors` is new public API, a
+palette per surface. All 24 baselines pass unchanged, which is the claim that published looks did
+not move.
+
+**A colour fade along a run is now cheap and unbuilt.** `buildTubeGeometry` writes
+`uv.x = i / (ringCount - 1)` — the fraction along the run — in the same loop as the colour
+attribute, so a gradient is a lerp on that fraction and no new plumbing. The open question is only
+whether a palette sweeps along each run, across the whole word, or gets its own spec field.
+
 The geometry model is in `docs/superpowers/specs/2026-08-19-tube-geometry-design.md`, and its
 `## Acceptance, as measured` section has the numbers. In short: the tube holds one diameter, corners
 are classified by bend radius and filleted with a tangent arc at the material's minimum, run ends are
@@ -21,7 +34,15 @@ strategy is gone. Two runs of 231 on `tubing` and three of 47 on `piping` still 
 their look's minimum, against every `piping` run clamped before.
 
 Run it with `npm run dev:tube-lab -w blitsklieg` — sixteen panels on one WebGL context, one letter
-each, `beauty` / `skeleton` / `ramp`, with a rail that tunes the whole `TubeSpec`.
+each, `beauty` / `skeleton` / `ramp`, with a rail that tunes the whole `TubeSpec`. Every control
+carries a hover hint saying what it does and what it interacts with badly, which is the fastest way
+back into the model. Sliders that mark a real boundary have a stop the drag catches.
+
+**Some rail controls are honest about very little, and the hints say so.** `runs` is a request
+pinned between the corner count below and `minRun` above — at `bend` 4 it is pinned across its whole
+range. `wall depth` and `wall rise` do nothing under either shipped look, both being front-only.
+`spikes/slider-sensitivity.mjs` sweeps every field and counts distinct outputs; use it before
+believing a control does what its name says.
 
 The spikes are the fast way back into any of it: `bend-acceptance.mjs` is the invariant across the
 alphabet, `where-under-bend.mjs <look> <letters>` says whether a bad bend is inside a fillet, at a
@@ -49,6 +70,8 @@ fidelity, and the spec covers both; the rest are independent.
   path reverses, 174 degrees at 0.32r. `spikes/join-geometry.mjs` prints a failing run per vertex.
   This is not independent of path fidelity — it gates it, because the grid's blur is what was
   holding it to a few percent.
+- **A colour fade along a run**, now that colour renders and the along-run fraction is already in
+  the geometry. Small, self-contained, and the only decision is where the gradient is specified.
 - **`sequin` and `pyrite` both waste ~30% of their chunk pool on the back cap** (`decoration.ts:227`).
   Rejecting back-facing samples changes which pool indices exist, so it changes how both published
   looks render. That is a decision, not a patch.
