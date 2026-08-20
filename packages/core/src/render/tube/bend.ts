@@ -1,4 +1,4 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 
 /**
  * The floor on `bend`, inherited from the sweep's old CLEARANCE of 0.8: a tube may occupy at most
@@ -93,4 +93,63 @@ export function cornersByBend(
   return groups
     .map((g) => g.reduce((a, b) => (b.rho < a.rho ? b : a)))
     .map((b) => ({ ...b, hard: b.rho < rhoMin }));
+}
+
+export interface Fillet {
+  /** Replacement points from the incoming tangent point to the outgoing one, inclusive. */
+  points: THREE.Vector3[];
+  /** Distance back along each leg to the tangent point. */
+  setback: number;
+  /** Index of the corner vertex these points replace. */
+  index: number;
+}
+
+/**
+ * A circular arc of radius `rhoMin` tangent to both legs at `index`, resampled at `spacing`.
+ * Returns null when either leg is shorter than the setback — the caller falls back to a break.
+ */
+export function filletAt(
+  points: THREE.Vector3[],
+  closed: boolean,
+  index: number,
+  rhoMin: number,
+  spacing: number,
+): Fillet | null {
+  const n = points.length;
+  if (!closed && (index < 1 || index > n - 2)) return null;
+  const prev = points[(index - 1 + n) % n] as THREE.Vector3 | undefined;
+  const cur = points[index] as THREE.Vector3 | undefined;
+  const next = points[(index + 1) % n] as THREE.Vector3 | undefined;
+  if (!prev || !cur || !next) return null;
+
+  const into = cur.clone().sub(prev);
+  const outOf = next.clone().sub(cur);
+  if (into.lengthSq() < 1e-18 || outOf.lengthSq() < 1e-18) return null;
+  const u = into.clone().normalize();
+  const v = outOf.clone().normalize();
+  const turn = u.angleTo(v);
+  // A straight join needs no fillet; a full reversal has no arc meeting both legs.
+  if (turn < 1e-6 || turn > Math.PI - 1e-6) return null;
+
+  const setback = rhoMin * Math.tan(turn / 2);
+  if (setback > into.length() || setback > outOf.length()) return null;
+
+  const start = cur.clone().addScaledVector(u, -setback);
+  const end = cur.clone().addScaledVector(v, setback);
+  // The centre sits off the corner along the internal bisector, at rhoMin / cos(turn/2).
+  const bisector = v.clone().sub(u).normalize();
+  const centre = cur.clone().addScaledVector(bisector, rhoMin / Math.cos(turn / 2));
+
+  const radial = start.clone().sub(centre);
+  const axis = radial.clone().cross(end.clone().sub(centre));
+  if (axis.lengthSq() < 1e-18) return null;
+  axis.normalize();
+
+  const sweep = radial.angleTo(end.clone().sub(centre));
+  const steps = Math.max(2, Math.ceil((sweep * rhoMin) / spacing));
+  const arc: THREE.Vector3[] = [];
+  for (let i = 0; i <= steps; i++) {
+    arc.push(centre.clone().add(radial.clone().applyAxisAngle(axis, (i / steps) * sweep)));
+  }
+  return { points: arc, setback, index };
 }

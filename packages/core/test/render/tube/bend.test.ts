@@ -4,9 +4,12 @@ import {
   BEND_FLOOR,
   cornersByBend,
   DEFAULT_BEND,
+  type Fillet,
+  filletAt,
   minBendRadius,
   vertexBends,
 } from '../../../src/render/tube/bend.js';
+import { minCurvatureRadius3 } from '../../../src/render/tube/resample.js';
 
 /** A polyline turning by `turn` once, at its middle vertex, with uniform segment length `step`. */
 function elbow(turn: number, step: number): THREE.Vector3[] {
@@ -107,5 +110,56 @@ describe('cornersByBend', () => {
 
   it("joins a corner straddling a closed path's seam", () => {
     expect(cornersByBend(roundedSquare(45), true, 0.03, 0.03).length).toBe(4);
+  });
+});
+
+describe('filletAt', () => {
+  const RHO = 0.044;
+
+  it('replaces the corner with an arc at rhoMin', () => {
+    const fillet = filletAt(elbow(Math.PI / 2, 0.4), false, 2, RHO, 0.02);
+    expect(fillet).not.toBeNull();
+    const measured = minCurvatureRadius3(
+      (fillet as Fillet).points.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+    );
+    // Discrete sampling reads a shade under the true arc radius; 10% is sampling error, not slack.
+    expect(measured).toBeGreaterThan(RHO * 0.9);
+    expect(measured).toBeLessThan(RHO * 1.1);
+  });
+
+  it('sets back by rhoMin * tan(theta/2) along each leg', () => {
+    const turn = Math.PI / 2;
+    const fillet = filletAt(elbow(turn, 0.4), false, 2, RHO, 0.02);
+    expect((fillet as Fillet).setback).toBeCloseTo(RHO * Math.tan(turn / 2), 5);
+  });
+
+  // Room test: a leg shorter than the setback cannot carry the fillet.
+  it('refuses a fillet with no room on its legs', () => {
+    expect(filletAt(elbow(Math.PI / 2, 0.002), false, 2, RHO, 0.02)).toBeNull();
+  });
+
+  it('starts and ends on the two legs, tangent to each', () => {
+    const points = elbow(Math.PI / 3, 0.4);
+    const fillet = filletAt(points, false, 2, RHO, 0.02) as Fillet;
+    const corner = points[2] as THREE.Vector3;
+    const into = corner
+      .clone()
+      .sub(points[1] as THREE.Vector3)
+      .normalize();
+    const outOf = (points[3] as THREE.Vector3).clone().sub(corner).normalize();
+    const first = fillet.points[0] as THREE.Vector3;
+    const last = fillet.points[fillet.points.length - 1] as THREE.Vector3;
+    // Each tangent point sits exactly `setback` back along its own leg.
+    expect(first.distanceTo(corner.clone().addScaledVector(into, -fillet.setback))).toBeLessThan(
+      1e-9,
+    );
+    expect(last.distanceTo(corner.clone().addScaledVector(outOf, fillet.setback))).toBeLessThan(
+      1e-9,
+    );
+  });
+
+  it('refuses a straight join and a full reversal', () => {
+    expect(filletAt(elbow(0, 0.4), false, 2, RHO, 0.02)).toBeNull();
+    expect(filletAt(elbow(Math.PI, 0.4), false, 2, RHO, 0.02)).toBeNull();
   });
 });
