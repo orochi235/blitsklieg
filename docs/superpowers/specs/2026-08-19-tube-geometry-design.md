@@ -162,6 +162,32 @@ across the corner and rebuild it: the tube leaves that axis through a bend of ra
 one full turn of radius `LOOP_RADIUS_FACTOR · r` about it, and returns through a matching bend. Net
 advance is `L` by construction, and it rejoins the path because its endpoints are on the path.
 
+**The advance is what the construction has to buy, and it is not cheap.** The tangent has to wind
+once around, so `∫κ ds ≥ 2π` and the pigtail is at least `2π·ρmin` — 0.276 em — of tube however it is
+shaped. That length is affordable because a coil spends it sideways rather than forward. What is not
+affordable is joining the coil to a straight path: a helix of radius `R` and pitch `p` meets its own
+axis at `atan(2πR/p)`, so it never joins a straight run tangentially and needs a transition either
+side.
+
+Two constructions were measured, and neither is usable as written:
+
+- **Ramp the winding radius up from the axis and back down** (a cosine ease over a half turn each
+  side). Tangent-continuous by construction, but the ease is the whole cost: clearing `ρmin` through
+  it needs a pitch of 0.55 em, an advance of 0.83 em. No run in the font is that long.
+- **A circular arc of `ρmin` either side, into a helix.** Compact — advance `ρmin(2 sin α + π sin 2α)`
+  is 0.11 em at `α = 85°`, and the coil radius falls out as `ρmin sin²α ≈ 2r`. But a single arc each
+  side leaves the exit displaced sideways from the entry by `2ρmin(1 − cos α)` ≈ 0.08 em, and the
+  coil's own turn returns to zero rather than cancelling it. The path jogs. Closing that needs either
+  an S-shaped transition or a coil ended off a full turn, and both change the tangent the other piece
+  has to match.
+
+**`LOOP_RADIUS_FACTOR = 4` does not survive either way.** A ρmin transition can reach a winding
+radius of at most `ρmin`, since `ρmin(1 − cos α) ≤ ρmin` for any usable `α < 90°`. A 4r coil is only
+reachable by the ramp, at an advance no run can pay. Whoever builds this should expect the loop to be
+about `2r` across, not `4r`, and should decide first whether a look that draws 15% of its corners as
+loops is worth this much geometry — breaking those corners instead is measurably better than the
+`buildLoop` that ships today, and costs nothing but the flourish.
+
 Acceptance, all five:
 
 1. Advance over the turn is at least `2r` plus clearance, so consecutive windings do not touch.
