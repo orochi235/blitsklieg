@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   BEND_FLOOR,
+  ClearanceGrid,
   cornersByBend,
   DEFAULT_BEND,
   type Fillet,
@@ -161,5 +162,37 @@ describe('filletAt', () => {
   it('refuses a straight join and a full reversal', () => {
     expect(filletAt(elbow(0, 0.4), false, 2, RHO, 0.02)).toBeNull();
     expect(filletAt(elbow(Math.PI, 0.4), false, 2, RHO, 0.02)).toBeNull();
+  });
+});
+
+describe('ClearanceGrid', () => {
+  const line = (n: number, y: number) =>
+    Array.from({ length: n }, (_, i) => new THREE.Vector3(i * 0.02, y, 0));
+
+  it("excludes the probe's own neighbourhood by arc length, not by distance", () => {
+    const grid = new ClearanceGrid(0.05);
+    grid.add(line(20, 0), 0);
+    expect(grid.nearest(new THREE.Vector3(0.1, 0, 0), 0, 0.1)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('measures distance to a genuinely separate path', () => {
+    const grid = new ClearanceGrid(0.05);
+    grid.add(line(20, 0), 0);
+    grid.add(line(20, 0.03), 1);
+    expect(grid.nearest(new THREE.Vector3(0.1, 0, 0), 0, 0.1)).toBeCloseTo(0.03, 3);
+  });
+
+  // The same path doubling back on itself IS a collision, even though it is the same path.
+  it("sees a far-along part of the probe's own path", () => {
+    const grid = new ClearanceGrid(0.05);
+    const hairpin = [...line(20, 0), ...line(20, 0.03).reverse()];
+    grid.add(hairpin, 0);
+    expect(grid.nearest(new THREE.Vector3(0.1, 0, 0), 0, 0.1)).toBeCloseTo(0.03, 3);
+  });
+
+  it('is empty when nothing is within the cell radius', () => {
+    const grid = new ClearanceGrid(0.05);
+    grid.add(line(20, 0), 0);
+    expect(grid.nearest(new THREE.Vector3(0, 5, 0), 1, 0.1)).toBe(Number.POSITIVE_INFINITY);
   });
 });

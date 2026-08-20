@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import type * as THREE from 'three';
 
 /**
  * The floor on `bend`, inherited from the sweep's old CLEARANCE of 0.8: a tube may occupy at most
@@ -152,4 +152,61 @@ export function filletAt(
     arc.push(centre.clone().add(radial.clone().applyAxisAngle(axis, (i / steps) * sweep)));
   }
   return { points: arc, setback, index };
+}
+
+interface GridEntry {
+  point: THREE.Vector3;
+  path: number;
+  /** Cumulative arc length along its own path, for the same-neighbourhood exclusion. */
+  along: number;
+}
+
+/**
+ * A uniform spatial hash over every path point, answering "what is the nearest piece of tube that is
+ * not this piece". Cell size should be the query radius, so a query touches 27 cells.
+ */
+export class ClearanceGrid {
+  private readonly cells = new Map<string, GridEntry[]>();
+
+  constructor(private readonly cell: number) {}
+
+  private key(x: number, y: number, z: number): string {
+    return `${Math.floor(x / this.cell)},${Math.floor(y / this.cell)},${Math.floor(z / this.cell)}`;
+  }
+
+  add(points: THREE.Vector3[], path: number): void {
+    let along = 0;
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i] as THREE.Vector3;
+      if (i > 0) along += point.distanceTo(points[i - 1] as THREE.Vector3);
+      const k = this.key(point.x, point.y, point.z);
+      const bucket = this.cells.get(k);
+      if (bucket) bucket.push({ point, path, along });
+      else this.cells.set(k, [{ point, path, along }]);
+    }
+  }
+
+  /**
+   * Distance to the nearest point that is either on another path, or far enough along this one to be
+   * a genuinely different piece of tube. Infinite when nothing qualifies within one cell.
+   */
+  nearest(probe: THREE.Vector3, path: number, along: number, skip = 0.09): number {
+    let best = Number.POSITIVE_INFINITY;
+    const cx = Math.floor(probe.x / this.cell);
+    const cy = Math.floor(probe.y / this.cell);
+    const cz = Math.floor(probe.z / this.cell);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const bucket = this.cells.get(`${cx + dx},${cy + dy},${cz + dz}`);
+          if (!bucket) continue;
+          for (const entry of bucket) {
+            if (entry.path === path && Math.abs(entry.along - along) < skip) continue;
+            best = Math.min(best, probe.distanceTo(entry.point));
+          }
+        }
+      }
+    }
+    return best;
+  }
 }
