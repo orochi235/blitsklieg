@@ -74,6 +74,8 @@ export interface CellInput {
   environment: THREE.Texture;
   /** Whatever the mode wants drawn instead of a Word; `beauty` and `orbit` pass nothing. */
   content?: THREE.Object3D;
+  /** Replaces both tube materials, for the ramp mode. */
+  tubeMaterial?: (which: 'lit' | 'dark') => THREE.Material | undefined;
 }
 
 export function buildCell(input: CellInput): Cell {
@@ -98,7 +100,26 @@ export function buildCell(input: CellInput): Cell {
     };
   }
 
-  const word = new Word(input.meta.letter, input.font, input.look, budget());
+  const overrides: THREE.Material[] = [];
+  const hooks = input.tubeMaterial
+    ? {
+        tubeMaterial: (which: 'lit' | 'dark') => {
+          const material = input.tubeMaterial?.(which);
+          if (material) overrides.push(material);
+          return material;
+        },
+      }
+    : undefined;
+
+  const word = new Word(
+    input.meta.letter,
+    input.font,
+    input.look,
+    budget(),
+    false,
+    undefined,
+    hooks,
+  );
   word.apply(REST, 0);
   pivot.add(word.group);
 
@@ -108,10 +129,11 @@ export function buildCell(input: CellInput): Cell {
     camera,
     pivot,
     fit: fitter(pivot),
-    bloom: input.look.bloom ?? false,
+    bloom: input.tubeMaterial ? false : (input.look.bloom ?? false),
     dispose() {
       pivot.remove(word.group);
       word.dispose();
+      for (const material of overrides) material.dispose();
     },
   };
 }

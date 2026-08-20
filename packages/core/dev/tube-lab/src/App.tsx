@@ -17,11 +17,13 @@ import {
   isRampSource,
   type PanelMeta,
   type PanelRecord,
+  RAMP_SOURCES,
   reconcileLetters,
 } from './panels.js';
 import { clear, save } from './persist.js';
 import { buildCell, type Cell } from './render/cell.js';
 import { LabRenderer, type PanelDraw } from './render/lab.js';
+import { rampMaterial } from './render/ramp.js';
 import { buildSkeleton } from './render/skeleton.js';
 import { balancedTree, withLeaf, withoutLeaf } from './tree.js';
 
@@ -48,7 +50,7 @@ function addPanel(store: Store, meta: PanelMeta): NodeId {
   return id;
 }
 
-function chromeFor(reports: Record<string, string>) {
+function chromeFor(store: Store, reports: Record<string, string>, onChange: () => void) {
   return function chrome({ node }: ChromeArgs) {
     const meta = metaOf(node.meta);
     const summary = reports[node.id];
@@ -58,6 +60,23 @@ function chromeFor(reports: Record<string, string>) {
           <div className="panel__bar">
             <span className="panel__letter">{meta.letter}</span>
             <span className="panel__mode">{meta.mode}</span>
+            {meta.mode === 'ramp' ? (
+              // stopPropagation, or the enclosing DragHandle reads a click on the select as a drag.
+              <select
+                value={meta.source}
+                onChange={(e) => {
+                  store.setMeta(node.id, { source: e.target.value });
+                  onChange();
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {RAMP_SOURCES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
         </DragHandle>
         <div className="panel__body">
@@ -142,7 +161,6 @@ export function App({ letters: initialLetters, spec }: AppProps) {
   const [font, setFont] = useState<LoadedFont | null>(null);
   const [reports, setReports] = useState<Record<string, string>>({});
   const { placements } = useContainerLayout(ZONE, stageRef);
-  const chromeWithReports = useMemo(() => chromeFor(reports), [reports]);
 
   const setReport = useCallback((id: string, summary: string) => {
     setReports((prev) => (prev[id] === summary ? prev : { ...prev, [id]: summary }));
@@ -179,6 +197,11 @@ export function App({ letters: initialLetters, spec }: AppProps) {
       latest.current();
     });
   }, []);
+
+  const chromeWithReports = useMemo(
+    () => chromeFor(store, reports, drawAll),
+    [store, reports, drawAll],
+  );
 
   // The frame calls the newest body, never the one that queued it: coalescing on the call would
   // drop the later layout and leave the canvas at rects nothing reschedules.
@@ -223,6 +246,7 @@ export function App({ letters: initialLetters, spec }: AppProps) {
               look: { ...look, decoration: spec },
               font,
               environment: lab.environmentTexture,
+              ...(meta.mode === 'ramp' ? { tubeMaterial: () => rampMaterial(meta.source) } : null),
             });
             setReport(id, '');
           }
