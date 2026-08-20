@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { isoContours, signedDistanceField } from './field.js';
+import { isoContours, refineExact, signedDistanceField } from './field.js';
+import { offsetRing } from './offset.js';
 import { resample } from './resample.js';
 import { type Surface, type SurfaceKind, wallPointAt } from './surfaces.js';
 
@@ -9,6 +10,14 @@ export interface GeneratedPath {
   /** True when the path closes on itself, which decides whether cutting must wrap. */
   closed: boolean;
 }
+
+/**
+ * Where a front/back path comes from. `field` rasterises to a grid and re-extracts; `exact`
+ * corrects that grid's magnitude against the real segments; `direct` never builds a grid and
+ * traces the contour itself, which means `level` becomes a normal offset and two overlapping
+ * contours are no longer resolved into one silhouette.
+ */
+export type PathSource = 'field' | 'exact' | 'direct';
 
 export interface GenerateOptions {
   /** Isocontour level in em: negative insets, zero rides the outline, positive stands off. */
@@ -20,6 +29,7 @@ export interface GenerateOptions {
   wallRise?: number;
   resolution: number;
   pad: number;
+  source?: PathSource;
 }
 
 export function generatePaths(
@@ -47,10 +57,26 @@ export function generatePaths(
       continue;
     }
 
-    const field = signedDistanceField(surface.polygons, {
+    const source = opts.source ?? 'field';
+
+    if (source === 'direct') {
+      for (const ring of surface.polygons) {
+        const cooked = resample(offsetRing(ring, opts.level), opts.spacing);
+        if (cooked.length < 4) continue;
+        out.push({
+          points: cooked.map((p) => new THREE.Vector3(p.x, p.y, surface.z)),
+          surface: surface.kind,
+          closed: true,
+        });
+      }
+      continue;
+    }
+
+    const base = signedDistanceField(surface.polygons, {
       resolution: opts.resolution,
       pad: opts.pad,
     });
+    const field = source === 'exact' ? refineExact(base, surface.polygons, opts.level) : base;
     for (const line of isoContours(field, opts.level)) {
       // Deliberately unsmoothed: cutting detects corners on these points, and smoothing a
       // square's 90 degree corner down to 26 degrees puts it under the detection threshold.

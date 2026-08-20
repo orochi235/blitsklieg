@@ -1,3 +1,5 @@
+import { distanceToSegment } from './offset.js';
+
 export interface Point2 {
   x: number;
   y: number;
@@ -94,6 +96,79 @@ function rasterise(polygons: Point2[][], size: number, toGrid: (p: Point2) => Po
     }
   }
   return mask;
+}
+
+/**
+ * The field's magnitude recomputed exactly against the polygon segments, for cells within
+ * `bandCells` of `level`. The binary mask the EDT runs on knows the boundary only to the nearest
+ * cell, so its contour carries a quarter-cell wobble everywhere; the exact distance does not. Only
+ * cells near the level being extracted matter, and they are a few percent of the grid, so this
+ * costs about what the EDT it corrects already cost.
+ */
+export function refineExact(
+  field: Field,
+  polygons: Point2[][],
+  level: number,
+  bandCells = 3,
+): Field {
+  const { size, emPerCell, originX, originY } = field;
+  const span = emPerCell * (size - 1);
+  const bucket = span / 64;
+  const key = (bx: number, by: number) => bx * 8192 + by;
+  const buckets = new Map<number, [Point2, Point2][]>();
+  for (const poly of polygons) {
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i] as Point2;
+      const b = poly[(i + 1) % poly.length] as Point2;
+      const x0 = Math.floor((Math.min(a.x, b.x) - originX) / bucket);
+      const x1 = Math.floor((Math.max(a.x, b.x) - originX) / bucket);
+      const y0 = Math.floor((Math.min(a.y, b.y) - originY) / bucket);
+      const y1 = Math.floor((Math.max(a.y, b.y) - originY) / bucket);
+      for (let bx = x0; bx <= x1; bx++) {
+        for (let by = y0; by <= y1; by++) {
+          const k = key(bx, by);
+          const list = buckets.get(k);
+          if (list) list.push([a, b]);
+          else buckets.set(k, [[a, b]]);
+        }
+      }
+    }
+  }
+
+  const data = Float64Array.from(field.data);
+  const reach = bandCells * emPerCell;
+  for (let gy = 0; gy < size; gy++) {
+    for (let gx = 0; gx < size; gx++) {
+      const i = gy * size + gx;
+      const approx = data[i] as number;
+      if (Math.abs(approx - level) > reach) continue;
+      const x = originX + gx * emPerCell;
+      const y = originY + gy * emPerCell;
+      const p = { x, y };
+      const bx = Math.floor((x - originX) / bucket);
+      const by = Math.floor((y - originY) / bucket);
+      let best = Number.POSITIVE_INFINITY;
+      // Grow the search ring until the best hit is provably inside the radius already searched.
+      for (let r = 0; r < 64; r++) {
+        for (let ox = -r; ox <= r; ox++) {
+          for (let oy = -r; oy <= r; oy++) {
+            if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue;
+            const list = buckets.get(key(bx + ox, by + oy));
+            if (!list) continue;
+            for (const [a, b] of list) {
+              const d = distanceToSegment(p, a, b);
+              if (d < best) best = d;
+            }
+          }
+        }
+        if (best <= r * bucket) break;
+      }
+      if (best === Number.POSITIVE_INFINITY) continue;
+      data[i] = approx < 0 ? -best : best;
+    }
+  }
+
+  return { ...field, data };
 }
 
 export function signedDistanceField(polygons: Point2[][], opts: FieldOptions): Field {

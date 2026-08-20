@@ -2,7 +2,7 @@ import type * as THREE from 'three';
 import type { MaterialSpec } from '../decoration.js';
 import { assign, type SelectSpec } from './assign.js';
 import { minBendRadius } from './bend.js';
-import { generateConnectors, generatePaths } from './generators.js';
+import { generateConnectors, generatePaths, type PathSource } from './generators.js';
 import { type CornerRecord, type CornerWeights, cutIntoRuns, type Run } from './runs.js';
 import type { SurfaceKind } from './surfaces.js';
 import { surfacesOf } from './surfaces.js';
@@ -35,6 +35,8 @@ export interface TubeSpec {
   surfaces: SurfaceKind[];
   /** Isocontour level in em: negative insets, zero rides the outline, positive stands off. */
   level: number;
+  /** Where front/back paths come from. Defaults to the grid the looks were tuned against. */
+  pathSource?: PathSource;
   /** Requested runs per glyph. Bounded below by the corner count, above by `minRun`. */
   runs: number;
   minRun: number;
@@ -89,6 +91,7 @@ export function buildTubeBlueprint(
     wallRise: spec.wallRise,
     resolution: RESOLUTION,
     pad: PAD,
+    source: spec.pathSource,
   });
   const links =
     spec.connectors && spec.connectors > 0
