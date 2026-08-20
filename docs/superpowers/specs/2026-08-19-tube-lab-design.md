@@ -89,7 +89,10 @@ One rail, applying to every panel at once. Every field of `TubeSpec` that is wor
 
 - **Tube:** `radius`, `segments`, `spacing`, `level`, `runs`, `minRun`, `select.amount`, `amplitude`
 - **Corners:** `break`, `connect`, `loop` weights
-- **Surfaces:** the `SurfaceKind[]` picker, plus `wallDepth` and `wallRise`
+- **Surfaces:** independent `front` / `back` / `wall` checkboxes, `wallDepth` and `wallRise`, and
+  `connectors` with `connectorOvershoot`. Both shipped tube looks trace the front face only, so
+  these are what let the lab judge a tube on an extruded letter rather than a flat contour —
+  `connectors` need both faces on, and say so when they are not.
 - **Material:** the lit look's `emissive` and `emissiveIntensity`, `colors`, and a bloom toggle
 - **Zone:** letters, add panel, reset layout
 
