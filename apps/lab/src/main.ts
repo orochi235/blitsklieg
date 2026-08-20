@@ -14,7 +14,6 @@ import {
   type SurfaceKind,
   specOf,
 } from 'blitsklieg';
-import { type DiagnosticMode, DiagnosticStage } from './diagnostics.js';
 
 const DEG = Math.PI / 180;
 
@@ -57,8 +56,6 @@ const modalInput = el<HTMLInputElement>('modal');
 const grainInput = el<HTMLInputElement>('grain');
 const densityInput = el<HTMLInputElement>('density');
 const surfacesInput = el<HTMLSelectElement>('surfaces');
-const diagModeInput = el<HTMLSelectElement>('diagMode');
-const outlinesInput = el<HTMLInputElement>('outlines');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
 
 /** The four surface combinations the lab exposes; `connector` runs have no slider of their own. */
@@ -109,8 +106,6 @@ const CONTROL_IDS = [
   'cornerConnect',
   'cornerLoop',
   'surfaces',
-  'diagMode',
-  'outlines',
   'count',
   'chunkSize',
   'align',
@@ -272,44 +267,10 @@ function create(): Blitsklieg {
 }
 
 let bk = create();
-// A static debug render, not the animated pipeline above — see diagnostics.ts for why it needs
-// its own Word rather than a hook threaded through fire()'s queue/timeline/bloom.
-const diagnostics = new DiagnosticStage(FONT_URL);
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** Colour mode or outlines active: FIRE renders a static debug frame instead of the real effect. */
-function diagnosticsActive(): boolean {
-  return diagModeInput.value !== 'off' || outlinesInput.checked;
-}
-
 function fire(text: string): void {
-  if (diagnosticsActive()) {
-    // Only one stage may be mounted at a time; an idle bk.destroy() is a cheap no-op.
-    bk.destroy();
-    bk = create();
-    log(
-      `diagnostic (${diagModeInput.value}, outlines ${outlinesInput.checked}) ${JSON.stringify(text)}`,
-    );
-    diagnostics
-      .render(
-        text,
-        chosenLook(),
-        fromEuler(number('pitch') * DEG, number('yaw') * DEG, number('roll') * DEG),
-        diagModeInput.value as DiagnosticMode,
-        outlinesInput.checked,
-      )
-      .then(
-        () => log(`done  ${JSON.stringify(text)}`),
-        (err: unknown) => {
-          log(`FAILED ${JSON.stringify(text)}: ${message(err)}`);
-          console.error(err);
-        },
-      );
-    return;
-  }
-
-  diagnostics.hide();
   log(`fire ${JSON.stringify(text)}`);
   bk.fire(text, {
     enter: enter.get(),
@@ -444,7 +405,6 @@ el('burst').addEventListener('click', () => {
 });
 el('destroy').addEventListener('click', () => {
   bk.destroy();
-  diagnostics.hide();
   log('destroyed');
   bk = create();
 });
