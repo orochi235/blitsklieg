@@ -130,7 +130,14 @@ is left, and it wants a decision rather than a patch:
 `insetContour`'s all-or-nothing contour rejection was the fourth. The tubing plan deletes that
 function, so it closes with the rewrite.
 
-**`sequin` and `piping` are landed untuned, by decision.** `sequin`'s flakes still go near-black
+**`piping`'s cord is not untuned — it is clamped.** Measured across `NSRE`, **every** piping run
+hits the per-run radius clamp (5 of 5), drawing at 44–87% of its requested 0.03. `piping` connects
+through its corners instead of breaking, so one run traverses the whole letter and the single
+tightest corner anywhere in the glyph sets the diameter for the entire cord. No slider fixes that;
+`docs/superpowers/specs/2026-08-19-tube-geometry-design.md` does. Reproduce with
+`spikes/clamp-vs-blur.mjs`.
+
+**`sequin` is landed untuned, by decision.** `sequin`'s flakes still go near-black
 (metalness 1 at roughness 0.08 facing away from the key light); `piping`'s cord draws nothing at
 all front-on at radius 0.03, and little enough at 30 degrees of yaw. Every decoration parameter has
 a lab slider — `npm run dev -w @blitsklieg/lab`, then re-record baselines. No code change needed.
