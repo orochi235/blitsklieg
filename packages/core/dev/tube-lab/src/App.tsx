@@ -79,11 +79,7 @@ function initialView(pose: Pose): View {
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 4;
 
-/**
- * Wheel and pinch both arrive as `deltaY`, an order of magnitude apart: a mouse notch is ~100,
- * where a trackpad pinch streams a few per event. Divisors of an exponent, so either gesture
- * covers about the same ground: a notch is 1.22x, and a pinch of ~100 accumulated is 2.7x.
- */
+/** Measured in Chrome: a mouse notch is a `deltaY` of ~100; a pinch streams a few per event. */
 const WHEEL_STEP = 500;
 const PINCH_STEP = 100;
 
@@ -132,7 +128,7 @@ function chromeFor(
           <button
             type="button"
             className="panel__reset"
-            aria-label={`reset the ${meta.letter} ${meta.mode} view`}
+            aria-label={`reset the ${meta.letter} ${meta.pose} ${meta.mode} view`}
             // The button sits on the drag surface: without this a click starts a turn instead.
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => onReset(node.id, meta.pose)}
@@ -282,9 +278,8 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     cell.fit(aspect, view.zoom);
   }, []);
 
-  // The only draw a gesture runs, and the only one that skips `clear()`: the other fifteen panels
-  // are never redrawn, so their pixels have to survive in the framebuffer. The frame reads the
-  // panel to draw when it runs, so a burst of events coalesces onto its own newest state.
+  // The only draw that skips `clear()`: every other panel's pixels have to survive in the
+  // framebuffer. The frame reads `dirty` when it runs, so a burst coalesces onto the newest state.
   const drawOne = useCallback(
     (id: string) => {
       dirty.current = id;
@@ -317,7 +312,6 @@ export function App({ letters: initialLetters, spec }: AppProps) {
     (id: string, pose: Pose): ViewProps => ({
       'data-view': id,
       onPointerDown: (event) => {
-        // The title bar above is the DragHandle that rearranges panels; a turn must not reach it.
         event.stopPropagation();
         const target = event.currentTarget;
         target.setPointerCapture(event.pointerId);
@@ -426,8 +420,10 @@ export function App({ letters: initialLetters, spec }: AppProps) {
           }
           cell.key = key;
           cellsRef.current.set(id, cell);
+          // `addPanel` recycles the lowest free id, so a fresh panel inherits a dead one's view
+          // unless the seed rides the cell: the key, not the id, is what says this panel is new.
+          views.current.set(id, initialView(meta.pose));
         }
-        if (!views.current.has(id)) views.current.set(id, initialView(meta.pose));
         pose(cell, id, rect.w / rect.h);
         draws.push({ rect, scene: cell.scene, camera: cell.camera, bloom: cell.bloom });
       }

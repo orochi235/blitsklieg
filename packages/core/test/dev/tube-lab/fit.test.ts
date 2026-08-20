@@ -14,6 +14,23 @@ function pivotWithBox(): THREE.Group {
   return pivot;
 }
 
+/** N as measured: a real glyph is not centered on the pivot axis, and y runs -0.840 to 0.949. */
+const OFF_CENTER = { bottom: -0.84, top: 0.949 };
+
+function pivotWithOffCenterBox(): THREE.Group {
+  const pivot = new THREE.Group();
+  const height = OFF_CENTER.top - OFF_CENTER.bottom;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(SIZE.x, height, SIZE.z));
+  mesh.position.set(0, (OFF_CENTER.top + OFF_CENTER.bottom) / 2, FRONT - SIZE.z / 2);
+  pivot.add(mesh);
+  return pivot;
+}
+
+/** The pivot's own box, read before it is turned or scaled — the corners the fitter measured. */
+function localBox(pivot: THREE.Group): THREE.Box3 {
+  return new THREE.Box3().setFromObject(pivot);
+}
+
 /** What fraction of the viewport's smaller side the content covers, on the plane it sits on. */
 function minSideFill(pivot: THREE.Group, aspect: number): number {
   const camera = labCamera();
@@ -34,13 +51,12 @@ function minSideFill(pivot: THREE.Group, aspect: number): number {
  * The farthest any corner of the content reaches from the panel's center, as a fraction of the
  * half-side. The box's own corners, not the world AABB's: a turned box swells its AABB.
  */
-function cornerReach(pivot: THREE.Group, aspect: number): number {
+function cornerReach(pivot: THREE.Group, aspect: number, box: THREE.Box3): number {
   const camera = labCamera();
   camera.aspect = aspect;
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
   pivot.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(pivotWithBox());
   let reach = 0;
   for (const x of [box.min.x, box.max.x])
     for (const y of [box.min.y, box.max.y])
@@ -74,13 +90,24 @@ describe('the tube lab panel fit', () => {
     [60, -60],
   ])('keeps a letter turned %f/%f inside the panel', (yaw, pitch) => {
     const pivot = pivotWithBox();
+    const box = localBox(pivot);
     // Built before the turn, as the cell builds it: the measurement is of the letter, not the pose.
     const fit = fitter(pivot);
     pivot.rotation.set((pitch * Math.PI) / 180, (yaw * Math.PI) / 180, 0);
     fit(1);
 
-    expect(cornerReach(pivot, 1)).toBeLessThanOrEqual(FILL + 1e-6);
-    expect(cornerReach(pivot, 1)).toBeGreaterThan(FILL / 2);
+    expect(cornerReach(pivot, 1, box)).toBeCloseTo(FILL, 4);
+  });
+
+  // Reach from the pivot's own axis, not the content's size: the camera sits on that axis, so an
+  // off-center letter measured by size overruns FILL on the side it leans to.
+  it('fits an off-center letter by its farthest corner, not its size', () => {
+    const pivot = pivotWithOffCenterBox();
+    const box = localBox(pivot);
+    fitter(pivot)(1);
+
+    expect(cornerReach(pivot, 1, box)).toBeCloseTo(FILL, 4);
+    expect(minSideFill(pivot, 1)).toBeLessThan(FILL);
   });
 
   // Zoom deviates from the fit; the fit stays the source of truth for what fills the panel, so
