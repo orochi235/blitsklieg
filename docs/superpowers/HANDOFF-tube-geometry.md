@@ -60,6 +60,31 @@ takes its incoming direction at `from - 1 → from` and its outgoing at `to → 
 corner is the intersection of those two leg lines (closest point between them, since this is 3D), and
 the setback runs from there. `S` is the case to watch — its widest stretch is 4 vertices.
 
+**Answer this before building it: does the corner need to be a stretch at all?**
+
+A corner is 2–4 vertices wide *because* the path is rasterised into a 256² distance field and
+re-extracted. On the font's own béziers a corner is one vertex, and the analytic fillet the model
+already specifies works without any of this. Three separate pieces of complexity trace to that one
+root:
+
+- group filleting against a virtual corner, above;
+- `tightestBend`'s three smoothing passes, which are calibrated for the field's staircase noise and
+  which shrink a coarsely-sampled arc's radius by a tenth — see the traps below;
+- the blur masking the clamp, which is the argument the spec's `## Path fidelity` section uses to
+  order this work *before* path fidelity.
+
+That third one **expires with this change**: it says the blur hides the clamp, and the clamp is being
+deleted. So the ordering argument should be re-derived rather than inherited, and the machinery above
+may exist only to undo an artifact that was already scheduled for removal.
+
+The counterweight is real: `piping` traces at `level: -0.015`, so it genuinely needs offset contours
+and the field cannot simply be deleted. But "one look needs an offset" is a much narrower problem
+than "the whole pipeline goes through a 256² grid".
+
+**Re-run `spikes/clamp-vs-blur.mjs` before deciding.** Its numbers were taken under the old clamp,
+which no longer exists, so the measurement that ordered this work may not still hold. This is a
+sequencing call for the owner, not something to settle in code.
+
 ### 2. Loops are still the old `buildLoop`
 
 Task 8 is untouched, so a loop still splices a full turn that lands exactly back on its corner. The
