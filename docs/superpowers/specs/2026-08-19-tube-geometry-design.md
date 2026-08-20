@@ -188,21 +188,22 @@ today one angle threshold serves both the physical and the stylistic job, so pat
 segmentation. Splitting the two thresholds decouples them — hard corners mostly stop breaking once
 they fillet, and the requested `runs` count fills in the rest by arc length as it already does.
 
-## Open decisions
+## Settled
 
-- **The default `bend`.** 2 is measured-plausible for the lab font at `radius: 0.022`; 3 already
-  eats strokes on N and S. But it is a look call and the two shipped looks want different values —
-  `tubing` is glass, `piping` is fabric cord, which bends far tighter relative to its diameter.
-  Answered in the lab's `orbit` and `beauty` panels with `bend` on the parameter rail.
-- **The pigtail's plane.** Depth keeps the letter's silhouette intact, which matters most for a
-  look whose job is to read as a sign; the face plane gives the flourish real signs have, at the
-  cost of the 0.175 em excursion outside the glyph measured above. Depth also costs 2R = 0.176 em of
-  forward reach against a 0.3 em extrusion, so it needs a cap. Recommend depth; it is the owner's
-  call and it is visible in one `skeleton` panel.
-- **Whether the inter-run clearance query ships in v1.** It is cheap — one grid hash, one query per
-  fillet sample — but it is the only part of the model that needs a spatial structure. Deferring it
-  is defensible if the lab shows fillets never collide at the shipped radii; it is not defensible
-  long-term, because `radius` is a public spec field and a consumer can set it large.
+- **`bend` defaults to 2.** Measured-plausible for the lab font at `radius: 0.022`; 3 already eats
+  strokes on N and S. It stays a per-look field, and `piping` is the candidate for a lower value —
+  fabric cord bends tighter relative to its diameter than glass — but that is a tuning call the lab
+  answers once the model is in, not a second default to guess now.
+- **The pigtail winds in the depth plane.** It keeps the letter's silhouette intact, which matters
+  most for a look whose job is to read as a sign, and it avoids the 0.175 em excursion outside the
+  glyph bbox that the face plane produces today. It costs `2R = 0.176 em` of forward reach against a
+  0.3 em extrusion, so it needs a cap — a pigtail that cannot fit within the cap breaks instead.
+  Choosing the plane is itself part of the fix: today it is inherited from `seedNormal`, which picks
+  whichever axis is least parallel to the tangent, so the plane flips discontinuously with stroke
+  direction and one glyph gets both.
+- **The inter-run clearance query ships in v1.** `radius` is a public spec field and a consumer can
+  set it large, so a fillet that quietly pushes tube into tube is a defect waiting on someone else's
+  parameter. It is one grid hash and one query per fillet sample.
 
 ## Baselines
 
