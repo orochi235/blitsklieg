@@ -3,6 +3,7 @@ import { isAuthored } from './bend.js';
 import type { Point2 } from './field.js';
 import { type Frame, rotationMinimizingFrames } from './frames.js';
 import { minCurvatureRadius3, smooth } from './resample.js';
+import { RUN_COLOR_ATTRIBUTE } from './tint.js';
 import type { Run } from './runs.js';
 
 /** Smoothing happens here rather than upstream: a run ends at a corner, so it never crosses one. */
@@ -89,13 +90,17 @@ function buildTubeGeometry(
   points: THREE.Vector3[],
   radius: number,
   segments: number,
+  color: number,
 ): THREE.BufferGeometry {
   const rings = ringsOf(points, radius);
   const ringCount = rings.length;
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
+  const colors: number[] = [];
   const indices: number[] = [];
+  // Linear, because `setHex` converts from sRGB and the shader works in linear space.
+  const tint = new THREE.Color(color);
 
   for (let i = 0; i < ringCount; i++) {
     const ring = rings[i] as Ring;
@@ -117,6 +122,7 @@ function buildTubeGeometry(
         p.z + ring.radius * (cos * frame.normal.z + sin * frame.binormal.z),
       );
       uvs.push(i / (ringCount - 1), j / segments);
+      colors.push(tint.r, tint.g, tint.b);
     }
   }
 
@@ -136,6 +142,7 @@ function buildTubeGeometry(
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute(RUN_COLOR_ATTRIBUTE, new THREE.Float32BufferAttribute(colors, 3));
   geo.computeBoundingSphere();
   return geo;
 }
@@ -148,5 +155,5 @@ export function sweepRun(
   if (run.points.length < 2 || requested <= 0) return null;
   // Points are already arc-length spaced (resample.ts) and corner-cut (runs.ts), so a
   // Catmull-Rom re-resample bought nothing but a second parameterization to reason about.
-  return buildTubeGeometry(smoothedPoints(run), requested, segments);
+  return buildTubeGeometry(smoothedPoints(run), requested, segments, run.color);
 }

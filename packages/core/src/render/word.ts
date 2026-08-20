@@ -33,6 +33,7 @@ import {
   specOf,
   tintMaterialOf,
 } from './looks.js';
+import { tintByRunColor, tintChannelOf } from './tube/tint.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
@@ -235,6 +236,9 @@ export class Word {
           tintMaterialOf(spec) === 'decoration' ? hue : undefined,
         );
       }
+      // Only when the look was applied: an override brings its own material and its own meaning
+      // for every channel, and has no run-colour contract with us.
+      if (!litOverride) tintByRunColor(decorMaterial, tintChannelOf(decoration.look));
       decorMaterial.transparent = true;
       // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
       // would cull that invisible.
