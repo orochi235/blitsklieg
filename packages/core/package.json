@@ -41,6 +41,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -b tsconfig.json --force",
+    "dev:tube-lab": "vite dev/tube-lab",
     "prepack": "npm run build && cp ../../README.md README.md",
     "prepublishOnly": "npm --prefix ../.. run check"
   },
@@ -52,7 +53,13 @@
   },
   "devDependencies": {
     "@types/opentype.js": "^1.3.10",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@types/three": "^0.185.4",
-    "three": "^0.185.1"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "three": "^0.185.1",
+    "vite": "^8.2.1",
+    "windease": "^0.8.0"
   }
 }

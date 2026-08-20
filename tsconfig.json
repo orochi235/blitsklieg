@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/core/tsconfig.test.json" },
+    { "path": "packages/core/dev/tube-lab" },
     { "path": "apps/lab" }
   ]
 }

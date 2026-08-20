@@ -11,3 +11,4 @@ playwright-report/
 
 # brainstorming visual companion scratch
 .superpowers/
+.tsbuild/
