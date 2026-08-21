@@ -37,7 +37,7 @@ The geometry model is in `docs/superpowers/specs/2026-08-19-tube-geometry-design
 `## Acceptance, as measured` section has the numbers. In short: the tube holds one diameter, corners
 are classified by bend radius and filleted with a tangent arc at the material's minimum, run ends are
 sealed, a corner can carry the tube past the light unlit rather than cutting it, and the loop
-strategy is gone. Two runs of 231 on `tubing` and three of 47 on `piping` still bend tighter than
+strategy is gone. One run of 225 on `tubing` and one of 49 on `piping` still bend tighter than
 their look's minimum, against every `piping` run clamped before.
 
 Run it with `npm run dev:tube-lab -w klieg` — sixteen panels on one WebGL context, one letter
@@ -66,19 +66,18 @@ how the source changes the cut. The spec lists the rest.
 Roughly in order of value. Only the first two are entangled — the bend-minimum defect gates path
 fidelity, and the spec covers both; the rest are independent.
 
-- **Path fidelity — specced, and it starts with the fillet junction.** The field displaces the path
-  a mean of 4 to 7 percent of the tube radius. The flattening it rasterises is not at fault and
-  measures 0.00000 em; the grid is the whole of the loss. The spec has the plan and the numbers.
+- **Group filleting is what the last bend-minimum failures need.** Four distinct runs still measure
+  under the floor: `tubing`/`direct` `R` at 1.996r, `piping`/`exact` `B` at 1.978r,
+  `piping`/`field` `S` at 1.961r and `piping`/`direct` `B` at 1.704r. The first three sit within 2%
+  of a floor that `tightestBend`'s own smoothing moves by more than that, and are not worth
+  chasing. The fourth is real, and it is the multi-vertex corner: the fillet is tangent to a
+  straight-line fit of a leg that is still turning through its shoulder, so the trim steps back
+  until the junction clears the floor and buys a chord 4.1x spacing carrying the residual turn.
+  `spikes/junction-split.mjs` is the census, `join-geometry.mjs <look> <letter> <source>` the
+  per-vertex dump.
 - **A limb-brightening rim** on the tube material. Flat emissive renders a cylinder as a ribbon. The
   last unbuilt look item from tubing, and the owner rated it a bonus rather than the point.
 - **`pyrite` is built on the wrong model and should be respecced before it is tuned.** See below.
-- **The runs under the bend minimum are one defect, and it is diagnosed.** Every one of them sits at
-  a fillet-to-path junction: the arc is sampled at half `spacing` and the legs at `spacing`, and the
-  leftover segment carries the whole residual turn at one vertex. Under the grid that reads as a 22
-  degree turn at 1.91r; under an accurate path the leg's last point lands inside the setback and the
-  path reverses, 174 degrees at 0.32r. `spikes/join-geometry.mjs` prints a failing run per vertex.
-  This is not independent of path fidelity — it gates it, because the grid's blur is what was
-  holding it to a few percent.
 - **The back-cap chunk waste is not worth fixing — measured, and struck from this list.** The
   ~30% is real (27.9% `pyrite`, 25.1% `sequin`), but it costs nothing: real-GPU median frame time is
   2.2–2.3 ms whether `pyrite` draws 55 chunks or 1. Rejecting back-facing samples would raise
