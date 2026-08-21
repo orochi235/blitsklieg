@@ -5,8 +5,8 @@ next.
 
 ## State
 
-**`main` carries the tube lab and the tube geometry rewrite, both merged.** `npm run check` green at
-638 tests; `npx playwright test` green at 24. No code is in flight.
+**`main` carries the tube lab, the tube geometry rewrite and the colour gradients, all merged.**
+`npm run check` green at 723 tests; `npx playwright test` green at 24. No code is in flight.
 
 **[Direct tube paths](specs/2026-08-20-direct-tube-paths-design.md) is specced and not started.** It
 replaces the distance field with a trace of the glyph's own contour, and it subsumes the bend-minimum
@@ -21,10 +21,16 @@ since three's `vertexColors` only reaches diffuse. `TubeSpec.surfaceColors` is n
 palette per surface. All 24 baselines pass unchanged, which is the claim that published looks did
 not move.
 
-**A colour fade along a run is now cheap and unbuilt.** `buildTubeGeometry` writes
-`uv.x = i / (ringCount - 1)` — the fraction along the run — in the same loop as the colour
-attribute, so a gradient is a lerp on that fraction and no new plumbing. The open question is only
-whether a palette sweeps along each run, across the whole word, or gets its own spec field.
+**`TubeSpec.gradient` ships.** A colour sweep with six domains, in `replace` or `modulate`; the
+[design](specs/2026-08-20-colour-gradients-design.md) has the domain table. Neither shipped look
+sets it, so every run is still flat and all 24 baselines are unmoved. A domain is evaluated wherever
+its context already lives: `runIndex` and `surface` resolve in `assign` into `run.color`, touching
+neither geometry nor shader; `run` and `letter` write a `gradientT` attribute in `sweep.ts`; `axis`
+and `radial` are computed in the vertex shader. All six read one ramp texture, which the `Word` owns
+and disposes — `material.dispose()` cannot reach a texture that lives only in a uniform
+`onBeforeCompile` added. `spikes/gradient-presets.mjs` draws every preset as an SVG page, and stops
+get tuned there before a look changes. With bloom on the glow fills a dim run end, so the
+`electrode` preset reads close to flat at panel size; that is the interaction, not the ramp.
 
 The geometry model is in `docs/superpowers/specs/2026-08-19-tube-geometry-design.md`, and its
 `## Acceptance, as measured` section has the numbers. In short: the tube holds one diameter, corners
@@ -40,9 +46,11 @@ back into the model. Sliders that mark a real boundary have a stop the drag catc
 
 **Some rail controls are honest about very little, and the hints say so.** `runs` is a request
 pinned between the corner count below and `minRun` above — at `bend` 4 it is pinned across its whole
-range. `wall depth` and `wall rise` do nothing under either shipped look, both being front-only.
-`spikes/slider-sensitivity.mjs` sweeps every field and counts distinct outputs; use it before
-believing a control does what its name says.
+range. `wall depth` and `wall rise` do nothing under either shipped look, both being front-only, and
+the `surface` gradient domain is inert for the same reason. A positional gradient's bounds are per
+`Word`, and every panel is its own one-letter word, so an `axis` sweep restarts in each panel rather
+than running across the grid. `spikes/slider-sensitivity.mjs` sweeps every field and counts distinct
+outputs; use it before believing a control does what its name says.
 
 The spikes are the fast way back into any of it: `bend-acceptance.mjs` is the invariant across the
 alphabet, `where-under-bend.mjs <look> <letters>` says whether a bad bend is inside a fillet, at a
@@ -70,8 +78,6 @@ fidelity, and the spec covers both; the rest are independent.
   path reverses, 174 degrees at 0.32r. `spikes/join-geometry.mjs` prints a failing run per vertex.
   This is not independent of path fidelity — it gates it, because the grid's blur is what was
   holding it to a few percent.
-- **A colour fade along a run**, now that colour renders and the along-run fraction is already in
-  the geometry. Small, self-contained, and the only decision is where the gradient is specified.
 - **`sequin` and `pyrite` both waste ~30% of their chunk pool on the back cap** (`decoration.ts:227`).
   Rejecting back-facing samples changes which pool indices exist, so it changes how both published
   looks render. That is a decision, not a patch.
@@ -146,6 +152,15 @@ most for that look. Judge piping by `spikes/bend-acceptance.mjs` or a lab captur
 **A bloomed look at DPR 2 can exhaust Playwright's default 5s screenshot budget** while the stability
 loop waits for two consecutive frames. `shoot()` passes `timeout: 20000`, and an occasional single
 failure on `tubing` is this rather than instability — re-run before believing it.
+
+**A positional gradient's bounds must be mutated, not reassigned.** The compiled shader aliases the
+`Vector4` and `Vector2` sitting in `material.userData`, so a `regroup()` that hands over fresh
+vectors leaves every already-compiled letter reading the pre-regroup mapping.
+
+**The per-vertex gradient parameter is arc length, not ring index.** `ringsOf` domes each end with
+4 cap rings covering about one `radius` of length, so a ring-index parameter gave a 25-point run 25%
+of its range on caps that are 11% of it, and the share moved with point density. Ring index squeezes
+`electrode`'s dim ends onto the domes.
 
 **Never add `opacity` to `LookKey`.** `Word` rewrites `material.opacity` every frame, so a value
 applied through `PARAM_KEYS` is gone by the first tick — and it would pass any test that never calls

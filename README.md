@@ -138,6 +138,56 @@ Every field is a number, so nothing about three appears in your types. Out-of-ra
 rather than throw. `tintTarget` overrides which channel `tint` writes to when the default
 routing guesses wrong.
 
+### gradient
+
+`tubing` and `piping` draw a letter as tube followed around the glyph and cut into runs — some lit,
+one flat color each from the look's palette, the rest dark glass. `gradient` sweeps a color ramp
+across the lit ones instead of leaving each flat. The tubing is a `TubeSpec`, the `decoration` on
+either look's spec:
+
+```ts
+import { specOf, type TubeSpec } from 'blitsklieg';
+
+const tubing = specOf('tubing');
+const tube = tubing.decoration as TubeSpec;
+
+await bk.fire('OPEN', {
+  look: {
+    ...tubing,
+    decoration: {
+      ...tube,
+      gradient: {
+        domain: { of: 'run' },
+        stops: [0x8a1250, 0xff5cb0, 0x8a1250],
+        mode: 'replace',
+      },
+    },
+  },
+});
+```
+
+That is dim at each tube's ends and hot in the middle, which is what a real tube does.
+
+`domain` is what the ramp is measured along:
+
+| domain | |
+|---|---|
+| `{ of: 'run' }` | 0 to 1 along each run, restarting at every one |
+| `{ of: 'letter' }` | 0 to 1 across each glyph's lit tube, run to run |
+| `{ of: 'runIndex' }` | one value per lit run, in run order; flat within a run |
+| `{ of: 'surface' }` | one value per entry in the spec's `surfaces`, so it is flat on the front-only built-ins |
+| `{ of: 'axis', angle }` | position across the whole word; `angle` in degrees, 0 is +x and 90 is +y |
+| `{ of: 'radial', at }` | distance from `at`, a fraction of the word's bounds, `[0.5, 0.5]` by default |
+
+`stops` are sRGB hex and interpolate in linear space, so a pink-to-cyan fade does not pass through
+gray. Two is a fade, more is a ramp. `mode: 'replace'` paints the ramp; `'modulate'` multiplies each
+run's own color by it, keeping the look's palette and shading it — under `modulate` the stops are
+multipliers, and one below about `0x555555` reads as a dead tube rather than a shaded one.
+
+Omit `gradient` and every run is flat, which is what the built-in looks do. `tubing` also blooms by
+itself, and the glow fills a dim tube end, so a ramp that darkens its ends reads flatter than it is;
+`bloom: false` shows it plainly.
+
 ## Stages
 
 An effect can exit part of its word and lay the survivors out again as a word of their own — a
@@ -323,7 +373,7 @@ Under `prefers-reduced-motion: reduce` the word holds the pose its enter settles
   pickers, plus canned sequences.
 - `npm run dev:tube-lab -w blitsklieg` — the tube lab: several letters at several angles at once
   with the tube pipeline's own numbers beside the render. Dev-only tooling, never published.
-- `npm run check` — biome, tsc and the unit suite (609 tests).
+- `npm run check` — biome, tsc and the unit suite (723 tests).
 - `npm run test:visual` — Playwright specs asserting the overlay composites over a live page
   without tinting or blocking it.
 - `npm run build:pages -w @blitsklieg/lab && npm run preview:pages -w @blitsklieg/lab` — the

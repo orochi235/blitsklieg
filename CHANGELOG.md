@@ -19,6 +19,17 @@ free ends — every end is an electrode or a seal — and a bender who needs a s
 tube out of the plane and paints the return with blockout. `blockout` weights that against a real
 cut, which is still right at a letter's terminus. `tubing` asks for 0.7.
 
+### Color gradients
+
+`TubeSpec.gradient` sweeps a color ramp over a tube look instead of lighting every run flat.
+`domain` chooses what the ramp is measured along: `run` and `letter` run 0 to 1 along one tube or
+across one glyph, `runIndex` and `surface` give a single value per lit run or per layer, and `axis`
+and `radial` place it across the whole word. `mode: 'replace'` paints the ramp; `modulate`
+multiplies each run's own color by it, keeping the look's palette and shading it. `stops` are sRGB
+hex and interpolate in linear space, so a pink-to-cyan fade does not pass through gray.
+
+No built-in look sets it, and without it every run is flat as before.
+
 ### Breaking
 
 `loop` is gone from `CornerStrategy` and `CornerWeights`. Bridging a corner with a full turn of tube
