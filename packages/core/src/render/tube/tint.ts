@@ -70,17 +70,22 @@ function positionalT(gradient: GradientSpec): string {
  *
  * With a `gradient`, the ramp is sampled from a texture baked by `rampTexture` and `t` comes either
  * from the `gradientT` attribute or, for a positional domain, from the vertex's own position.
+ *
+ * `ramp` lets a caller bake that texture once and share it across the letters of a word; the caller
+ * then owns it. Without one this bakes its own, which nothing can reach to dispose — a shared ramp
+ * is the supported path for anything that outlives a test.
  */
 export function tintByRunColor(
   material: THREE.Material,
   channel: TintChannel,
   gradient?: GradientSpec,
+  ramp?: THREE.Texture,
 ): void {
   const target = material as THREE.MeshPhysicalMaterial;
   if (channel === 'emissive') target.emissive = new THREE.Color(0xffffff);
   else target.color = new THREE.Color(0xffffff);
 
-  const ramp = gradient ? rampTexture(gradient.stops) : undefined;
+  const texture = gradient ? (ramp ?? rampTexture(gradient.stops)) : undefined;
   const onPosition = gradient !== undefined && positional(gradient);
   // Held across compiles: three re-runs onBeforeCompile on every needsUpdate, and rebuilding these
   // would silently discard the bounds the caller had set.
@@ -122,9 +127,15 @@ export function tintByRunColor(
       anchor,
       `${anchor}\n  ${write}`,
     );
-    if (ramp) {
-      shader.uniforms[GRADIENT_RAMP_UNIFORM] = { value: ramp };
+    if (texture) {
+      shader.uniforms[GRADIENT_RAMP_UNIFORM] = { value: texture };
       if (onPosition) {
+        // Read here, not at patch time: the word sets these after every letter exists, which is
+        // after tintByRunColor has run and before the first compile.
+        const bounds = material.userData[GRADIENT_BOUNDS_UNIFORM];
+        const origin = material.userData[GRADIENT_ORIGIN_UNIFORM];
+        if (bounds instanceof THREE.Vector4) boundsUniform.value = bounds;
+        if (origin instanceof THREE.Vector2) originUniform.value = origin;
         shader.uniforms[GRADIENT_BOUNDS_UNIFORM] = boundsUniform;
         shader.uniforms[GRADIENT_ORIGIN_UNIFORM] = originUniform;
       }

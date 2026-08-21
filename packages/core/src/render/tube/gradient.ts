@@ -77,17 +77,27 @@ export const RAMP_RESOLUTION = 256;
 /**
  * The ramp as a texture the shader can index by `t`. Built by sampling `rampAt`, so a positional
  * domain and a per-run one resolve the same stops to the same colours.
+ *
+ * Half float, not float: linear filtering of a float texture needs `OES_texture_float_linear`, and
+ * a device without it drops to nearest and bands the ramp into 256 steps rather than erroring.
  */
 export function rampTexture(stops: readonly number[]): THREE.DataTexture {
-  const data = new Float32Array(RAMP_RESOLUTION * 4);
+  const data = new Uint16Array(RAMP_RESOLUTION * 4);
+  const one = THREE.DataUtils.toHalfFloat(1);
   for (let i = 0; i < RAMP_RESOLUTION; i++) {
     const c = rampAt(stops, i / (RAMP_RESOLUTION - 1));
-    data[i * 4] = c.r;
-    data[i * 4 + 1] = c.g;
-    data[i * 4 + 2] = c.b;
-    data[i * 4 + 3] = 1;
+    data[i * 4] = THREE.DataUtils.toHalfFloat(c.r);
+    data[i * 4 + 1] = THREE.DataUtils.toHalfFloat(c.g);
+    data[i * 4 + 2] = THREE.DataUtils.toHalfFloat(c.b);
+    data[i * 4 + 3] = one;
   }
-  const tex = new THREE.DataTexture(data, RAMP_RESOLUTION, 1, THREE.RGBAFormat, THREE.FloatType);
+  const tex = new THREE.DataTexture(
+    data,
+    RAMP_RESOLUTION,
+    1,
+    THREE.RGBAFormat,
+    THREE.HalfFloatType,
+  );
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.wrapS = THREE.ClampToEdgeWrapping;

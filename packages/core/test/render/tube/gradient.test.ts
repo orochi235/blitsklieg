@@ -120,25 +120,45 @@ describe('perVertexT', () => {
 import { RAMP_RESOLUTION, rampTexture } from '../../../src/render/tube/gradient.js';
 
 describe('rampTexture', () => {
-  it('is a 256x1 float texture', () => {
+  it('is a 256x1 half-float texture', () => {
     const tex = rampTexture([0xff0000, 0x0000ff]);
     expect(tex.image.width).toBe(RAMP_RESOLUTION);
     expect(tex.image.height).toBe(1);
     expect(tex.image.data).toHaveLength(RAMP_RESOLUTION * 4);
+    expect(tex.image.data).toBeInstanceOf(Uint16Array);
+    expect(tex.type).toBe(THREE.HalfFloatType);
+    tex.dispose();
+  });
+
+  it('filters linearly, which half float supports without an extension', () => {
+    const tex = rampTexture([0xff0000, 0x0000ff]);
+    expect(tex.minFilter).toBe(THREE.LinearFilter);
+    expect(tex.magFilter).toBe(THREE.LinearFilter);
     tex.dispose();
   });
 
   it('is the CPU ramp sampled, so the two cannot drift', () => {
     const stops = [0xff2d95, 0xffd14a, 0x2de0ff];
     const tex = rampTexture(stops);
-    const data = tex.image.data as Float32Array;
+    const data = tex.image.data as Uint16Array;
     for (const i of [0, 1, 77, 128, 254, 255]) {
       const want = rampAt(stops, i / (RAMP_RESOLUTION - 1));
-      expect(data[i * 4]).toBeCloseTo(want.r, 5);
-      expect(data[i * 4 + 1]).toBeCloseTo(want.g, 5);
-      expect(data[i * 4 + 2]).toBeCloseTo(want.b, 5);
-      expect(data[i * 4 + 3]).toBe(1);
+      // Compared as the stored half floats, so only the storage format may differ, not the ramp.
+      expect(data[i * 4]).toBe(THREE.DataUtils.toHalfFloat(want.r));
+      expect(data[i * 4 + 1]).toBe(THREE.DataUtils.toHalfFloat(want.g));
+      expect(data[i * 4 + 2]).toBe(THREE.DataUtils.toHalfFloat(want.b));
+      expect(THREE.DataUtils.fromHalfFloat(data[i * 4 + 3] as number)).toBe(1);
     }
+    tex.dispose();
+  });
+
+  it('keeps the dark end resolved, where the emissive floor lives', () => {
+    const tex = rampTexture([0x000000, 0xffffff]);
+    const data = tex.image.data as Uint16Array;
+    const lows = [1, 2, 3, 4].map((i) => THREE.DataUtils.fromHalfFloat(data[i * 4] as number));
+    // Every near-black step is distinct: an 8-bit ramp would collapse the first several to zero.
+    expect(new Set(lows).size).toBe(lows.length);
+    for (const v of lows) expect(v).toBeGreaterThan(0);
     tex.dispose();
   });
 
@@ -161,6 +181,13 @@ function compiled(material: THREE.Material) {
   };
   material.onBeforeCompile?.(shader as never, undefined as never);
   return shader;
+}
+
+/** One uniform the patch registered, so a missing one fails here rather than reading as undefined. */
+function uniform(shader: ReturnType<typeof compiled>, name: string): { value: unknown } {
+  const found = shader.uniforms[name];
+  if (!found) throw new Error(`no uniform ${name}`);
+  return found;
 }
 
 describe('tintByRunColor with a gradient', () => {
@@ -306,8 +333,8 @@ describe('positional gradient GLSL', () => {
     const m = new THREE.MeshPhysicalMaterial();
     tintByRunColor(m, 'emissive', { domain: { of: 'axis' }, stops: [0xff0000], mode: 'replace' });
     const s = compiled(m);
-    expect((s.uniforms.uGradBounds.value as THREE.Vector4).toArray()).toEqual([0, 0, 1, 1]);
-    expect((s.uniforms.uGradOrigin.value as THREE.Vector2).toArray()).toEqual([0, 0]);
+    expect((uniform(s, 'uGradBounds').value as THREE.Vector4).toArray()).toEqual([0, 0, 1, 1]);
+    expect((uniform(s, 'uGradOrigin').value as THREE.Vector2).toArray()).toEqual([0, 0]);
   });
 
   it('registers no positional uniforms for an attribute-driven domain', () => {
@@ -397,9 +424,91 @@ describe('the positional uniforms survive a recompile', () => {
     const m = new THREE.MeshPhysicalMaterial();
     tintByRunColor(m, 'emissive', { domain: { of: 'axis' }, stops: [0xff0000], mode: 'replace' });
     const first = compiled(m);
-    (first.uniforms.uGradBounds.value as THREE.Vector4).set(-2, -3, 4, 5);
+    (uniform(first, 'uGradBounds').value as THREE.Vector4).set(-2, -3, 4, 5);
     const second = compiled(m);
-    expect((second.uniforms.uGradBounds.value as THREE.Vector4).toArray()).toEqual([-2, -3, 4, 5]);
-    expect(second.uniforms.uGradBounds).toBe(first.uniforms.uGradBounds);
+    expect((uniform(second, 'uGradBounds').value as THREE.Vector4).toArray()).toEqual([
+      -2, -3, 4, 5,
+    ]);
+    expect(uniform(second, 'uGradBounds')).toBe(uniform(first, 'uGradBounds'));
+  });
+});
+
+describe('the positional uniforms take their values from the material', () => {
+  const patched = (bounds?: THREE.Vector4, origin?: THREE.Vector2) => {
+    const m = new THREE.MeshPhysicalMaterial();
+    tintByRunColor(m, 'emissive', { domain: { of: 'axis' }, stops: [0xff0000], mode: 'replace' });
+    if (bounds) m.userData.uGradBounds = bounds;
+    if (origin) m.userData.uGradOrigin = origin;
+    return compiled(m);
+  };
+
+  it('reads userData at compile time, which is after the caller has set it', () => {
+    const s = patched(new THREE.Vector4(-1, -2, 3, 4), new THREE.Vector2(5, 6));
+    expect((uniform(s, 'uGradBounds').value as THREE.Vector4).toArray()).toEqual([-1, -2, 3, 4]);
+    expect((uniform(s, 'uGradOrigin').value as THREE.Vector2).toArray()).toEqual([5, 6]);
+  });
+
+  it('falls back to the unit box when the material carries nothing', () => {
+    const s = patched();
+    expect((uniform(s, 'uGradBounds').value as THREE.Vector4).toArray()).toEqual([0, 0, 1, 1]);
+    expect((uniform(s, 'uGradOrigin').value as THREE.Vector2).toArray()).toEqual([0, 0]);
+  });
+
+  it('still hands back one uniform object across recompiles', () => {
+    const m = new THREE.MeshPhysicalMaterial();
+    tintByRunColor(m, 'emissive', { domain: { of: 'axis' }, stops: [0xff0000], mode: 'replace' });
+    m.userData.uGradBounds = new THREE.Vector4(-1, -2, 3, 4);
+    const first = compiled(m);
+    const second = compiled(m);
+    expect(uniform(second, 'uGradBounds')).toBe(uniform(first, 'uGradBounds'));
+    expect(uniform(second, 'uGradOrigin')).toBe(uniform(first, 'uGradOrigin'));
+  });
+
+  it('ignores a userData entry of the wrong shape', () => {
+    const m = new THREE.MeshPhysicalMaterial();
+    tintByRunColor(m, 'emissive', { domain: { of: 'axis' }, stops: [0xff0000], mode: 'replace' });
+    m.userData.uGradBounds = [1, 2, 3, 4];
+    expect((uniform(compiled(m), 'uGradBounds').value as THREE.Vector4).toArray()).toEqual([
+      0, 0, 1, 1,
+    ]);
+  });
+});
+
+describe('the ramp texture a tint samples', () => {
+  const gradient: GradientSpec = {
+    domain: { of: 'axis' },
+    stops: [0xff2d95, 0x2de0ff],
+    mode: 'replace',
+  };
+
+  it('is the one supplied, rather than a fresh bake per call', () => {
+    const shared = rampTexture(gradient.stops);
+    const seen = new Set<unknown>();
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.MeshPhysicalMaterial();
+      tintByRunColor(m, 'emissive', gradient, shared);
+      seen.add(uniform(compiled(m), 'uGradRamp').value);
+    }
+    expect(seen).toEqual(new Set([shared]));
+    shared.dispose();
+  });
+
+  it('is baked per call when none is supplied, so a direct caller still works', () => {
+    const seen = new Set<THREE.Texture>();
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.MeshPhysicalMaterial();
+      tintByRunColor(m, 'emissive', gradient);
+      seen.add(uniform(compiled(m), 'uGradRamp').value as THREE.Texture);
+    }
+    expect(seen.size).toBe(4);
+    for (const tex of seen) tex.dispose();
+  });
+
+  it('is not registered at all without a gradient, supplied or not', () => {
+    const m = new THREE.MeshPhysicalMaterial();
+    const shared = rampTexture([0xff0000]);
+    tintByRunColor(m, 'emissive', undefined, shared);
+    expect(compiled(m).uniforms.uGradRamp).toBeUndefined();
+    shared.dispose();
   });
 });

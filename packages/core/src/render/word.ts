@@ -33,7 +33,13 @@ import {
   specOf,
   tintMaterialOf,
 } from './looks.js';
-import { tintByRunColor, tintChannelOf } from './tube/tint.js';
+import { rampTexture } from './tube/gradient.js';
+import {
+  GRADIENT_BOUNDS_UNIFORM,
+  GRADIENT_ORIGIN_UNIFORM,
+  tintByRunColor,
+  tintChannelOf,
+} from './tube/tint.js';
 
 const EM = 1; // glyphs are built at 1 em; the group scale does the fitting
 
@@ -103,6 +109,10 @@ export class Word {
   private readonly decorCache: GlyphCache<Blueprint> | null;
   /** Tube blueprints, one per letter — a per-letter seed can't go through the char-keyed cache. */
   private readonly tubeBlueprints: TubeBlueprint[] = [];
+  /** Per-letter run bounds in the letter's own 1 em space; null where the glyph drew nothing. */
+  private readonly tubeBounds: (THREE.Box2 | null)[] = [];
+  /** One ramp for the whole word: every letter's tint samples the same stops. */
+  private readonly gradientRamp: THREE.DataTexture | null;
   private readonly chunkGeo: THREE.BufferGeometry | null;
   private readonly pose = blankPose();
   private readonly bodyOpacity: number;
@@ -133,6 +143,10 @@ export class Word {
     this.decorOpacity = decoration?.look.opacity ?? 1;
     this.darkOpacity = decoration?.kind === 'tube' ? (decoration.dark.opacity ?? 1) : 1;
     this.chunkGeo = decoration?.kind === 'chunks' ? chunkGeometry(decoration.shape) : null;
+    this.gradientRamp =
+      decoration?.kind === 'tube' && decoration.gradient
+        ? rampTexture(decoration.gradient.stops)
+        : null;
     // A tube's runs need a per-letter seed, so two letters of the same char don't repeat the
     // same partial-lit pattern — that can't go through a cache keyed on (char, depth) alone.
     this.decorCache =
@@ -178,6 +192,41 @@ export class Word {
     for (let i = 0; i < this.charOf.length; i++) {
       this.buildCell(i, font, look, spec, decoration, tint, debug);
     }
+    this.setGradientBounds();
+  }
+
+  /**
+   * Positional gradients live in the letter-placement space — a letter's own coordinates plus its
+   * offset in the word — deliberately excluding the group's fit transform, so a resize cannot
+   * slide the sweep across the sign.
+   */
+  private setGradientBounds(): void {
+    const word = new THREE.Box2();
+    const at = new THREE.Vector2();
+    for (let i = 0; i < this.tubeBounds.length; i++) {
+      const box = this.tubeBounds[i];
+      if (!box) continue;
+      const dx = this.baseX[i] as number;
+      const dy = this.baseY[i] as number;
+      word.expandByPoint(at.set(box.min.x + dx, box.min.y + dy));
+      word.expandByPoint(at.set(box.max.x + dx, box.max.y + dy));
+    }
+    if (word.isEmpty()) return;
+
+    for (let i = 0; i < this.decorMaterials.length; i++) {
+      const material = this.decorMaterials[i];
+      if (!material) continue;
+      material.userData[GRADIENT_BOUNDS_UNIFORM] = new THREE.Vector4(
+        word.min.x,
+        word.min.y,
+        word.max.x,
+        word.max.y,
+      );
+      material.userData[GRADIENT_ORIGIN_UNIFORM] = new THREE.Vector2(
+        this.baseX[i] as number,
+        this.baseY[i] as number,
+      );
+    }
   }
 
   /** A glyph draws ink when its geometry has vertices — the same test the cell build uses. */
@@ -206,6 +255,7 @@ export class Word {
       this.bodyMaterials.push(null);
       this.decorMaterials.push(null);
       this.darkMaterials.push(null);
+      this.tubeBounds.push(null);
       return;
     }
 
@@ -238,7 +288,14 @@ export class Word {
       }
       // Only when the look was applied: an override brings its own material and its own meaning
       // for every channel, and has no run-colour contract with us.
-      if (!litOverride) tintByRunColor(decorMaterial, tintChannelOf(decoration.look));
+      if (!litOverride) {
+        tintByRunColor(
+          decorMaterial,
+          tintChannelOf(decoration.look),
+          decoration.gradient,
+          this.gradientRamp ?? undefined,
+        );
+      }
       decorMaterial.transparent = true;
       // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
       // would cull that invisible.
@@ -258,6 +315,12 @@ export class Word {
       debugShapes = shapes;
       const blueprint = buildTubeBlueprint(shapes, decoration, DEFAULT_GLYPH_OPTIONS.depth, i);
       this.tubeBlueprints.push(blueprint);
+      const box = new THREE.Box2();
+      const point = new THREE.Vector2();
+      for (const run of blueprint.runs) {
+        for (const p of run.points) box.expandByPoint(point.set(p.x, p.y));
+      }
+      this.tubeBounds.push(box.isEmpty() ? null : box);
       for (const geo of blueprint.lit) cell.add(new THREE.Mesh(geo, decorMaterial));
       for (const geo of blueprint.dark) cell.add(new THREE.Mesh(geo, darkMaterial));
     } else if (decoration && this.decorCache) {
@@ -272,6 +335,7 @@ export class Word {
       seedFlake(decorMaterial, i);
       this.decorMaterials.push(decorMaterial);
       this.darkMaterials.push(null);
+      this.tubeBounds.push(null);
 
       const blueprint = this.decorCache.get(char, DEFAULT_GLYPH_OPTIONS.depth);
       if (decoration.kind === 'chunks' && blueprint.kind === 'chunks' && this.chunkGeo) {
@@ -286,6 +350,7 @@ export class Word {
     } else {
       this.decorMaterials.push(null);
       this.darkMaterials.push(null);
+      this.tubeBounds.push(null);
     }
 
     if (debug?.onLetter) {
@@ -456,6 +521,8 @@ export class Word {
     this.darkMaterials.length = 0;
     for (const blueprint of this.tubeBlueprints) blueprint.dispose();
     this.tubeBlueprints.length = 0;
+    this.tubeBounds.length = 0;
+    this.gradientRamp?.dispose();
     this.decorCache?.dispose();
     this.chunkGeo?.dispose();
     // An InstancedMesh owns an instanceMatrix buffer that clearing the group does not free.

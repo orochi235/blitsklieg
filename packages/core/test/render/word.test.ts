@@ -7,6 +7,7 @@ import { NONE } from '../../src/motion/types.js';
 import type { PoseOffset } from '../../src/pose.js';
 import type { FlakeUniforms } from '../../src/render/flake.js';
 import type { LookSpec } from '../../src/render/looks.js';
+import type { GradientSpec } from '../../src/render/tube/gradient.js';
 import { Word } from '../../src/render/word.js';
 import type { LoadedFont } from '../../src/text/font.js';
 import type { Budget } from '../../src/text/layout.js';
@@ -1073,5 +1074,174 @@ describe('tint as a function', () => {
   it('still accepts a plain number for the whole word', () => {
     const colors = bodyColors(new Word('AB', stubFont(), 'gold', ROOMY, false, 0x00ff00));
     expect(colors).toEqual([0x00ff00, 0x00ff00]);
+  });
+});
+
+describe('positional gradient bounds', () => {
+  const RADIUS = 0.04;
+  const tubeLook = (gradient?: GradientSpec): LookSpec => ({
+    decoration: {
+      kind: 'tube',
+      radius: RADIUS,
+      segments: 8,
+      spacing: 0.03,
+      surfaces: ['front'],
+      level: 0,
+      runs: 4,
+      minRun: 0.05,
+      select: { by: 'seed', amount: 1 },
+      colors: [0xff2d95],
+      gradient,
+      look: { emissive: 0xff2d95 },
+      dark: { color: 0x1a0010 },
+    },
+  });
+  const SWEPT = tubeLook({
+    domain: { of: 'axis' },
+    stops: [0xff2d95, 0x2de0ff],
+    mode: 'replace',
+  });
+  const FLAT = tubeLook();
+
+  /** The lit and dark run material a letter's decoration meshes share. */
+  function decorMaterial(cell: THREE.Group): THREE.Material {
+    return (cell.children[1] as THREE.Mesh).material as THREE.Material;
+  }
+
+  function boundsOf(cell: THREE.Group): THREE.Vector4 {
+    return decorMaterial(cell).userData.uGradBounds as THREE.Vector4;
+  }
+
+  function originOf(cell: THREE.Group): THREE.Vector2 {
+    return decorMaterial(cell).userData.uGradOrigin as THREE.Vector2;
+  }
+
+  /** Runs the tint's shader patch against a stand-in shader and returns the uniforms it registered. */
+  function uniformsOf(cell: THREE.Group): Record<string, { value: unknown }> {
+    const shader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: '#include <begin_vertex>\n',
+      fragmentShader: '#include <emissivemap_fragment>\n',
+    };
+    decorMaterial(cell).onBeforeCompile?.(shader as never, undefined as never);
+    return shader.uniforms;
+  }
+
+  /**
+   * The letter's run centrelines in placement space, read back off what was actually swept: the
+   * mesh spans one tube radius past the path on every side.
+   */
+  function runsOf(cell: THREE.Group): THREE.Box2 {
+    const swept = new THREE.Box3();
+    for (const child of cell.children.slice(1)) {
+      const geo = (child as THREE.Mesh).geometry;
+      geo.computeBoundingBox();
+      swept.union(geo.boundingBox as THREE.Box3);
+    }
+    return new THREE.Box2(
+      new THREE.Vector2(
+        swept.min.x + RADIUS + cell.position.x,
+        swept.min.y + RADIUS + cell.position.y,
+      ),
+      new THREE.Vector2(
+        swept.max.x - RADIUS + cell.position.x,
+        swept.max.y - RADIUS + cell.position.y,
+      ),
+    );
+  }
+
+  /** The union of every drawn letter's runs, in placement space. */
+  function wordRuns(word: Word): THREE.Box2 {
+    const box = new THREE.Box2();
+    for (const cell of groups(word)) box.union(runsOf(cell as THREE.Group));
+    return box;
+  }
+
+  it('spans every letter, not just the one the material belongs to', () => {
+    const word = new Word('AB', stubFont(), SWEPT, ROOMY);
+    const want = wordRuns(word);
+
+    for (const cell of groups(word)) {
+      const bounds = boundsOf(cell as THREE.Group);
+      expect(bounds.x).toBeCloseTo(want.min.x, 5);
+      expect(bounds.y).toBeCloseTo(want.min.y, 5);
+      expect(bounds.z).toBeCloseTo(want.max.x, 5);
+      expect(bounds.w).toBeCloseTo(want.max.y, 5);
+    }
+    // Wider than one letter by exactly the advance between them: a per-letter box would not be.
+    const [a, b] = groups(word) as THREE.Group[];
+    const single = runsOf(a as THREE.Group);
+    expect(want.max.x - want.min.x).toBeCloseTo(
+      single.max.x - single.min.x + ((b as THREE.Group).position.x - (a as THREE.Group).position.x),
+      5,
+    );
+  });
+
+  it('gives every letter the same bounds but its own offset', () => {
+    const word = new Word('AB', stubFont(), SWEPT, ROOMY);
+    const [a, b] = groups(word) as THREE.Group[];
+
+    expect(boundsOf(a as THREE.Group).toArray()).toEqual(boundsOf(b as THREE.Group).toArray());
+    expect(originOf(a as THREE.Group).toArray()).toEqual([
+      (a as THREE.Group).position.x,
+      (a as THREE.Group).position.y,
+    ]);
+    expect(originOf(b as THREE.Group).toArray()).toEqual([
+      (b as THREE.Group).position.x,
+      (b as THREE.Group).position.y,
+    ]);
+    expect(originOf(a as THREE.Group).x).not.toBe(originOf(b as THREE.Group).x);
+  });
+
+  it('keeps the per-letter boxes indexed by slot across a blank glyph', () => {
+    const word = new Word('A B', stubFont(), SWEPT, ROOMY);
+    const want = wordRuns(word);
+    const bounds = boundsOf(groups(word)[0] as THREE.Group);
+
+    // A slot the space failed to take would pair a letter's box with its neighbour's offset,
+    // sliding the union by a whole advance.
+    expect(bounds.x).toBeCloseTo(want.min.x, 5);
+    expect(bounds.z).toBeCloseTo(want.max.x, 5);
+    expect(word.letterCount).toBe(3);
+  });
+
+  it('excludes the fit, so a resize cannot slide the sweep across the sign', () => {
+    const roomy = new Word('AB', stubFont(), SWEPT, ROOMY);
+    const cramped = new Word('AB', stubFont(), SWEPT, { width: 1, height: 1 });
+
+    expect(cramped.group.scale.x).not.toBeCloseTo(roomy.group.scale.x, 3);
+    for (let i = 0; i < 2; i++) {
+      const a = groups(roomy)[i] as THREE.Group;
+      const b = groups(cramped)[i] as THREE.Group;
+      expect(boundsOf(b).toArray()).toEqual(boundsOf(a).toArray());
+      expect(originOf(b).toArray()).toEqual(originOf(a).toArray());
+    }
+  });
+
+  it('bakes one ramp for the whole word', () => {
+    const word = new Word('ABC', stubFont(), SWEPT, ROOMY);
+    const ramps = groups(word).map((cell) => uniformsOf(cell as THREE.Group).uGradRamp?.value);
+
+    expect(ramps).toHaveLength(3);
+    expect(new Set(ramps).size).toBe(1);
+    expect(ramps[0]).toBeInstanceOf(THREE.DataTexture);
+  });
+
+  it('disposes that ramp with the word', () => {
+    const word = new Word('AB', stubFont(), SWEPT, ROOMY);
+    const ramp = uniformsOf(groups(word)[0] as THREE.Group).uGradRamp?.value as THREE.Texture;
+    const spy = vi.spyOn(ramp, 'dispose');
+
+    word.dispose();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a look without a gradient entirely alone', () => {
+    const word = new Word('AB', stubFont(), FLAT, ROOMY);
+    const uniforms = uniformsOf(groups(word)[0] as THREE.Group);
+
+    expect(uniforms.uGradRamp).toBeUndefined();
+    expect(uniforms.uGradBounds).toBeUndefined();
   });
 });
