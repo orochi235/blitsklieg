@@ -92,7 +92,9 @@ fidelity, and the spec covers both; the rest are independent.
 
 - **`M` and `W` are the worst case, not `N`.** The standing `NSRE` string missed both extremes: `M`
   bends at 0.32 of its own tube radius and `W` at 0.38, against `N`'s 0.44. Every acceptance check
-  uses `MWNSRE`. The tube lab's default letters are `MWSB` for the same reason.
+  uses `MWNSRE`. The tube lab's default letters are `MWSB` for the same reason. `piping` wants
+  `QXY` instead — it traces inset at `level: -0.015` onto a different contour, so no one string
+  serves both looks.
 - **`ρmin` sits above `ρstyle`, and the spec's two-class model breaks on it.** At `bend = 2` the
   stylistic band is empty, and a corner between `ρstyle` and `ρmin` is hard yet above the detection
   threshold — never seen, never fixed, silently violating the invariant. 13 such corners on `tubing`

@@ -233,6 +233,11 @@ break path; they make it the fallback rather than the default.
 
 ## Path fidelity is unblocked by this work, not part of it
 
+**Settled: `pathSource` defaults to `direct`, and the measurement below was taken under a clamp that
+no longer exists.** Tracing the contour deletes the grid's wobble and the corners it manufactured. It
+does not delete group filleting: a corner spans 2-4 vertices under either source, which
+`spikes/corner-width.mjs` measures on a square with no field anywhere near it.
+
 The tube's path is not the font's curves. `glyphToShapes` yields real béziers; they are flattened at
 24 segments per curve, resampled, rasterized into a signed distance field on a 256² grid,
 re-extracted by marching squares, resampled again, and smoothed three times. Over a glyph bbox plus
