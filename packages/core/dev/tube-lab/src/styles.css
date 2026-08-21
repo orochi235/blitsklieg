@@ -142,7 +142,8 @@ body {
   background: none;
   border: 1px solid #2a3142;
 }
-.rail input:disabled {
+.rail input:disabled,
+.rail select:disabled {
   opacity: 0.35;
 }
 .rail__note {

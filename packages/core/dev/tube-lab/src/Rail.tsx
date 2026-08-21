@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type {
   CornerWeights,
+  GradientSpec,
   PathSource,
   SurfaceKind,
   TubeSpec,
@@ -150,6 +151,20 @@ const PATH_SOURCES: PathSource[] = ['field', 'exact', 'direct'];
 
 /** The three kinds `surfacesOf` actually produces; `connector` is a count, not a surface. */
 const SURFACE_KINDS: SurfaceKind[] = ['front', 'back', 'wall'];
+
+/** The domains, plus the `off` the spec spells as no `gradient` field at all. */
+const GRADIENT_DOMAINS = ['off', 'run', 'letter', 'runIndex', 'surface', 'axis', 'radial'] as const;
+type GradientChoice = (typeof GRADIENT_DOMAINS)[number];
+
+const GRADIENT_MODES: GradientSpec['mode'][] = ['replace', 'modulate'];
+
+/** What a sweep switched on from `off` starts with, and what the count slider seeds a new stop from. */
+const GRADIENT_STOPS = [0xff2d95, 0x2de0ff, 0xffd14a];
+
+const STOP_LABELS = ['stop 1', 'stop 2', 'stop 3'];
+
+const STOPS_HINT =
+  'Colours the sweep runs through. Under `modulate` these are multipliers: a stop below #555 reads as a dead tube rather than a shaded one.';
 
 /** The one meaningful number behind two weights: 1 is every corner breaking, 0 every corner bending. */
 function cornerMix(weights: CornerWeights): number {
@@ -323,6 +338,12 @@ export function Rail(props: RailProps) {
     ...(spec.connectors && spec.connectors > 0 ? (['connector'] as SurfaceKind[]) : []),
   ];
   const patch = (part: Partial<TubeSpec>) => onSpec({ ...spec, ...part });
+  const gradient = spec.gradient;
+  const stops = gradient?.stops ?? GRADIENT_STOPS.slice(0, 2);
+  const applyGradient = (next: GradientSpec | null) => {
+    const { gradient: _off, ...rest } = spec;
+    onSpec(next ? { ...rest, gradient: next } : rest);
+  };
   // `generateConnectors` returns nothing without both faces, so the controls say so rather than
   // sitting live and doing nothing.
   const bothFaces = spec.surfaces.includes('front') && spec.surfaces.includes('back');
@@ -483,6 +504,96 @@ export function Rail(props: RailProps) {
             onChange={(e) => props.onBloom(e.target.checked)}
           />
         </label>
+      </section>
+
+      <section className="rail__group">
+        <h2>gradient</h2>
+        <label title="What the sweep is a function of. `surface` does nothing under a look with one layer, which is both shipped looks.">
+          domain
+          <select
+            value={gradient?.domain.of ?? 'off'}
+            onChange={(e) => {
+              const choice = e.target.value as GradientChoice;
+              if (choice === 'off') {
+                applyGradient(null);
+                return;
+              }
+              applyGradient({
+                domain: { of: choice },
+                stops,
+                mode: gradient?.mode ?? 'replace',
+              });
+            }}
+          >
+            {GRADIENT_DOMAINS.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label title="`replace` paints the ramp over the palette; `modulate` multiplies the palette by it, so a multi-colour sign keeps its colours.">
+          mode
+          <select
+            value={gradient?.mode ?? 'replace'}
+            disabled={!gradient}
+            onChange={(e) => {
+              if (!gradient) return;
+              applyGradient({ ...gradient, mode: e.target.value as GradientSpec['mode'] });
+            }}
+          >
+            {GRADIENT_MODES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {gradient?.domain.of === 'axis' ? (
+          <Range
+            label="angle"
+            hint="Direction of the sweep across the word. 0 is left to right."
+            min={0}
+            max={360}
+            step={1}
+            value={Math.round(gradient.domain.angle ?? 0)}
+            onCommit={(next) => applyGradient({ ...gradient, domain: { of: 'axis', angle: next } })}
+          />
+        ) : null}
+        {gradient ? (
+          <>
+            <Range
+              label="stops"
+              hint={STOPS_HINT}
+              min={1}
+              max={STOP_LABELS.length}
+              step={1}
+              value={stops.length}
+              onCommit={(next) =>
+                applyGradient({
+                  ...gradient,
+                  stops: STOP_LABELS.slice(0, next).map(
+                    (_label, i) => stops[i] ?? GRADIENT_STOPS[i] ?? 0xffffff,
+                  ),
+                })
+              }
+            />
+            {STOP_LABELS.slice(0, stops.length).map((label, i) => (
+              <Color
+                key={label}
+                label={label}
+                hint={STOPS_HINT}
+                value={stops[i] ?? 0xffffff}
+                onCommit={(next) =>
+                  applyGradient({
+                    ...gradient,
+                    stops: stops.map((stop, j) => (j === i ? next : stop)),
+                  })
+                }
+              />
+            ))}
+          </>
+        ) : null}
       </section>
 
       <section className="rail__group">
