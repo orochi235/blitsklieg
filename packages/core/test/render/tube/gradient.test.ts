@@ -547,6 +547,15 @@ describe('tintByRunColor with a limb rim', () => {
     expect(fragmentFor(0.8)).toContain('dot(normal, normalize(vViewPosition))');
   });
 
+  it('emits the rim verbatim, scaled and mean-corrected rather than added', () => {
+    expect(fragmentFor(0.5)).toBe(
+      'varying vec3 vRunColor;\n#include <emissivemap_fragment>\n' +
+        '  float rimNdv = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);\n' +
+        '  totalEmissiveRadiance *= vRunColor * ((1.0 - 0.5 * rimNdv) / 0.6073009183012759);\n' +
+        '#include <color_fragment>\n',
+    );
+  });
+
   it('samples the ramp once under replace, not once per term', () => {
     const glsl = fragmentFor(0.8, runGradient);
     expect(glsl.split('texture2D(uGradRamp').length - 1).toBe(1);

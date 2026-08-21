@@ -32,19 +32,21 @@ function glslFloat(n: number): string {
  */
 const GRAZING = 'float rimNdv = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);';
 
-/**
- * Below 1 the profile is a wash over the whole tube; at 5, Schlick's Fresnel exponent, it is a
- * hairline the antialiased silhouette eats at sign size.
- */
-const RIM_EXPONENT = 1.5;
+/** The mean of `rimNdv` across a cylinder's projected width: the integral of sqrt(1 - x^2) over 0..1. */
+const CROSS_SECTION_MEAN = Math.PI / 4;
 
 /**
- * The emissive scale a limb rim asks for, 1 at the silhouette down to `1 - strength` head-on.
- * It only ever darkens: a tuned neon look already clips its brightest channels, so brightening
- * the edge is invisible where dimming the core is not.
+ * The emissive scale a limb rim asks for: falling with `rimNdv`, the fraction of the tube's
+ * diameter a ray at this angle crosses, over that profile's own mean so the width still averages to
+ * the emissive the look asked for.
+ *
+ * The mean is what keeps a glowing sign glowing — without it the whole tube sinks under the bloom
+ * threshold. Scaling rather than adding is what makes the rim visible at all: a tuned look's
+ * brightest channels already clip, so a lifted edge moves nothing a dimmed core does not.
  */
 function limbFactor(strength: number): string {
-  return `(1.0 - ${glslFloat(strength)} * (1.0 - pow(1.0 - rimNdv, ${glslFloat(RIM_EXPONENT)})))`;
+  const mean = glslFloat(1 - CROSS_SECTION_MEAN * strength);
+  return `((1.0 - ${glslFloat(strength)} * rimNdv) / ${mean})`;
 }
 
 /**
@@ -97,9 +99,9 @@ function positionalT(gradient: GradientSpec): string {
  * then owns it. Without one this bakes its own, which nothing can reach to dispose — a shared ramp
  * is the supported path for anything that outlives a test.
  *
- * `rim` (0..1, emissive only) sinks the tube's head-on emissive by that fraction and leaves the
- * silhouette where the look put it, so the glass reads as a lit cylinder rather than a ribbon.
- * Absent or 0 emits the GLSL this shipped with, byte for byte.
+ * `rim` (0..1, emissive only) moves that fraction of the emissive off the tube's face and out to
+ * its silhouette, so the glass reads as a lit cylinder rather than a ribbon. Absent or 0 emits the
+ * GLSL this shipped with, byte for byte.
  */
 export function tintByRunColor(
   material: THREE.Material,

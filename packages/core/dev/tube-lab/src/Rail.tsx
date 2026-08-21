@@ -479,6 +479,15 @@ export function Rail(props: RailProps) {
           value={Math.round((spec.look.emissiveIntensity ?? 0) * 10)}
           onCommit={(next) => patch({ look: { ...spec.look, emissiveIntensity: next / 10 } })}
         />
+        <Range
+          label="rim"
+          hint="Limb brightening. How much of the emissive moves off the face of the tube, where your line of sight crosses least glowing gas, out to its silhouette, where it crosses most. The width still averages to the look’s own emissive, so the sign’s exposure and its bloom stay put. 0 is the flat ribbon."
+          min={0}
+          max={100}
+          step={1}
+          value={Math.round((spec.look.rim ?? 0) * 100)}
+          onCommit={(next) => patch({ look: { ...spec.look, rim: next / 100 } })}
+        />
         <Color
           label="run colour"
           hint="The palette every lit run draws from, unless its layer has its own colour below."

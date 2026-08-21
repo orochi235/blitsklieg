@@ -5,9 +5,10 @@ import type { TubeBlueprint, TubeSpec } from './tube/index.js';
 /** A decoration's own material, in the same plain numbers a look takes. */
 export type MaterialSpec = Omit<LookSpec, 'decoration' | 'bloom'> & {
   /**
-   * Limb brightening on a tube, 0..1: how far the emissive sinks head-on, where a line of sight
-   * crosses least glowing gas, against the silhouette the look's own emissive keeps. Absent or 0
-   * renders exactly as before. Emissive only — a solid cord has no depth to see through.
+   * Limb brightening on a tube, 0..1: how much of the emissive moves off the tube's face, where a
+   * line of sight crosses least glowing gas, out to its silhouette, where it crosses most. The
+   * width still averages to the look's own emissive. Absent or 0 renders exactly as before, and
+   * only an emissive decoration has one — a solid cord has no depth to see through.
    */
   rim?: number;
 };
