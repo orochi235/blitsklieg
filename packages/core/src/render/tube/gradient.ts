@@ -71,3 +71,30 @@ export function perVertexT(domain: GradientDomain, along: number, place: RunSpan
   if (domain.of !== 'run' && domain.of !== 'letter') return null;
   return domain.of === 'run' ? along : place.start + place.span * along;
 }
+
+export const RAMP_RESOLUTION = 256;
+
+/**
+ * The ramp as a texture the shader can index by `t`. Built by sampling `rampAt`, so a positional
+ * domain and a per-run one resolve the same stops to the same colours.
+ */
+export function rampTexture(stops: readonly number[]): THREE.DataTexture {
+  const data = new Float32Array(RAMP_RESOLUTION * 4);
+  for (let i = 0; i < RAMP_RESOLUTION; i++) {
+    const c = rampAt(stops, i / (RAMP_RESOLUTION - 1));
+    data[i * 4] = c.r;
+    data[i * 4 + 1] = c.g;
+    data[i * 4 + 2] = c.b;
+    data[i * 4 + 3] = 1;
+  }
+  const tex = new THREE.DataTexture(data, RAMP_RESOLUTION, 1, THREE.RGBAFormat, THREE.FloatType);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  // Already linear: rampAt returns three's working space, so a colour-space conversion would
+  // apply the sRGB transfer function a second time.
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
