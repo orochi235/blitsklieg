@@ -3,6 +3,7 @@ import type { MaterialSpec } from '../decoration.js';
 import { assign, type SelectSpec } from './assign.js';
 import { minBendRadius } from './bend.js';
 import { generateConnectors, generatePaths, type PathSource } from './generators.js';
+import type { GradientSpec } from './gradient.js';
 import { type CornerRecord, type CornerWeights, cutIntoRuns, type Run } from './runs.js';
 import type { SurfaceKind } from './surfaces.js';
 import { surfacesOf } from './surfaces.js';
@@ -11,6 +12,7 @@ import { wanderPaths } from './wander.js';
 
 export type { SelectSpec } from './assign.js';
 export type { PathSource } from './generators.js';
+export type { GradientDomain, GradientSpec } from './gradient.js';
 export type { CornerRecord, CornerStrategy, CornerWeights, Run } from './runs.js';
 export { ALL_BREAK, ALL_CONNECT } from './runs.js';
 export type { SurfaceKind } from './surfaces.js';
@@ -57,6 +59,8 @@ export interface TubeSpec {
   colors: number[];
   /** Per-surface palettes, each falling back to `colors`. Omit for one palette across every layer. */
   surfaceColors?: Partial<Record<SurfaceKind, number[]>>;
+  /** A colour sweep across the sign. Omit for a flat colour per run, which is the default. */
+  gradient?: GradientSpec;
   look: MaterialSpec;
   /** Unlit glass. Present so a dark run is visibly there rather than missing. */
   dark: MaterialSpec;
@@ -115,15 +119,43 @@ export function buildTubeBlueprint(
     blockout: spec.blockout,
     seed,
   });
-  const runs = assign(cut.runs, spec.select, spec.colors, seed, spec.surfaceColors);
+  const runs = assign(
+    cut.runs,
+    spec.select,
+    spec.colors,
+    seed,
+    spec.surfaceColors,
+    spec.surfaces,
+    spec.gradient,
+  );
   // Cloned after wander, not before: wander moves run points in place, and every corner interior
   // to a run — every `connect` and `loop` — moves with them.
   const corners = cut.corners.map((c) => ({ ...c, point: c.point.clone() }));
 
+  // The letter domain needs each run's slice of the glyph's lit length, and this is the only
+  // place that has the glyph's whole run list.
+  const litRuns = runs.filter((r) => r.lit);
+  const litTotal = litRuns.reduce((a, r) => a + r.length, 0);
+  const spans = new Map<number, { start: number; span: number }>();
+  let walked = 0;
+  for (const run of litRuns) {
+    spans.set(run.index, {
+      start: litTotal > 0 ? walked / litTotal : 0,
+      span: litTotal > 0 ? run.length / litTotal : 0,
+    });
+    walked += run.length;
+  }
+
   const lit: THREE.BufferGeometry[] = [];
   const dark: THREE.BufferGeometry[] = [];
   for (const run of runs) {
-    const geo = sweepRun(run, spec.radius, spec.segments);
+    const place = spec.gradient && run.lit ? spans.get(run.index) : undefined;
+    const geo = sweepRun(
+      run,
+      spec.radius,
+      spec.segments,
+      spec.gradient && place ? { domain: spec.gradient.domain, place } : undefined,
+    );
     if (!geo) continue;
     (run.lit ? lit : dark).push(geo);
   }

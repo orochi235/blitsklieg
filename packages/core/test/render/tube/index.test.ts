@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { GRADIENT_T_ATTRIBUTE } from '../../../src/render/tube/gradient.js';
 import { buildTubeBlueprint, type TubeSpec } from '../../../src/render/tube/index.js';
 
 const SPEC: TubeSpec = {
@@ -166,5 +167,112 @@ describe('buildTubeBlueprint', () => {
 
     flat.dispose();
     wandered.dispose();
+  });
+});
+
+describe('buildTubeBlueprint with a gradient', () => {
+  it('leaves the geometry free of a gradient attribute when none is asked for', () => {
+    const bp = buildTubeBlueprint([square()], SPEC, 0.3, 0);
+    for (const geo of bp.lit) expect(geo.getAttribute(GRADIENT_T_ATTRIBUTE)).toBeUndefined();
+    bp.dispose();
+  });
+
+  it('spans the whole glyph exactly once under the letter domain', () => {
+    const bp = buildTubeBlueprint(
+      [square()],
+      {
+        ...SPEC,
+        gradient: { domain: { of: 'letter' }, stops: [0xff0000, 0x0000ff], mode: 'replace' },
+      },
+      0.3,
+      0,
+    );
+    const values = bp.lit.flatMap((geo) => {
+      const attr = geo.getAttribute(GRADIENT_T_ATTRIBUTE);
+      return Array.from({ length: attr.count }, (_, i) => attr.getX(i));
+    });
+    expect(Math.min(...values)).toBeCloseTo(0, 3);
+    expect(Math.max(...values)).toBeCloseTo(1, 3);
+    bp.dispose();
+  });
+
+  it('restarts on every run under the run domain', () => {
+    const bp = buildTubeBlueprint(
+      [square()],
+      {
+        ...SPEC,
+        gradient: { domain: { of: 'run' }, stops: [0xff0000, 0x0000ff], mode: 'replace' },
+      },
+      0.3,
+      0,
+    );
+    for (const geo of bp.lit) {
+      const attr = geo.getAttribute(GRADIENT_T_ATTRIBUTE);
+      expect(attr.getX(0)).toBeCloseTo(0, 6);
+      expect(attr.getX(attr.count - 1)).toBeCloseTo(1, 6);
+    }
+    bp.dispose();
+  });
+
+  it('tiles lit runs edge to edge under the letter domain, with no gap or overlap', () => {
+    const bp = buildTubeBlueprint(
+      [square()],
+      {
+        ...SPEC,
+        gradient: { domain: { of: 'letter' }, stops: [0xff0000, 0x0000ff], mode: 'replace' },
+      },
+      0.3,
+      0,
+    );
+    // Each run's geometry starts and ends at its span's boundary regardless of the cap rings in
+    // between: ring 0 and the last ring sit at along = 0 and 1, where perVertexT reduces to
+    // place.start and place.start + place.span exactly.
+    const spans = bp.lit.map((geo) => {
+      const attr = geo.getAttribute(GRADIENT_T_ATTRIBUTE);
+      const start = attr.getX(0);
+      const end = attr.getX(attr.count - 1);
+      return { start, span: end - start };
+    });
+    expect(spans[0]?.start).toBeCloseTo(0, 6);
+    for (let i = 0; i + 1 < spans.length; i++) {
+      const here = spans[i] as { start: number; span: number };
+      const next = spans[i + 1] as { start: number; span: number };
+      expect(next.start).toBeCloseTo(here.start + here.span, 6);
+    }
+    const last = spans[spans.length - 1] as { start: number; span: number };
+    expect(last.start + last.span).toBeCloseTo(1, 6);
+    bp.dispose();
+  });
+
+  it('gives a dark run no gradient attribute even when a gradient is requested', () => {
+    const bp = buildTubeBlueprint(
+      [square()],
+      {
+        ...SPEC,
+        select: { by: 'seed', amount: 0.5 },
+        gradient: { domain: { of: 'letter' }, stops: [0xff0000, 0x0000ff], mode: 'replace' },
+      },
+      0.3,
+      0,
+    );
+    expect(bp.dark.length).toBeGreaterThan(0);
+    for (const geo of bp.dark) expect(geo.getAttribute(GRADIENT_T_ATTRIBUTE)).toBeUndefined();
+    bp.dispose();
+  });
+
+  it('leaves every run dark rather than crashing when nothing is selected', () => {
+    const bp = buildTubeBlueprint(
+      [square()],
+      {
+        ...SPEC,
+        select: { by: 'seed', amount: 0 },
+        gradient: { domain: { of: 'letter' }, stops: [0xff0000, 0x0000ff], mode: 'replace' },
+      },
+      0.3,
+      0,
+    );
+    expect(bp.lit).toHaveLength(0);
+    expect(bp.dark.length).toBeGreaterThan(0);
+    bp.dispose();
   });
 });
