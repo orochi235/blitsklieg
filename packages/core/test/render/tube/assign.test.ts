@@ -158,6 +158,19 @@ describe('assign with a per-run gradient', () => {
     expect(bySurface('back')).toBe(rampAt(RAMP, 1).getHex());
   });
 
+  it('falls back to a flat first stop when no surfaces are listed', () => {
+    // perRunT's surface domain does `surfaces.indexOf(run.surface)`, which is -1 against an empty
+    // list; that reads as "not found" and lands on t = 0 for every run. This is quiet, not wrong:
+    // the one production caller always passes its real surface list, so this pins the fallback
+    // rather than guarding against a case that caller can't reach.
+    const out = assign(runs(5), { by: 'index', amount: 1 }, COLORS, 3, undefined, undefined, {
+      domain: { of: 'surface' },
+      stops: RAMP,
+      mode: 'replace',
+    });
+    for (const run of out.filter((r) => r.lit)) expect(run.color).toBe(rampAt(RAMP, 0).getHex());
+  });
+
   it('deals exactly as before when no gradient is given', () => {
     const before = assign(runs(7), { by: 'seed', amount: 0.6 }, COLORS, 11);
     const after = assign(runs(7), { by: 'seed', amount: 0.6 }, COLORS, 11, undefined, ['front']);

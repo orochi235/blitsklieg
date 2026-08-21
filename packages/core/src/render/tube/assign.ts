@@ -80,7 +80,7 @@ export function assign(
       run.color = palette[n % palette.length] as number;
       n++;
     }
-    return applyPerRunGradient(runs, surfaces, surfaceColors !== undefined, gradient);
+    return applyPerRunGradient(runs, surfaces, surfaceColors, gradient);
   }
 
   // A per-surface palette cycles on its own cursor, so a layer's colours run in order rather than
@@ -95,7 +95,7 @@ export function assign(
     run.color = use[n % use.length] as number;
     cursors.set(run.surface, n + 1);
   }
-  return applyPerRunGradient(runs, surfaces, surfaceColors !== undefined, gradient);
+  return applyPerRunGradient(runs, surfaces, surfaceColors, gradient);
 }
 
 /**
@@ -105,13 +105,13 @@ export function assign(
 function applyPerRunGradient(
   runs: Run[],
   surfaces: readonly SurfaceKind[],
-  surfaceColorsGiven: boolean,
+  surfaceColors: Partial<Record<SurfaceKind, number[]>> | undefined,
   gradient?: GradientSpec,
 ): Run[] {
   if (!gradient) return runs;
   // A per-layer palette names colours directly; the surface domain is the coarser way of asking
   // for the same thing, so it yields rather than overwriting them.
-  if (gradient.domain.of === 'surface' && surfaceColorsGiven) return runs;
+  if (gradient.domain.of === 'surface' && surfaceColors !== undefined) return runs;
   const lit = runs.filter((r) => r.lit);
   const scratch = new THREE.Color();
   for (let n = 0; n < lit.length; n++) {
