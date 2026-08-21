@@ -37,7 +37,7 @@ export interface TubeSpec {
   surfaces: SurfaceKind[];
   /** Isocontour level in em: negative insets, zero rides the outline, positive stands off. */
   level: number;
-  /** Where front/back paths come from. Defaults to the grid the looks were tuned against. */
+  /** Where front/back paths come from. Defaults to tracing the glyph's own contour. */
   pathSource?: PathSource;
   /** Requested runs per glyph. Bounded below by the corner count, above by `minRun`. */
   runs: number;

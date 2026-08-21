@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Paths are traced, not rasterized
+
+`TubeSpec.pathSource` now defaults to `direct`, which traces the glyph's own contour instead of
+rasterizing it to a 256 grid and re-extracting the isocontour. The grid displaced the path 4–7% of
+the tube radius and manufactured corners that were not in the glyph; the trace is accurate and
+builds a letter in 19 ms against 1800 ms. `field` and `exact` remain selectable.
+
+**This changes how the shipped tube looks read.** A path source decides where the cut falls, so
+`assign` paints a different lit-run pattern from the same seed. The `tubing` baselines are
+re-recorded; `piping`'s did not move, though they trace inset and cannot see its cord.
+
+An inset under `direct` no longer depends on the caller's winding. Rings are rewound by role —
+outer positive, hole negative — before the offset, and an inset deeper than a shape's own
+half-width now empties the ring rather than folding it back inside out.
+
+### Every fillet-to-path junction holds the bend minimum
+
+A run could measure tighter than `bend` allows at the splice where a fillet meets its legs: a leg
+point survived inside the setback, a closed contour closed onto a point its last arc had passed,
+and a leg resumed a fixed step from the tangent point instead of where the junction itself cleared
+the floor. Across both looks, 26 letters, three path sources and wander on and off, runs under the
+minimum go 33 to 7, and the worst bend 0.11 to 1.70 times the tube radius.
+
 ### Tube geometry
 
 The tube is one diameter. `sweepRun` used to shrink a whole run to 0.8 of its tightest curvature, so
@@ -9,7 +32,7 @@ one sharp corner set the thickness of everything it sat in — `piping`'s cord d
 0.03 it asked for, on every letter of the alphabet. Diameter is now held exactly and the *path* is
 what bends: `bend`, a new per-look field, states the minimum bend radius as a multiple of `radius`,
 corners are classified against it rather than by turn angle, and a corner the glass cannot take is
-filleted with a tangent arc or cut. Across all 26 letters, 2 of 231 runs on `tubing` and 3 of 47 on
+filleted with a tangent arc or cut. Across all 26 letters, 1 of 225 runs on `tubing` and 1 of 49 on
 `piping` still bend tighter than that minimum, against 26 of 26 clamped before.
 
 Run ends are sealed. The sweep emitted its wall and no cap, so every run terminated in an open hole.

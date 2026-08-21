@@ -405,7 +405,7 @@ export function Rail(props: RailProps) {
         <label>
           source
           <select
-            value={spec.pathSource ?? 'field'}
+            value={spec.pathSource ?? 'direct'}
             onChange={(e) => patch({ pathSource: e.target.value as PathSource })}
           >
             {PATH_SOURCES.map((name) => (

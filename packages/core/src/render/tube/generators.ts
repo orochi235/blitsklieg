@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { type Field, isoContours, type Point2, refineExact, signedDistanceField } from './field.js';
-import { offsetRing } from './offset.js';
+import { offsetRing, orientRings } from './offset.js';
 import { resample } from './resample.js';
 import { type Surface, type SurfaceKind, wallPointAt } from './surfaces.js';
 
@@ -39,7 +39,7 @@ export function generatePaths(
 ): GeneratedPath[] {
   const want = new Set(enabled);
   const out: GeneratedPath[] = [];
-  const source = opts.source ?? 'field';
+  const source = opts.source ?? 'direct';
 
   // `surfacesOf` hands front and back the same `polygons` array — they are one contour at two
   // depths — so everything up to the z assignment is shared. Keyed by identity rather than by
@@ -50,7 +50,7 @@ export function generatePaths(
     if (hit) return hit;
     const lines: Point2[][] = [];
     if (source === 'direct') {
-      for (const ring of polygons) {
+      for (const ring of orientRings(polygons)) {
         const line = resample(offsetRing(ring, opts.level), opts.spacing);
         if (line.length >= 4) lines.push(line);
       }

@@ -28,6 +28,29 @@ function ring(): THREE.Shape {
 const OPTS = { level: 0, spacing: 0.02, wallDepth: 0.5, resolution: 192, pad: 0.4 };
 
 describe('generatePaths', () => {
+  it('insets a direct trace whichever way the caller wound the ring', () => {
+    const extent = (shape: THREE.Shape) => {
+      const paths = generatePaths(surfacesOf([shape], 0.3), ['front'], {
+        ...OPTS,
+        level: -0.1,
+        source: 'direct',
+      });
+      return Math.max(...paths.flatMap((p) => p.points.map((q) => Math.abs(q.x))));
+    };
+    const reversed = new THREE.Shape();
+    reversed.moveTo(-0.5, 0.5);
+    reversed.lineTo(0.5, 0.5);
+    reversed.lineTo(0.5, -0.5);
+    reversed.lineTo(-0.5, -0.5);
+    reversed.closePath();
+    // Corner vertices carry a diagonal normal, so an inset lands a little above 0.4 rather than on
+    // it, and the two windings resample from different corners. An outset would read 0.57.
+    for (const measured of [extent(square()), extent(reversed)]) {
+      expect(measured).toBeGreaterThan(0.4);
+      expect(measured).toBeLessThan(0.45);
+    }
+  });
+
   it('emits nothing for surfaces that were not requested', () => {
     const surfaces = surfacesOf([square()], 0.3);
     expect(generatePaths(surfaces, [], OPTS)).toHaveLength(0);

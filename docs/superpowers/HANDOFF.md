@@ -5,13 +5,14 @@ next.
 
 ## State
 
-**`main` carries the tube lab, the tube geometry rewrite and the colour gradients, all merged.**
-`npm run check` green at 723 tests; `npx playwright test` green at 24. No code is in flight.
+**`main` carries the tube lab, the tube geometry rewrite, the colour gradients, the junction
+reconciliation and direct paths by default, all merged.** `npm run check` green at 736 tests;
+`npx playwright test` green at 24. No code is in flight.
 
-**[Direct tube paths](specs/2026-08-20-direct-tube-paths-design.md) is specced and not started.** It
-replaces the distance field with a trace of the glyph's own contour, and it subsumes the bend-minimum
-failures below — read it before picking up either. `TubeSpec.pathSource` (`field` | `exact` |
-`direct`) is already in the tree, defaulting to `field`, and the tube lab's rail switches it.
+**[Direct tube paths](specs/2026-08-20-direct-tube-paths-design.md) ships, and is the default.**
+`TubeSpec.pathSource` (`field` | `exact` | `direct`) defaults to `direct`, which traces the glyph's
+own contour rather than rasterising it to a grid — accurate, and ~95x faster to build. The tube
+lab's rail still switches it. The remaining bend-minimum failures are below.
 
 **A run's colour now renders.** `assign` had always set `run.color` and nothing ever read it —
 `word.ts` gave every lit run one shared material, and both looks hid it by setting `colors` to the
