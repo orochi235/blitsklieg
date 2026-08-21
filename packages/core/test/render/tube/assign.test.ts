@@ -142,6 +142,22 @@ describe('assign with a per-run gradient', () => {
     expect(out.filter((r) => r.lit).every((r) => r.color === 0x123456)).toBe(true);
   });
 
+  it('applies a surface domain directly when no surfaceColors is given', () => {
+    const mixed: Run[] = [
+      ...runs(2),
+      { ...runs(1)[0], surface: 'back' as const, index: 2 },
+      { ...runs(1)[0], surface: 'back' as const, index: 3 },
+    ] as Run[];
+    const out = assign(mixed, { by: 'index', amount: 1 }, COLORS, 3, undefined, ['front', 'back'], {
+      domain: { of: 'surface' },
+      stops: RAMP,
+      mode: 'replace',
+    });
+    const bySurface = (s: string) => out.find((r) => r.surface === s)?.color;
+    expect(bySurface('front')).toBe(rampAt(RAMP, 0).getHex());
+    expect(bySurface('back')).toBe(rampAt(RAMP, 1).getHex());
+  });
+
   it('deals exactly as before when no gradient is given', () => {
     const before = assign(runs(7), { by: 'seed', amount: 0.6 }, COLORS, 11);
     const after = assign(runs(7), { by: 'seed', amount: 0.6 }, COLORS, 11, undefined, ['front']);
