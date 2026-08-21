@@ -78,7 +78,7 @@ describe('rampAt', () => {
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: FAIL — `Failed to resolve import ".../gradient.js"`.
 
 - [ ] **Step 3: Write the implementation**
@@ -108,7 +108,7 @@ export function rampAt(stops: readonly number[], t: number): THREE.Color {
 
 - [ ] **Step 4: Run the test and confirm it passes**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Commit**
@@ -166,7 +166,7 @@ describe('perRunT', () => {
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: FAIL — `perRunT is not a function`.
 
 - [ ] **Step 3: Write the implementation**
@@ -220,7 +220,7 @@ export function perRunT(
 
 - [ ] **Step 4: Run the test and confirm it passes**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
@@ -310,7 +310,7 @@ describe('assign with a per-run gradient', () => {
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/assign.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/assign.test.ts`
 Expected: FAIL — the new arguments are not in `assign`'s signature, so the gradient is ignored and the ramp assertions miss.
 
 - [ ] **Step 3: Write the implementation**
@@ -374,7 +374,7 @@ Add `import * as THREE from 'three';` at the top of `assign.ts` — it does not 
 
 - [ ] **Step 4: Run the tests and confirm they pass**
 
-Run: `npx vitest run test/render/tube/assign.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/assign.test.ts`
 Expected: PASS — the pre-existing `assign` tests plus the 5 new ones.
 
 - [ ] **Step 5: Commit**
@@ -430,7 +430,7 @@ describe('perVertexT', () => {
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: FAIL — `perVertexT is not a function`.
 
 - [ ] **Step 3: Implement `perVertexT`**
@@ -459,7 +459,7 @@ export function perVertexT(
 
 - [ ] **Step 4: Run the test and confirm it passes**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: PASS, 14 tests.
 
 - [ ] **Step 5: Write the failing test for the attribute**
@@ -510,7 +510,7 @@ describe('sweepRun gradientT attribute', () => {
 
 - [ ] **Step 6: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/sweep.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/sweep.test.ts`
 Expected: FAIL — `sweepRun` takes three arguments, and `GRADIENT_T_ATTRIBUTE` is not exported.
 
 - [ ] **Step 7: Implement the attribute**
@@ -576,7 +576,7 @@ export function sweepRun(
 
 - [ ] **Step 8: Run the tests and confirm they pass**
 
-Run: `npx vitest run test/render/tube/sweep.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/sweep.test.ts`
 Expected: PASS — the pre-existing sweep tests plus the 4 new ones.
 
 - [ ] **Step 9: Commit**
@@ -645,7 +645,7 @@ Note: the second and third cases pass the spec as the first argument only if `in
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/index.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/index.test.ts`
 Expected: FAIL — `gradient` is not a property of `TubeSpec`, so tsc errors and the attribute is never written.
 
 - [ ] **Step 3: Add the field and thread it**
@@ -717,7 +717,7 @@ Replace the sweep loop with one that computes each lit run's span first:
 
 - [ ] **Step 4: Run the tests and confirm they pass**
 
-Run: `npx vitest run test/render/tube/index.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/index.test.ts`
 Expected: PASS — the pre-existing blueprint tests plus the 3 new ones.
 
 - [ ] **Step 5: Run the whole unit suite**
@@ -779,7 +779,7 @@ describe('rampTexture', () => {
 
 - [ ] **Step 2: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: FAIL — `rampTexture is not a function`.
 
 - [ ] **Step 3: Implement the ramp texture**
@@ -817,7 +817,7 @@ export function rampTexture(stops: readonly number[]): THREE.DataTexture {
 
 - [ ] **Step 4: Run the test and confirm it passes**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: PASS, 16 tests.
 
 - [ ] **Step 5: Write the failing test for the shader patch**
@@ -886,7 +886,7 @@ describe('tintByRunColor with a gradient', () => {
 
 - [ ] **Step 6: Run the test and confirm it fails**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: FAIL — `tintByRunColor` takes two arguments.
 
 - [ ] **Step 7: Implement the shader patch**
@@ -1004,7 +1004,7 @@ Note the `!gradient` branch still emits `totalEmissiveRadiance *= vRunColor;` �
 
 - [ ] **Step 8: Run the tests and confirm they pass**
 
-Run: `npx vitest run test/render/tube/gradient.test.ts --root packages/core`
+Run: `npx vitest run packages/core/test/render/tube/gradient.test.ts`
 Expected: PASS, 21 tests.
 
 - [ ] **Step 9: Commit**
