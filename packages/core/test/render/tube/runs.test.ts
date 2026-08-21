@@ -52,6 +52,19 @@ function openLPath(): THREE.Vector3[] {
   return pts;
 }
 
+/** Direction change at vertex `i`, in radians. */
+function turnAt(p: THREE.Vector3[], i: number): number {
+  const a = (p[i] as THREE.Vector3)
+    .clone()
+    .sub(p[i - 1] as THREE.Vector3)
+    .normalize();
+  const b = (p[i + 1] as THREE.Vector3)
+    .clone()
+    .sub(p[i] as THREE.Vector3)
+    .normalize();
+  return Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
+}
+
 const PATH = (points: THREE.Vector3[]) => ({ points, surface: 'front' as const, closed: true });
 const OPEN_PATH = (points: THREE.Vector3[]) => ({
   points,
@@ -308,6 +321,38 @@ describe('hard corners', () => {
   it('still breaks when the draw says break', () => {
     const { runs } = cut(elbowPath(90, 0.6), ALL_BREAK);
     expect(runs.length).toBe(2);
+  });
+
+  /** An L whose two legs are sampled independently, so one can be trimmed to nothing. */
+  function unevenElbow(turnDeg: number, before: number, after: number): THREE.Vector3[] {
+    const turn = (turnDeg * Math.PI) / 180;
+    const points: THREE.Vector3[] = [];
+    const n = Math.round(before / 0.02);
+    const m = Math.round(after / 0.02);
+    for (let i = n; i > 0; i--) points.push(new THREE.Vector3(-i * 0.02, 0, 0));
+    points.push(new THREE.Vector3(0, 0, 0));
+    for (let i = 1; i <= m; i++) {
+      points.push(new THREE.Vector3(Math.cos(turn) * i * 0.02, Math.sin(turn) * i * 0.02, 0));
+    }
+    return points;
+  }
+
+  // A leg point left inside the setback makes the path run forward to it and double back, and that
+  // reversal reads as a bend far tighter than the corner the fillet replaced.
+  it('drops a leg point that falls inside the fillet setback', () => {
+    for (const leg of [0.06, 0.08, 0.1, 0.12]) {
+      for (const turnDeg of [60, 90, 120]) {
+        const { runs } = cut(unevenElbow(turnDeg, leg, 0.6), ALL_CONNECT);
+        for (const run of runs) {
+          for (let i = 1; i + 1 < run.points.length; i++) {
+            expect(
+              turnAt(run.points, i),
+              `${turnDeg} deg, leg ${leg}, run ${run.index} vertex ${i}`,
+            ).toBeLessThan(Math.PI / 2);
+          }
+        }
+      }
+    }
   });
 });
 

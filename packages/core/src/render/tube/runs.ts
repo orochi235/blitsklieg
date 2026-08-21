@@ -198,12 +198,16 @@ function pickStrategy(turn: number, weights: CornerWeights, draw: () => number):
  * corner it replaced.
  */
 function trimTail(span: THREE.Vector3[], back: number, corner: THREE.Vector3): void {
-  while (span.length > 2 && (span[span.length - 1] as THREE.Vector3).distanceTo(corner) < back) {
+  while (span.length > 0 && (span[span.length - 1] as THREE.Vector3).distanceTo(corner) < back) {
     span.pop();
   }
 }
 
-/** The first index in `span` at or past `from` that clears `back` of the corner. */
+/**
+ * The first index in `span` at or past `from` that clears `back` of the corner, or `span.length`
+ * when none does. Falling back to the last index instead would hand the arc a leg point it has
+ * already passed, which is the reversal the trim exists to prevent.
+ */
 function indexPast(
   span: THREE.Vector3[],
   from: number,
@@ -213,7 +217,7 @@ function indexPast(
   for (let i = Math.max(1, from); i < span.length; i++) {
     if ((span[i] as THREE.Vector3).distanceTo(corner) >= back) return i;
   }
-  return span.length - 1;
+  return span.length;
 }
 
 /** Segments averaged into a leg's direction. Four spans twice the setback at the shipped spacing. */
@@ -420,12 +424,12 @@ function mergeArc(
 
     // Drop the corner's whole stretch before trimming by distance: a shallow turn's setback can be
     // shorter than one sample step, and would leave the stretch's own vertices in the path.
-    for (let i = 0; i <= decision.groupBefore && target.length > 2; i++) target.pop();
+    for (let i = 0; i <= decision.groupBefore && target.length > 0; i++) target.pop();
     trimTail(target, fillet.setback, fillet.corner);
     // The leg has to resume a full sample clear of the tangent point. A point closer than that is
     // still off the leg line by whatever the fit missed, and over a short step that reads as a kink
     // rather than as the slight offset it is.
-    while (target.length > 2 && legGap(target[target.length - 1], entry, into) < spacing) {
+    while (target.length > 0 && legGap(target[target.length - 1], entry, into) < spacing) {
       target.pop();
     }
 
@@ -433,7 +437,7 @@ function mergeArc(
     for (const p of fillet.points) target.push(p);
 
     let from = indexPast(next, decision.groupAfter + 1, fillet.setback, fillet.corner);
-    while (from < next.length - 1 && legGap(next[from], exit, outOf) < spacing) from++;
+    while (from < next.length && legGap(next[from], exit, outOf) < spacing) from++;
     for (let i = from; i < next.length; i++) {
       target.push(next[i] as THREE.Vector3);
     }
