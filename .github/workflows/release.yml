@@ -59,4 +59,4 @@ jobs:
       # prepublishOnly runs the checks again; these steps exist so a failure
       # names which one broke instead of surfacing as a failed publish.
       - name: Publish
-        run: npm publish --workspace blitsklieg --provenance --access public
+        run: npm publish --workspace klieg --provenance --access public

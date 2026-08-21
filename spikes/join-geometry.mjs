@@ -1,7 +1,7 @@
 /**
  * The per-vertex geometry of a run that bends tighter than rho_min.
  *
- *   npm run build -w blitsklieg && node spikes/join-geometry.mjs <look> <letter> <source>
+ *   npm run build -w klieg && node spikes/join-geometry.mjs <look> <letter> <source>
  *
  * Prints step, turn and local bend radius for every vertex, with the fillet stage's authored points
  * marked, so a failure can be attributed to the arc or to the junction that splices it in. Written

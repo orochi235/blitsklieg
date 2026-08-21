@@ -1,7 +1,7 @@
 /**
  * How much depth wander survives the bend invariant?
  *
- *   npm run build -w blitsklieg && node spikes/wander-cap.mjs
+ *   npm run build -w klieg && node spikes/wander-cap.mjs
  *
  * Wander bends a run in z while its path bends in x/y, so the two are perpendicular and a point
  * already bending at rho_min has nothing left to spend. Every fillet sits at exactly rho_min, so

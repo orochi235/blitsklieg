@@ -32,6 +32,11 @@ No built-in look sets it, and without it every run is flat as before.
 
 ### Breaking
 
+**The package is now `klieg`.** `blitsklieg` on npm is deprecated and points here; its published
+versions stay resolvable, but nothing further ships under that name. The entry points rename with
+it — `createBlitsklieg` is `createKlieg`, and the `Blitsklieg` and `BlitskliegOptions` types are
+`Klieg` and `KliegOptions`. The lab workspace is `@klieg/lab`.
+
 `loop` is gone from `CornerStrategy` and `CornerWeights`. Bridging a corner with a full turn of tube
 cannot be built to hold the bend minimum inside the advance any run in a glyph has, and it is not a
 move an outlined solid volume wants. A spec still setting `corners: { break, connect, loop }` will
@@ -184,7 +189,7 @@ layered together (`active: ['float', 'shimmer']`).
   `grid: true` measures the order radially over a multiline block.
 
 `Easing` is exported and is `(t: number) => number`, which is also `d3-ease`'s signature — bring
-any curve library you like. blitsklieg still depends only on `three` and `opentype.js`.
+any curve library you like. klieg still depends only on `three` and `opentype.js`.
 
 All thirteen built-in pieces were rewritten on this vocabulary and are unchanged to within 1e-8,
 pinned by a golden fixture.

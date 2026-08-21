@@ -1,8 +1,8 @@
-# blitsklieg core v0 Implementation Plan
+# klieg core v0 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `blitsklieg` — a transparent WebGL overlay that renders shiny extruded 3D
+**Goal:** Build `klieg` — a transparent WebGL overlay that renders shiny extruded 3D
 type over a host web app, driven by `enter`/`active`/`exit` motion slots.
 
 **Architecture:** A pure-logic layer (clock, easing, pose algebra, phase compositor, queue) with
@@ -13,7 +13,7 @@ motion testable at all.
 
 **Tech Stack:** TypeScript, three.js r185+, opentype.js, Vite, Vitest, Biome, npm workspaces.
 
-**Spec:** `docs/superpowers/specs/2026-08-15-blitsklieg-design.md`
+**Spec:** `docs/superpowers/specs/2026-08-15-klieg-design.md`
 
 ---
 
@@ -22,7 +22,7 @@ motion testable at all.
 ```
 packages/core/
   src/
-    index.ts              public surface: createBlitsklieg, names, types, direct render path
+    index.ts              public surface: createKlieg, names, types, direct render path
     clock.ts              Clock interface, RafClock, ManualClock
     easing.ts             easing curves
     pose.ts               Pose, PoseOffset, algebra
@@ -61,7 +61,7 @@ imports three.js. That boundary is what keeps the test suite fast and meaningful
 
 ```json
 {
-  "name": "blitsklieg-monorepo",
+  "name": "klieg-monorepo",
   "private": true,
   "type": "module",
   "workspaces": ["packages/*", "apps/*"],
@@ -102,7 +102,7 @@ imports three.js. That boundary is what keeps the test suite fast and meaningful
 
 ```json
 {
-  "name": "blitsklieg",
+  "name": "klieg",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -1944,9 +1944,9 @@ export interface LoadedFont {
 
 export async function loadFont(url: string): Promise<LoadedFont> {
   const res = await fetch(url).catch((cause) => {
-    throw new Error(`blitsklieg: could not fetch font ${url}`, { cause });
+    throw new Error(`klieg: could not fetch font ${url}`, { cause });
   });
-  if (!res.ok) throw new Error(`blitsklieg: failed to load font ${url} (${res.status})`);
+  if (!res.ok) throw new Error(`klieg: failed to load font ${url} (${res.status})`);
 
   const bytes = await res.arrayBuffer();
 
@@ -1955,7 +1955,7 @@ export async function loadFont(url: string): Promise<LoadedFont> {
     font = parse(bytes);
   } catch (cause) {
     // A server that answers 200 with an HTML error page lands here, not on the status check.
-    throw new Error(`blitsklieg: ${url} is not a font opentype.js can parse`, { cause });
+    throw new Error(`klieg: ${url} is not a font opentype.js can parse`, { cause });
   }
 
   const metrics: GlyphMetrics = {
@@ -2005,7 +2005,7 @@ describe('loadFont', () => {
     stubFetch({ ok: false, status: 404 });
 
     await expect(loadFont('/fonts/x.ttf')).rejects.toThrow(
-      'blitsklieg: failed to load font /fonts/x.ttf (404)',
+      'klieg: failed to load font /fonts/x.ttf (404)',
     );
   });
 
@@ -2017,7 +2017,7 @@ describe('loadFont', () => {
     );
 
     await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
-      message: 'blitsklieg: could not fetch font /fonts/x.ttf',
+      message: 'klieg: could not fetch font /fonts/x.ttf',
       cause,
     });
   });
@@ -2038,7 +2038,7 @@ describe('loadFont', () => {
     });
 
     await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
-      message: 'blitsklieg: /fonts/x.ttf is not a font opentype.js can parse',
+      message: 'klieg: /fonts/x.ttf is not a font opentype.js can parse',
       cause,
     });
   });
@@ -2152,7 +2152,7 @@ describe('GlyphCache', () => {
     cache.get('A', 0.3);
     cache.dispose();
 
-    expect(() => cache.get('A', 0.3)).toThrow('blitsklieg: GlyphCache used after dispose');
+    expect(() => cache.get('A', 0.3)).toThrow('klieg: GlyphCache used after dispose');
     expect(build).toHaveBeenCalledTimes(1);
     expect(cache.size).toBe(0);
   });
@@ -2376,7 +2376,7 @@ export class GlyphCache<T extends Buildable = THREE.ExtrudeGeometry> {
   }
 
   get(char: string, depth: number): T {
-    if (this.disposed) throw new Error('blitsklieg: GlyphCache used after dispose');
+    if (this.disposed) throw new Error('klieg: GlyphCache used after dispose');
     const key = `${char}|${depth}`;
     let g = this.cache.get(key);
     if (!g) {
@@ -3652,7 +3652,7 @@ export const LOOK_NAMES: readonly LookName[] = Object.keys(LOOKS) as LookName[];
 
 const TAU = Math.PI * 2;
 
-export interface BlitskliegOptions {
+export interface KliegOptions {
   target?: HTMLElement;
   fontUrl: string;
   clock?: Clock;
@@ -3678,7 +3678,7 @@ export interface FireOptions {
   placement?: Placement;
 }
 
-export interface Blitsklieg {
+export interface Klieg {
   readonly supported: boolean;
   /** Resolves when the effect leaves the screen, whether it played out or was cancelled. */
   fire(text: string, options?: FireOptions): Promise<void>;
@@ -3686,7 +3686,7 @@ export interface Blitsklieg {
   destroy(): void;
 }
 
-export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
+export function createKlieg(options: KliegOptions): Klieg {
   const supported = webglSupported();
   const clock = options.clock ?? new RafClock();
   const queue = new EffectQueue(options.policy ?? 'queue');
@@ -3804,12 +3804,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Clock, ManualClock, type Tick } from '../src/clock.js';
 import {
   ACTIVE_NAMES,
-  type BlitskliegOptions,
+  type KliegOptions,
   ENTER_NAMES,
   EXIT_NAMES,
   LOOK_NAMES,
   POLICY_NAMES,
-  createBlitsklieg,
+  createKlieg,
 } from '../src/index.js';
 import { Stage } from '../src/render/stage.js';
 
@@ -3899,9 +3899,9 @@ function stubFetch(
   );
 }
 
-function create(opts: Partial<BlitskliegOptions> = {}) {
+function create(opts: Partial<KliegOptions> = {}) {
   // `target` is never read: Stage.mount is the only thing that appends to it.
-  return createBlitsklieg({ fontUrl: '/f.ttf', clock, target: {} as HTMLElement, ...opts });
+  return createKlieg({ fontUrl: '/f.ttf', clock, target: {} as HTMLElement, ...opts });
 }
 
 function stage(): Stage {
@@ -3949,7 +3949,7 @@ afterEach(() => {
 /** Enter, active and exit all zero-length, so the effect finishes on its first tick. */
 const INSTANT = { enter: 'none', active: 'none', exit: 'none', hold: 0 } as const;
 
-describe('createBlitsklieg', () => {
+describe('createKlieg', () => {
   it('mounts, renders and tears the word down when the timeline finishes', async () => {
     const bk = create();
     expect(bk.supported).toBe(true);
@@ -3979,7 +3979,7 @@ describe('createBlitsklieg', () => {
     // Not stubWebgl(false): that leaves a document in place, which is the one thing an SSR
     // render does not have, and `supported` exists to survive.
     vi.unstubAllGlobals();
-    const bk = createBlitsklieg({ fontUrl: '/f.ttf', clock });
+    const bk = createKlieg({ fontUrl: '/f.ttf', clock });
 
     expect(bk.supported).toBe(false);
     await bk.fire('HELLO');
@@ -4116,7 +4116,7 @@ describe('createBlitsklieg', () => {
     stubFetch({ ok: false, status: 404 });
     const bk = create();
 
-    await expect(bk.fire('HI', INSTANT)).rejects.toThrow('blitsklieg: failed to load font');
+    await expect(bk.fire('HI', INSTANT)).rejects.toThrow('klieg: failed to load font');
 
     stubFetch();
     const done = bk.fire('HI', INSTANT);
@@ -4203,7 +4203,7 @@ Expected: lint and typecheck clean, 188 tests across 16 files (15 new in index).
 
 ```bash
 git add packages/core/src/index.ts packages/core/test/index.test.ts
-git commit -m "add public createBlitsklieg surface wiring stage, timeline, and queue"
+git commit -m "add public createKlieg surface wiring stage, timeline, and queue"
 ```
 
 ---
@@ -4664,7 +4664,7 @@ describe('BloomPath.dispose', () => {
 });
 ```
 
-Append to the `createBlitsklieg` describe in `packages/core/test/index.test.ts`, with
+Append to the `createKlieg` describe in `packages/core/test/index.test.ts`, with
 `BloomPath` imported and `getDrawingBufferSize: (out: THREE.Vector2) => out.set(320, 240)`
 added to the `renderer` stub:
 
@@ -4783,11 +4783,11 @@ git commit -m "add opt-in bloom path with alpha-preserving composite"
 
 ```json
 {
-  "name": "@blitsklieg/lab",
+  "name": "@klieg/lab",
   "private": true,
   "type": "module",
   "scripts": { "dev": "vite", "build": "vite build" },
-  "dependencies": { "blitsklieg": "*" },
+  "dependencies": { "klieg": "*" },
   "devDependencies": { "vite": "^6.0.3" }
 }
 ```
@@ -4849,7 +4849,7 @@ not to a repo that will be published. Any OFL face works; commit its license nex
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>blitsklieg lab</title>
+    <title>klieg lab</title>
     <style>
       body { margin: 0; font: 15px/1.6 system-ui; background: #10131a; color: #e6e9f0; }
       main { max-width: 900px; margin: 0 auto; padding: 24px; min-height: 150vh; }
@@ -4868,7 +4868,7 @@ not to a repo that will be published. Any OFL face works; commit its license nex
   </head>
   <body>
     <main>
-      <h1>blitsklieg lab</h1>
+      <h1>klieg lab</h1>
       <p>The overlay renders above this page. Scroll — the type holds position and the text
          stays readable through it.</p>
       <p>Space fires. The selects are built from the exported name unions, so every motion slot
@@ -4906,14 +4906,14 @@ package's exported name lists, so a renamed name cannot rot into a dead `<option
 ```ts
 import {
   ACTIVE_NAMES,
-  type Blitsklieg,
+  type Klieg,
   ENTER_NAMES,
   EXIT_NAMES,
   type FireOptions,
   LOOK_NAMES,
   POLICY_NAMES,
-  createBlitsklieg,
-} from 'blitsklieg';
+  createKlieg,
+} from 'klieg';
 
 function el<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -4947,8 +4947,8 @@ const textInput = el<HTMLInputElement>('text');
 const bloomInput = el<HTMLInputElement>('bloom');
 const number = (id: string) => Number(el<HTMLInputElement>(id).value);
 
-function create(): Blitsklieg {
-  const instance = createBlitsklieg({ fontUrl: '/font.ttf', policy: policy.get() });
+function create(): Klieg {
+  const instance = createKlieg({ fontUrl: '/font.ttf', policy: policy.get() });
   log(`instance up (policy ${policy.get()}${instance.supported ? '' : ', webgl2 UNSUPPORTED'})`);
   return instance;
 }
@@ -5110,7 +5110,7 @@ What the shape is protecting, if you edit it:
 
 - [ ] **Step 5: Run it**
 
-Run: `npm install && npm run dev -w @blitsklieg/lab`
+Run: `npm install && npm run dev -w @klieg/lab`
 Expected: server on `http://localhost:5180`. FIRE renders gold type over the page; the page
 scrolls behind it and stays readable; the log gets a `fire` line then a `done` line. Every
 enter, active, exit and look fires without error, and `moment` ends on a bloom-lit `JACKPOT!`.
@@ -5153,7 +5153,7 @@ export default defineConfig({
   testDir: './apps/lab/test',
   // Reusing a server in CI can serve stale code from a previous run's leftover process.
   webServer: {
-    command: 'npm run dev -w @blitsklieg/lab',
+    command: 'npm run dev -w @klieg/lab',
     port: 5180,
     reuseExistingServer: !process.env.CI,
   },
@@ -5342,7 +5342,7 @@ git commit -m "add visual regression asserting the overlay stays transparent"
 
 Not in this plan, by decision in the spec:
 
-- `blitsklieg-react` — thin binding, its own plan once core is judged visually.
+- `klieg-react` — thin binding, its own plan once core is judged visually.
 - Particles (v1.1), element-anchored placement (v1.2), `hold: 'until-dismissed'` with `dismiss()`.
 - Per-letter opacity — v0 shares one material across letters, so `shatter` fades the word as a
   unit rather than per letter. Fixing this means cloning the material per letter; revisit only if

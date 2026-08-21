@@ -1,7 +1,7 @@
 /**
  * Where does the tube's path actually lose the font's shape?
  *
- *   npm run build -w blitsklieg && node spikes/path-fidelity-budget.mjs [letters]
+ *   npm run build -w klieg && node spikes/path-fidelity-budget.mjs [letters]
  *
  * The pipeline goes: bezier -> getPoints(24) -> resample(0.01) -> 256^2 binary mask -> EDT ->
  * marching squares -> resample(spacing). Each stage is measured against a densely-sampled bezier

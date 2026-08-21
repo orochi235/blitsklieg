@@ -8,7 +8,7 @@ import * as bk from '../src/index.js';
 describe('documented surface', () => {
   it('exports everything the README tells people to import', () => {
     for (const name of [
-      'createBlitsklieg',
+      'createKlieg',
       'transition',
       'cycle',
       'spring',

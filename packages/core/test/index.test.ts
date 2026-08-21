@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Clock, ManualClock, type Tick } from '../src/clock.js';
 import {
   ACTIVE_NAMES,
-  type BlitskliegOptions,
-  createBlitsklieg,
+  createKlieg,
   ENTER_NAMES,
   EXIT_NAMES,
+  type KliegOptions,
   LIGHTING_NAMES,
   LOOK_NAMES,
   POLICY_NAMES,
@@ -104,9 +104,9 @@ function stubFetch(
   );
 }
 
-function create(opts: Partial<BlitskliegOptions> = {}) {
+function create(opts: Partial<KliegOptions> = {}) {
   // `target` is never read: Stage.mount is the only thing that appends to it.
-  return createBlitsklieg({ fontUrl: '/f.ttf', clock, target: {} as HTMLElement, ...opts });
+  return createKlieg({ fontUrl: '/f.ttf', clock, target: {} as HTMLElement, ...opts });
 }
 
 function stage(): Stage {
@@ -163,7 +163,7 @@ afterEach(() => {
 /** Enter, active and exit all zero-length, so the effect finishes on its first tick. */
 const INSTANT = { enter: 'none', active: 'none', exit: 'none', hold: 0 } as const;
 
-describe('createBlitsklieg', () => {
+describe('createKlieg', () => {
   it('mounts, renders and tears the word down when the timeline finishes', async () => {
     const bk = create();
     expect(bk.supported).toBe(true);
@@ -193,7 +193,7 @@ describe('createBlitsklieg', () => {
     // Not stubWebgl(false): that leaves a document in place, which is the one thing an SSR
     // render does not have, and `supported` exists to survive.
     vi.unstubAllGlobals();
-    const bk = createBlitsklieg({ fontUrl: '/f.ttf', clock });
+    const bk = createKlieg({ fontUrl: '/f.ttf', clock });
 
     expect(bk.supported).toBe(false);
     await bk.fire('HELLO');
@@ -330,7 +330,7 @@ describe('createBlitsklieg', () => {
     stubFetch({ ok: false, status: 404 });
     const bk = create();
 
-    await expect(bk.fire('HI', INSTANT)).rejects.toThrow('blitsklieg: failed to load font');
+    await expect(bk.fire('HI', INSTANT)).rejects.toThrow('klieg: failed to load font');
 
     stubFetch();
     const done = bk.fire('HI', INSTANT);

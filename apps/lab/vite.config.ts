@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^blitsklieg$/,
+        find: /^klieg$/,
         replacement: fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
       },
     ],

@@ -1,7 +1,7 @@
 /**
  * Which tube lab sliders actually change anything, and over what part of their range?
  *
- *   npm run build -w blitsklieg && node spikes/slider-sensitivity.mjs [look] [letters]
+ *   npm run build -w klieg && node spikes/slider-sensitivity.mjs [look] [letters]
  *
  * Sweeps each `TubeSpec` field the rail exposes across the rail's own min and max, and counts the
  * distinct outputs. A field that yields one outcome is a dead control; a field that yields two over

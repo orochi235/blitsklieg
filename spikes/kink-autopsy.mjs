@@ -1,7 +1,7 @@
 /**
  * When an exact path source produces a kink, what is bending?
  *
- *   npm run build -w blitsklieg && node spikes/kink-autopsy.mjs [look] [letters]
+ *   npm run build -w klieg && node spikes/kink-autopsy.mjs [look] [letters]
  *
  * Runs the real blueprint per source with wander off, finds every run under rho_min, and reports
  * the tightest triple: whether its three points were authored by the fillet stage (`AAA`, a fillet

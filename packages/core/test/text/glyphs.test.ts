@@ -59,7 +59,7 @@ describe('GlyphCache', () => {
     cache.get('A', 0.3);
     cache.dispose();
 
-    expect(() => cache.get('A', 0.3)).toThrow('blitsklieg: GlyphCache used after dispose');
+    expect(() => cache.get('A', 0.3)).toThrow('klieg: GlyphCache used after dispose');
     expect(build).toHaveBeenCalledTimes(1);
     expect(cache.size).toBe(0);
   });

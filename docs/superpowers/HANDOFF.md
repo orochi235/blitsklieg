@@ -1,4 +1,4 @@
-# Handoff — blitsklieg, 2026-08-20
+# Handoff — klieg, 2026-08-20
 
 **For:** the next session picking this up. **Answers:** what is on `main`, and what is worth doing
 next.
@@ -39,7 +39,7 @@ sealed, a corner can carry the tube past the light unlit rather than cutting it,
 strategy is gone. Two runs of 231 on `tubing` and three of 47 on `piping` still bend tighter than
 their look's minimum, against every `piping` run clamped before.
 
-Run it with `npm run dev:tube-lab -w blitsklieg` — sixteen panels on one WebGL context, one letter
+Run it with `npm run dev:tube-lab -w klieg` — sixteen panels on one WebGL context, one letter
 each, `beauty` / `skeleton` / `ramp`, with a rail that tunes the whole `TubeSpec`. Every control
 carries a hover hint saying what it does and what it interacts with badly, which is the fastest way
 back into the model. Sliders that mark a real boundary have a stop the drag catches.

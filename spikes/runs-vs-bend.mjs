@@ -1,7 +1,7 @@
 /**
  * Why the `runs` slider does more at some `bend` values than others.
  *
- *   npm run build -w blitsklieg && node spikes/runs-vs-bend.mjs [look] [letter]
+ *   npm run build -w klieg && node spikes/runs-vs-bend.mjs [look] [letter]
  *
  * `runs` is a request bounded below by the corner count: a corner that breaks is a cut, and a cut is
  * a run whether one was asked for or not. `bend` sets the fillet setback, so it sets how often a

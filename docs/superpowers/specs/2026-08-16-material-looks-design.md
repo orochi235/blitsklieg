@@ -2,7 +2,7 @@
 
 **What:** six looks (three new materials, two new param-only finishes, one rename) and an open
 `LookSpec` type so callers can describe a material without importing three.
-**For:** whoever implements 0.3.0 of `@blitsklieg/core`.
+**For:** whoever implements 0.3.0 of `@klieg/core`.
 **Answers:** what ships in the look system, how procedural flakes are shaded, and what is
 deliberately held back for the decoration layer.
 

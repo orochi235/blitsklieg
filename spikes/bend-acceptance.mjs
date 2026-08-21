@@ -1,7 +1,7 @@
 /**
  * The acceptance check: does any run of any letter bend tighter than the look's own rho_min?
  *
- *   npm run build -w blitsklieg && node spikes/bend-acceptance.mjs
+ *   npm run build -w klieg && node spikes/bend-acceptance.mjs
  *
  * Runs the whole pipeline, not just the cut — so wander, which moves run points after cutting, is
  * included. A fillet is built at exactly rho_min, so the test is "not below", not "strictly above".

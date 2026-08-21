@@ -95,7 +95,7 @@ per-step turn; 0 runs under ρmin on both looks, under both path sources, wander
 
 **2. Contour union** (`union.ts`). Vendor `polygon-clipping` (MIT, 0.15.7, two transitive
 dependencies) and union the glyph's contours before offsetting, resolving overlaps by non-zero
-winding. This takes `blitsklieg` from one runtime dependency to four.
+winding. This takes `klieg` from one runtime dependency to four.
 
 This is a behaviour change and not a port. The grid rasterises **even-odd**, so where two contours
 overlap it punches the overlap out as a hole; the union fills it, which is what a font means.

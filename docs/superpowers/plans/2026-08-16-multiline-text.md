@@ -549,5 +549,5 @@ git commit -m "drive multiline and held effects from the lab"
 
 `Stage.viewportBudget` uses `heightFrac = 0.3`, which bounds a block to roughly two or three
 lines before height binds and the argmax stops preferring more of them. That is a deliberate
-consequence of the budget, not a wrap bug — blitsklieg renders banners, not paragraphs. Raising
+consequence of the budget, not a wrap bug — klieg renders banners, not paragraphs. Raising
 it would rescale every existing single-line effect.

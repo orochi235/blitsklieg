@@ -56,7 +56,7 @@ function seedFlake(material: THREE.Material, i: number): void {
 
 /**
  * Lab-only diagnostic hooks (see debug.ts). Word owns per-letter layout and the tube pipeline,
- * so a debug view has to plug in here rather than re-deriving either outside core. `createBlitsklieg`
+ * so a debug view has to plug in here rather than re-deriving either outside core. `createKlieg`
  * never supplies one, so every real caller is unaffected.
  */
 export interface WordDebugHooks {

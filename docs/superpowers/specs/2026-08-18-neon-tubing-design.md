@@ -2,7 +2,7 @@
 
 **What:** a replacement generator for the `tubing` look, building runs of glass tube across the
 surfaces of an extruded glyph instead of tracing its outline.
-**For:** whoever implements this in `@blitsklieg/core`.
+**For:** whoever implements this in `@klieg/core`.
 **Answers:** where tube paths come from, how a path becomes a set of separate runs, and which of
 those runs light up.
 

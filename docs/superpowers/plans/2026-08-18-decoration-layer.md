@@ -1657,7 +1657,7 @@ Extend the disabling block at line 297 so a live slider never does nothing:
 
 - [ ] **Step 6: Verify by eye**
 
-Run: `npm run dev -w @blitsklieg/lab`
+Run: `npm run dev -w @klieg/lab`
 Open http://localhost:5180, pick each of `tubing`, `piping`, `sequin`, `pyrite`, and fire. Confirm each renders a visible decoration and that dragging each enabled slider changes it.
 
 **This is the tuning step.** The preset numbers in Task 8 are starting points. Adjust them in `LOOKS` until each look reads right, then re-run `npm run check`.
@@ -1725,7 +1725,7 @@ Expected: all pass.
 
 ```bash
 git add CHANGELOG.md packages/core/package.json package-lock.json
-git commit -m "release blitsklieg 0.4.0"
+git commit -m "release klieg 0.4.0"
 ```
 
 ---

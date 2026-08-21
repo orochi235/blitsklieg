@@ -1,8 +1,8 @@
-# blitsklieg — motion authoring vocabulary
+# klieg — motion authoring vocabulary
 
 **What:** two constructors that build motion pieces declaratively, a stagger vocabulary, springs
 as easing, and the public surface that lets callers supply their own pieces.
-**For:** anyone working on blitsklieg core. Assumes the v0 design doc.
+**For:** anyone working on klieg core. Assumes the v0 design doc.
 **Answers:** how a piece is authored, what the extension point exposes, and why the existing
 thirteen are rewritten on top of it.
 

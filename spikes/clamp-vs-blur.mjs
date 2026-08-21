@@ -1,7 +1,7 @@
 /**
  * Does sharpening the tube's source path reduce the per-run radius clamp, or worsen it?
  *
- *   npm run build -w blitsklieg && node spikes/clamp-vs-blur.mjs
+ *   npm run build -w klieg && node spikes/clamp-vs-blur.mjs
  *
  * Traces each glyph two ways — through the signed distance field the pipeline ships, and straight
  * off the font contour `surfacesOf` already builds for the wall rings — and reports what

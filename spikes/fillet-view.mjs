@@ -1,7 +1,7 @@
 /**
  * Draw what the corner stage did, corner by corner, as an SVG page.
  *
- *   npm run build -w blitsklieg && node spikes/fillet-view.mjs [letters] > out.html
+ *   npm run build -w klieg && node spikes/fillet-view.mjs [letters] > out.html
  *
  * Each panel zooms one detected corner. Grey is the path the field extracted; red dots are the
  * vertices bending tighter than rho_min — the stretch, which is routinely more than one. Blue is

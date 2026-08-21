@@ -1019,7 +1019,7 @@ Expected: PASS.
 - [ ] **Step 5: Check it against the whole alphabet**
 
 ```bash
-npm run build -w blitsklieg
+npm run build -w klieg
 node spikes/alphabet-sweep.mjs --out sweep-after.md
 grep -E "^bend " sweep-after.md
 ```
@@ -1163,7 +1163,7 @@ git commit -m "wind a loop into a pigtail that advances along the path"
 - [ ] **Step 1: Zero unresolved corners at both path fidelities**
 
 ```bash
-npm run build -w blitsklieg
+npm run build -w klieg
 node spikes/alphabet-sweep.mjs --out sweep-after.md
 node spikes/clamp-vs-blur.mjs
 ```

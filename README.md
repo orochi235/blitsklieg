@@ -1,4 +1,4 @@
-# blitsklieg
+# klieg
 
 Shiny extruded 3D type, slammed over the web app you already have — the `JACKPOT!` that lands
 on screen when something worth celebrating happens. It draws into its own fixed, click-through
@@ -7,13 +7,13 @@ The host page is not touched.
 
 An effect is three motion slots — `enter`, `active`, `exit` — plus a material `look`.
 
-Every effect is playable at **[the lab](https://orochi235.github.io/blitsklieg/)**, which is
+Every effect is playable at **[the lab](https://orochi235.github.io/klieg/)**, which is
 deployed from `main`.
 
 ## Install
 
 ```sh
-npm install blitsklieg three
+npm install klieg three
 ```
 
 `three` is a peer dependency, so the app owns the copy: two copies of three in one bundle break
@@ -21,14 +21,14 @@ npm install blitsklieg three
 ESM-only, and ships as `dist/` with type declarations.
 
 TypeScript users also want `npm install -D @types/three` — three ships no declarations of its
-own, and blitsklieg's types reference it.
+own, and klieg's types reference it.
 
 ## Usage
 
 ```ts
-import { createBlitsklieg } from 'blitsklieg';
+import { createKlieg } from 'klieg';
 
-const bk = createBlitsklieg({ fontUrl: '/fonts/display.ttf' });
+const bk = createKlieg({ fontUrl: '/fonts/display.ttf' });
 
 await bk.fire('JACKPOT!', { enter: 'slam', active: 'float', exit: 'shatter', look: 'gold' });
 
@@ -146,7 +146,7 @@ across the lit ones instead of leaving each flat. The tubing is a `TubeSpec`, th
 either look's spec:
 
 ```ts
-import { specOf, type TubeSpec } from 'blitsklieg';
+import { specOf, type TubeSpec } from 'klieg';
 
 const tubing = specOf('tubing');
 const tube = tubing.decoration as TubeSpec;
@@ -243,7 +243,7 @@ travels, so there is nothing to regroup.
 Every slot also takes a piece you built, or several layered together:
 
 ```js
-import { spring, transition } from 'blitsklieg';
+import { spring, transition } from 'klieg';
 
 const swoop = transition(800, {
   from: { position: [0, -6, 0], opacity: 0 },
@@ -291,7 +291,7 @@ const bounce = transition(700, { from: { scale: 0 }, ease: easeElasticOut });
 
 ## Options
 
-`createBlitsklieg(options)`:
+`createKlieg(options)`:
 
 | field | default | |
 |---|---|---|
@@ -331,7 +331,7 @@ await bk.fire('BIG\nMONEY');
 *largest* rather than fitting to some column count, so it wraps only when wrapping makes the
 type bigger — short text is already at the scale cap and stays on one line. Words are never
 split, and the viewport budget means a block realistically runs to two or three lines before
-height binds; blitsklieg renders banners, not paragraphs.
+height binds; klieg renders banners, not paragraphs.
 
 ## Holding until dismissed
 
@@ -343,7 +343,7 @@ each press advances one stage, and only the last ends the effect.
 
 The dismissing click passes through to your page by default, so it both dismisses the effect and
 presses whatever was underneath. `modal: true` makes the overlay swallow it instead; that is the
-one state in which blitsklieg is not click-through, which is why Escape is always bound.
+one state in which klieg is not click-through, which is why Escape is always bound.
 
 ## Queue policies
 
@@ -354,7 +354,7 @@ one state in which blitsklieg is not click-through, which is why Escape is alway
 
 ## Browser support
 
-WebGL2 is required. `createBlitsklieg` never throws for want of it, or for want of a DOM:
+WebGL2 is required. `createKlieg` never throws for want of it, or for want of a DOM:
 construction succeeds during server rendering and in a browser without WebGL2, and reports
 `supported: false`. On an unsupported instance `fire()` resolves immediately, having loaded no
 font and rendered nothing, so calls need no guard — read the flag only to do something else
@@ -369,13 +369,13 @@ Under `prefers-reduced-motion: reduce` the word holds the pose its enter settles
 
 ## Development
 
-- `npm run dev -w @blitsklieg/lab` — the lab page: every motion, look and policy behind
+- `npm run dev -w @klieg/lab` — the lab page: every motion, look and policy behind
   pickers, plus canned sequences.
-- `npm run dev:tube-lab -w blitsklieg` — the tube lab: several letters at several angles at once
+- `npm run dev:tube-lab -w klieg` — the tube lab: several letters at several angles at once
   with the tube pipeline's own numbers beside the render. Dev-only tooling, never published.
 - `npm run check` — biome, tsc and the unit suite (723 tests).
 - `npm run test:visual` — Playwright specs asserting the overlay composites over a live page
   without tinting or blocking it.
-- `npm run build:pages -w @blitsklieg/lab && npm run preview:pages -w @blitsklieg/lab` — the
-  lab exactly as GitHub Pages serves it, under the `/blitsklieg/` subpath the workflow builds
+- `npm run build:pages -w @klieg/lab && npm run preview:pages -w @klieg/lab` — the
+  lab exactly as GitHub Pages serves it, under the `/klieg/` subpath the workflow builds
   for. Plain `npm run build` produces a root-served build instead.

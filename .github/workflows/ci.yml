@@ -38,4 +38,4 @@ jobs:
 
       # The published artifact is built by prepack, which nothing else here exercises.
       - name: Build the package
-        run: npm run build -w blitsklieg
+        run: npm run build -w klieg

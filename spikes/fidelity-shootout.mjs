@@ -2,7 +2,7 @@
  * Today's field vs an exact field (A) vs a direct contour trace (B), through the whole tube
  * pipeline and drawn as the tube itself.
  *
- *   npm run build -w blitsklieg && node spikes/fidelity-shootout.mjs [look] [letters]
+ *   npm run build -w klieg && node spikes/fidelity-shootout.mjs [look] [letters]
  *
  * Each column runs the same cut, wander and sweep; only the path source differs. Runs are stroked
  * at the tube's own diameter, so what is drawn is the tube's silhouette on the front plane rather

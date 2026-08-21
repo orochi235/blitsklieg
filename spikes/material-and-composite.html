@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>blitsklieg spike — bloom/alpha composite</title>
+<title>klieg spike — bloom/alpha composite</title>
 <style>
   :root {
     --bg: #10131a;
@@ -40,8 +40,8 @@
   .swatches { display: flex; gap: 8px; margin-top: 28px; flex-wrap: wrap; }
   .sw { width: 54px; height: 54px; border-radius: 8px; }
 
-  /* ---- blitsklieg's overlay canvas ---- */
-  #blitsklieg {
+  /* ---- klieg's overlay canvas ---- */
+  #klieg {
     position: fixed;
     inset: 0;
     width: 100%;
@@ -50,7 +50,7 @@
     z-index: 9999;
   }
 
-  /* ---- spike controls (NOT part of blitsklieg) ---- */
+  /* ---- spike controls (NOT part of klieg) ---- */
   #panel {
     position: fixed;
     top: 12px; right: 12px;
@@ -117,11 +117,11 @@
   </div>
 </div>
 
-<canvas id="blitsklieg"></canvas>
+<canvas id="klieg"></canvas>
 <div id="fps">—</div>
 
 <div id="panel">
-  <h2>blitsklieg spike</h2>
+  <h2>klieg spike</h2>
   <p class="note">controls are the harness, not the API</p>
 
   <label>text</label>
@@ -198,7 +198,7 @@ import * as THREE from 'three';
 import { FontLoader }   from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
-const canvas = document.getElementById('blitsklieg');
+const canvas = document.getElementById('klieg');
 
 // premultipliedAlpha:false so the composite shader can write straight (un-premultiplied)
 // RGBA. With the default `true`, every glow pixel needs rgb pre-scaled by alpha and any
@@ -531,7 +531,7 @@ syncControls();
 syncBloomDependents();
 
 // spike-only instrumentation so the harness can measure on-screen extent
-window.__blitsklieg = { camera, THREE, get group() { return group; }, get mesh() { return mesh; } };
+window.__klieg = { camera, THREE, get group() { return group; }, get mesh() { return mesh; } };
 
 renderer.setAnimationLoop(() => {
   const now = performance.now();

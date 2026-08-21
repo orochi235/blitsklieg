@@ -1,9 +1,9 @@
 /**
  * What each path source does with two overlapping contours — an unmerged multi-component glyph.
  *
- *   npm run build -w blitsklieg && node spikes/contour-overlap.mjs
+ *   npm run build -w klieg && node spikes/contour-overlap.mjs
  *
- * blitsklieg takes whatever font a caller supplies, so overlapping contours are a real input. The
+ * klieg takes whatever font a caller supplies, so overlapping contours are a real input. The
  * grid sources rasterise even-odd, which merges the silhouette but turns the overlap itself into a
  * hole; the direct trace emits both rings and lets the tube cross itself. Neither is the non-zero
  * winding a font means, and they differ, so this is a behaviour change and not a detail.

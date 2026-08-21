@@ -34,7 +34,7 @@ export class GlyphCache<T extends Buildable = THREE.ExtrudeGeometry> {
   }
 
   get(char: string, depth: number): T {
-    if (this.disposed) throw new Error('blitsklieg: GlyphCache used after dispose');
+    if (this.disposed) throw new Error('klieg: GlyphCache used after dispose');
     const key = `${char}|${depth}`;
     let g = this.cache.get(key);
     if (!g) {

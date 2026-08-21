@@ -1,11 +1,11 @@
 import {
   ACTIVE_NAMES,
-  type Blitsklieg,
-  createBlitsklieg,
+  createKlieg,
   ENTER_NAMES,
   EXIT_NAMES,
   type FireOptions,
   fromEuler,
+  type Klieg,
   LIGHTING_NAMES,
   LOOK_NAMES,
   type Look,
@@ -13,7 +13,7 @@ import {
   POLICY_NAMES,
   type SurfaceKind,
   specOf,
-} from 'blitsklieg';
+} from 'klieg';
 
 const DEG = Math.PI / 180;
 
@@ -257,8 +257,8 @@ function seedSliders(): void {
 
 const FONT_URL = `${import.meta.env.BASE_URL}font.ttf`;
 
-function create(): Blitsklieg {
-  const instance = createBlitsklieg({ fontUrl: FONT_URL, policy: policy.get() });
+function create(): Klieg {
+  const instance = createKlieg({ fontUrl: FONT_URL, policy: policy.get() });
   log(`instance up (policy ${policy.get()}${instance.supported ? '' : ', webgl2 UNSUPPORTED'})`);
   return instance;
 }

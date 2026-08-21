@@ -1002,7 +1002,7 @@ export function tintByRunColor(
 
   // Two materials patched differently must not share a compiled program.
   const key = gradient ? `${gradient.domain.of}-${gradient.mode}` : 'flat';
-  material.customProgramCacheKey = () => `blitsklieg-run-${channel}-${key}`;
+  material.customProgramCacheKey = () => `klieg-run-${channel}-${key}`;
   material.needsUpdate = true;
 }
 ```
@@ -1191,9 +1191,9 @@ Hints to use verbatim:
 
 - [ ] **Step 2: Check it against the spike**
 
-Run: `npm run build -w blitsklieg && node spikes/gradient-presets.mjs JACKPOT > /tmp/presets.html && open /tmp/presets.html`
+Run: `npm run build -w klieg && node spikes/gradient-presets.mjs JACKPOT > /tmp/presets.html && open /tmp/presets.html`
 
-Then run the lab with `npm run dev:tube-lab -w blitsklieg` and reproduce `electrode` (`run` / `replace` / `#8a1250 #ff5cb0 #8a1250`) and `wash` (`axis 0°` / `modulate` / `#555555 #ffffff`). The lab and the spike should agree on which end of the word is which colour.
+Then run the lab with `npm run dev:tube-lab -w klieg` and reproduce `electrode` (`run` / `replace` / `#8a1250 #ff5cb0 #8a1250`) and `wash` (`axis 0°` / `modulate` / `#555555 #ffffff`). The lab and the spike should agree on which end of the word is which colour.
 
 - [ ] **Step 3: Run the full check**
 

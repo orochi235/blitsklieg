@@ -96,7 +96,7 @@ function resolveSlot<N extends string>(
   return slot;
 }
 
-export interface BlitskliegOptions {
+export interface KliegOptions {
   target?: HTMLElement;
   fontUrl: string;
   clock?: Clock;
@@ -185,7 +185,7 @@ export interface Stage {
   tween?: TweenSpec;
 }
 
-export interface Blitsklieg {
+export interface Klieg {
   readonly supported: boolean;
   /** Resolves when the effect leaves the screen, whether it played out or was cancelled. */
   fire(text: string, options?: FireOptions): Promise<void>;
@@ -193,7 +193,7 @@ export interface Blitsklieg {
   destroy(): void;
 }
 
-export function createBlitsklieg(options: BlitskliegOptions): Blitsklieg {
+export function createKlieg(options: KliegOptions): Klieg {
   const supported = webglSupported();
   const clock = options.clock ?? new RafClock();
   const queue = new EffectQueue(options.policy ?? 'queue');

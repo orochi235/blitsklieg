@@ -665,7 +665,7 @@ Add to `index.test.ts`, in a new `describe('caller-supplied looks')`:
 
 ```ts
 it('fires with a spec in place of a name', async () => {
-  const bk = createBlitsklieg({ fontUrl: FONT_URL, clock });
+  const bk = createKlieg({ fontUrl: FONT_URL, clock });
   await expect(
     bk.fire('HI', { look: { metalness: 1, roughness: 0.3 }, hold: 0 }),
   ).resolves.toBeUndefined();

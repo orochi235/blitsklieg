@@ -1,7 +1,7 @@
 /**
  * Where in a run does the tightest bend sit, and does smoothing cause it?
  *
- *   npm run build -w blitsklieg && node spikes/where-under-bend.mjs
+ *   npm run build -w klieg && node spikes/where-under-bend.mjs
  *
  * `tightestBend` measures the smoothed centerline, which is also what `sweepRun` sweeps, so a bend
  * the smoothing creates is a real one. This reports raw against smoothed per run, and the local

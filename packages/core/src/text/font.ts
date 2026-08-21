@@ -16,9 +16,9 @@ export interface LoadedFont {
 
 export async function loadFont(url: string): Promise<LoadedFont> {
   const res = await fetch(url).catch((cause) => {
-    throw new Error(`blitsklieg: could not fetch font ${url}`, { cause });
+    throw new Error(`klieg: could not fetch font ${url}`, { cause });
   });
-  if (!res.ok) throw new Error(`blitsklieg: failed to load font ${url} (${res.status})`);
+  if (!res.ok) throw new Error(`klieg: failed to load font ${url} (${res.status})`);
 
   const bytes = await res.arrayBuffer();
 
@@ -27,7 +27,7 @@ export async function loadFont(url: string): Promise<LoadedFont> {
     font = parse(bytes);
   } catch (cause) {
     // A server that answers 200 with an HTML error page lands here, not on the status check.
-    throw new Error(`blitsklieg: ${url} is not a font opentype.js can parse`, { cause });
+    throw new Error(`klieg: ${url} is not a font opentype.js can parse`, { cause });
   }
 
   const metrics: GlyphMetrics = {

@@ -1,7 +1,7 @@
 /**
  * The three path sources measured against each other through the whole pipeline.
  *
- *   npm run build -w blitsklieg && node spikes/source-shootout.mjs
+ *   npm run build -w klieg && node spikes/source-shootout.mjs
  *
  * Same measure as `bend-acceptance.mjs` — buildTubeBlueprint, wander included, tightestBend per
  * run — with only `pathSource` varying, plus build time and the contour count each source finds.

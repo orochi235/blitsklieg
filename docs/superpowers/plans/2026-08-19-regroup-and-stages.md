@@ -1407,7 +1407,7 @@ git commit -m "play staged regroups from a sequence of timelines"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `packages/core/test/index.test.ts`, inside the existing `describe('createBlitsklieg')`. That file already provides `create()` and a module-level `clock: ManualClock` reset in `beforeEach`, plus `stubFont`/`stubStage`/`stubWebgl`/`stubFetch` — use them exactly as the neighbouring tests do.
+Append to `packages/core/test/index.test.ts`, inside the existing `describe('createKlieg')`. That file already provides `create()` and a module-level `clock: ManualClock` reset in `beforeEach`, plus `stubFont`/`stubStage`/`stubWebgl`/`stubFetch` — use them exactly as the neighbouring tests do.
 
 ```ts
   describe('then', () => {
@@ -1704,7 +1704,7 @@ In `apps/lab/src/main.ts`, add an entry to `SEQUENCES`:
 
 - [ ] **Step 2: Check it by eye**
 
-Run: `npm run dev -w @blitsklieg/lab`, open the lab, click **acrostic**, then click three times.
+Run: `npm run dev -w @klieg/lab`, open the lab, click **acrostic**, then click three times.
 Expected: the poem rises; the first click fades the body text and tightens `NEON` into a vertical column; the second lays it out as a line and, a beat later, grows it to fill the viewport; the third recedes it.
 
 Judge this by looking at it. The geometry has been correct here while the render was visibly torn.

@@ -2028,7 +2028,7 @@ Beside the sliders:
 Import the type at the top of `main.ts`:
 
 ```ts
-import type { SurfaceKind } from '@blitsklieg/core';
+import type { SurfaceKind } from '@klieg/core';
 ```
 
 - [ ] **Step 3b: Drive the yaw control**
@@ -2047,7 +2047,7 @@ Wire the slider to it in degrees.
 
 - [ ] **Step 4: Verify by eye**
 
-Run: `npm run dev -w @blitsklieg/lab`
+Run: `npm run dev -w @klieg/lab`
 Pick `tubing`. Drag `tube level` from −120 to +120 and confirm paths inset, ride the outline, then stand off, dropping out entirely at the extremes rather than throwing. Drag `tube runs` and confirm the count changes and gaps appear. Switch `surfaces` to "front + wall" and confirm tube appears around the letter edge. Check the browser console is clean.
 
 - [ ] **Step 5: Commit**

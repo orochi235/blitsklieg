@@ -1,7 +1,7 @@
 /**
  * Does each path source find the same contours, or a different letter?
  *
- *   npm run build -w blitsklieg && node spikes/contour-parity.mjs [look]
+ *   npm run build -w klieg && node spikes/contour-parity.mjs [look]
  *
  * A source that drops or invents a contour is not a fidelity improvement. Reports contour count
  * and total path length per letter; the direct trace is the one at risk, since it neither resolves

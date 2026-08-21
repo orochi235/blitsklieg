@@ -1,8 +1,8 @@
-# blitsklieg — multiline text and indefinite hold
+# klieg — multiline text and indefinite hold
 
 **What:** two additions to `fire()` — text that renders on more than one line, and an effect that
 holds until the user dismisses it.
-**For:** anyone working on blitsklieg core. Assumes the v0 design doc.
+**For:** anyone working on klieg core. Assumes the v0 design doc.
 **Answers:** how lines are chosen and positioned, how a held effect ends, and what stays unchanged.
 
 ## Public API
@@ -116,7 +116,7 @@ is underneath it.
 
 **`modal: true`** flips the canvas to `pointer-events: auto` for the hold. It is fullscreen and
 on top, so it takes the whole click sequence and the page sees none of it — the one state in
-which blitsklieg is not click-through. Escape matters here: without it a full-viewport overlay
+which klieg is not click-through. Escape matters here: without it a full-viewport overlay
 that swallows input and never times out is a keyboard trap.
 
 Listener teardown and the `pointer-events` restore belong inside `settle()`, which abort and

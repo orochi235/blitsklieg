@@ -37,7 +37,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - uses: actions/configure-pages@v6
-      - run: npm run build:pages -w @blitsklieg/lab
+      - run: npm run build:pages -w @klieg/lab
       - uses: actions/upload-pages-artifact@v5
         with:
           path: apps/lab/dist

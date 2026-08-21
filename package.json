@@ -1,5 +1,5 @@
 {
-  "name": "blitsklieg-monorepo",
+  "name": "klieg-monorepo",
   "private": true,
   "type": "module",
   "workspaces": [

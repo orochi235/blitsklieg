@@ -150,7 +150,7 @@ export function tintByRunColor(
         ? `-${(gradient.domain.at ?? [0.5, 0.5]).join(',')}`
         : '';
   material.customProgramCacheKey = () =>
-    `blitsklieg-run-${channel}-${gradient ? `${gradient.domain.of}-${gradient.mode}${baked}` : 'flat'}`;
+    `klieg-run-${channel}-${gradient ? `${gradient.domain.of}-${gradient.mode}${baked}` : 'flat'}`;
   material.needsUpdate = true;
 }
 

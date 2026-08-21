@@ -1,7 +1,7 @@
 /**
  * Every gradient domain and mode, as named presets, on one word.
  *
- *   npm run build -w blitsklieg && node spikes/gradient-presets.mjs [word] > out.html
+ *   npm run build -w klieg && node spikes/gradient-presets.mjs [word] > out.html
  *
  * Draws runs as polylines, not tubes: the question is which vertex gets which colour, and the
  * sweep is the same whatever the sweep stage does with it. Tune stops here before touching a look.

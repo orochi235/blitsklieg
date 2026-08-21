@@ -1,7 +1,7 @@
 /**
  * How a path source changes the run decomposition, not just the path.
  *
- *   npm run build -w blitsklieg && node spikes/run-decomposition.mjs [look] [letters]
+ *   npm run build -w klieg && node spikes/run-decomposition.mjs [look] [letters]
  *
  * Prints each source's runs, their lengths, and the lit/dark pattern `assign` paints from one seed.
  * The paths agree to about 0.001 em, but the grid's wobble manufactures corners and every corner is

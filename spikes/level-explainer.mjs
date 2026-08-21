@@ -1,7 +1,7 @@
 /**
  * What `level` does to a glyph's traced path, drawn.
  *
- *   npm run build -w blitsklieg && node spikes/level-explainer.mjs [letters]
+ *   npm run build -w klieg && node spikes/level-explainer.mjs [letters]
  *
  * `level` is an isocontour level in em: negative rides inside the letter, zero on its outline,
  * positive stands off outside it. It reads as unpredictable because it is topological rather than a

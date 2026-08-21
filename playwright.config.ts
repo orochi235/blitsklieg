@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: './apps/lab/test',
   // Reusing a server in CI can serve stale code from a previous run's leftover process.
   webServer: {
-    command: 'npm run dev -w @blitsklieg/lab',
+    command: 'npm run dev -w @klieg/lab',
     port: 5180,
     reuseExistingServer: !process.env.CI,
   },

@@ -1,7 +1,7 @@
 # Text runs — design
 
 **What:** letters that survive a partial exit, regroup into a new word, and carry their own colour.
-**For:** whoever implements this in `@blitsklieg/core`.
+**For:** whoever implements this in `@klieg/core`.
 **Answers:** what a regroup is, how a caller drives one, and how a letter gets its colour.
 
 ## The target

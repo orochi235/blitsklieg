@@ -1,5 +1,5 @@
 {
-  "name": "blitsklieg",
+  "name": "klieg",
   "version": "0.4.0",
   "description": "Shiny extruded 3D type, slammed over the web app you already have, on a transparent WebGL overlay",
   "keywords": [
@@ -11,13 +11,13 @@
     "overlay",
     "celebration"
   ],
-  "homepage": "https://orochi235.github.io/blitsklieg/",
+  "homepage": "https://orochi235.github.io/klieg/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/orochi235/blitsklieg.git",
+    "url": "git+https://github.com/orochi235/klieg.git",
     "directory": "packages/core"
   },
-  "bugs": "https://github.com/orochi235/blitsklieg/issues",
+  "bugs": "https://github.com/orochi235/klieg/issues",
   "license": "MIT",
   "author": "orochi235",
   "type": "module",

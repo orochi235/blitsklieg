@@ -2,7 +2,7 @@
 
 **What:** a second geometry and material per letter, two generators that build it, and four looks
 made from them.
-**For:** whoever implements 0.4.0 of `@blitsklieg/core`.
+**For:** whoever implements 0.4.0 of `@klieg/core`.
 **Answers:** how a look contributes decoration, how `Word` stops sharing one material across the
 word, and where each generator's numbers come from.
 

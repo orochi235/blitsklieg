@@ -31,7 +31,7 @@ describe('loadFont', () => {
     stubFetch({ ok: false, status: 404 });
 
     await expect(loadFont('/fonts/x.ttf')).rejects.toThrow(
-      'blitsklieg: failed to load font /fonts/x.ttf (404)',
+      'klieg: failed to load font /fonts/x.ttf (404)',
     );
   });
 
@@ -43,7 +43,7 @@ describe('loadFont', () => {
     );
 
     await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
-      message: 'blitsklieg: could not fetch font /fonts/x.ttf',
+      message: 'klieg: could not fetch font /fonts/x.ttf',
       cause,
     });
   });
@@ -64,7 +64,7 @@ describe('loadFont', () => {
     });
 
     await expect(loadFont('/fonts/x.ttf')).rejects.toMatchObject({
-      message: 'blitsklieg: /fonts/x.ttf is not a font opentype.js can parse',
+      message: 'klieg: /fonts/x.ttf is not a font opentype.js can parse',
       cause,
     });
   });

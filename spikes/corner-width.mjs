@@ -1,7 +1,7 @@
 /**
  * Is a corner 2-4 vertices wide because of the distance field, or because of arc-length resampling?
  *
- *   npm run build -w blitsklieg && node spikes/corner-width.mjs
+ *   npm run build -w klieg && node spikes/corner-width.mjs
  *
  * The group-filleting work is justified by the claim that the field's blur widens every corner into
  * a stretch, and so would be deleted by tracing the font's beziers. This measures the same glyphs

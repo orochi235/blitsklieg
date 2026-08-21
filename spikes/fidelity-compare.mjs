@@ -1,7 +1,7 @@
 /**
  * Draws what the tube's path would follow before and after an exact field.
  *
- *   npm run build -w blitsklieg && node spikes/fidelity-compare.mjs [letter]
+ *   npm run build -w klieg && node spikes/fidelity-compare.mjs [letter]
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import opentype from 'opentype.js';
