@@ -52,6 +52,19 @@ function openLPath(): THREE.Vector3[] {
   return pts;
 }
 
+/** Direction change at vertex `i`, in radians. */
+function turnAt(p: THREE.Vector3[], i: number): number {
+  const a = (p[i] as THREE.Vector3)
+    .clone()
+    .sub(p[i - 1] as THREE.Vector3)
+    .normalize();
+  const b = (p[i + 1] as THREE.Vector3)
+    .clone()
+    .sub(p[i] as THREE.Vector3)
+    .normalize();
+  return Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
+}
+
 const PATH = (points: THREE.Vector3[]) => ({ points, surface: 'front' as const, closed: true });
 const OPEN_PATH = (points: THREE.Vector3[]) => ({
   points,
@@ -309,6 +322,38 @@ describe('hard corners', () => {
     const { runs } = cut(elbowPath(90, 0.6), ALL_BREAK);
     expect(runs.length).toBe(2);
   });
+
+  /** An L whose two legs are sampled independently, so one can be trimmed to nothing. */
+  function unevenElbow(turnDeg: number, before: number, after: number): THREE.Vector3[] {
+    const turn = (turnDeg * Math.PI) / 180;
+    const points: THREE.Vector3[] = [];
+    const n = Math.round(before / 0.02);
+    const m = Math.round(after / 0.02);
+    for (let i = n; i > 0; i--) points.push(new THREE.Vector3(-i * 0.02, 0, 0));
+    points.push(new THREE.Vector3(0, 0, 0));
+    for (let i = 1; i <= m; i++) {
+      points.push(new THREE.Vector3(Math.cos(turn) * i * 0.02, Math.sin(turn) * i * 0.02, 0));
+    }
+    return points;
+  }
+
+  // A leg point left inside the setback makes the path run forward to it and double back, and that
+  // reversal reads as a bend far tighter than the corner the fillet replaced.
+  it('drops a leg point that falls inside the fillet setback', () => {
+    for (const leg of [0.06, 0.08, 0.1, 0.12]) {
+      for (const turnDeg of [60, 90, 120]) {
+        const { runs } = cut(unevenElbow(turnDeg, leg, 0.6), ALL_CONNECT);
+        for (const run of runs) {
+          for (let i = 1; i + 1 < run.points.length; i++) {
+            expect(
+              turnAt(run.points, i),
+              `${turnDeg} deg, leg ${leg}, run ${run.index} vertex ${i}`,
+            ).toBeLessThan(Math.PI / 2);
+          }
+        }
+      }
+    }
+  });
 });
 
 describe('hard corners on a closed contour', () => {
@@ -374,6 +419,50 @@ describe('the blockout return', () => {
   });
 });
 
+/**
+ * A rectangle sampled at the pipeline's spacing with every corner cut off, so a corner is a stretch
+ * of two vertices rather than one — which is what resampling a real outline always produces.
+ */
+function chamferedRect(w: number, h: number, cut: number): THREE.Vector3[] {
+  const box = [
+    [0, 0],
+    [w, 0],
+    [w, h],
+    [0, h],
+  ];
+  const sampled: THREE.Vector3[] = [];
+  for (let c = 0; c < 4; c++) {
+    const [ax, ay] = box[c] as number[];
+    const [bx, by] = box[(c + 1) % 4] as number[];
+    const n = Math.round(
+      Math.hypot((bx as number) - (ax as number), (by as number) - (ay as number)) / 0.02,
+    );
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      sampled.push(
+        new THREE.Vector3(
+          (ax as number) + ((bx as number) - (ax as number)) * t,
+          (ay as number) + ((by as number) - (ay as number)) * t,
+          0,
+        ),
+      );
+    }
+  }
+  const n = sampled.length;
+  const out: THREE.Vector3[] = [];
+  for (let i = 0; i < n; i++) {
+    const cur = sampled[i] as THREE.Vector3;
+    const a = cur
+      .clone()
+      .sub(sampled[(i - 1 + n) % n] as THREE.Vector3)
+      .normalize();
+    const b = (sampled[(i + 1) % n] as THREE.Vector3).clone().sub(cur).normalize();
+    if (a.angleTo(b) < 0.5) out.push(cur);
+    else out.push(cur.clone().addScaledVector(a, -cut), cur.clone().addScaledVector(b, cut));
+  }
+  return out;
+}
+
 describe('a closed contour with no break anywhere', () => {
   it('fillets the corner its own seam falls on', () => {
     const { runs } = cutIntoRuns([PATH(squarePath())], {
@@ -402,5 +491,44 @@ describe('a closed contour with no break anywhere', () => {
     const step = (b.distanceTo(a) + c.distanceTo(b)) / 2;
     const rho = turn < 1e-9 ? Number.POSITIVE_INFINITY : step / (2 * Math.sin(turn / 2));
     expect(rho).toBeGreaterThanOrEqual(rhoMin * 0.95);
+  });
+  // The walk starts mid-leg and has to come back to where it started. The last corner's fillet can
+  // reach past that point, and closing onto it anyway runs the path back along the arc it just left.
+  it('closes onto a point the last fillet has not already passed', () => {
+    const { runs } = cutIntoRuns(
+      [{ points: chamferedRect(0.14, 0.6, 0.023), surface: 'front' as const, closed: true }],
+      { runs: 1, minRun: 0, corners: ALL_CONNECT, radius: 0.022, bend: 2, spacing: 0.02, seed: 0 },
+    );
+    expect(runs).toHaveLength(1);
+    for (const run of runs) {
+      for (let i = 1; i + 1 < run.points.length; i++) {
+        expect(turnAt(run.points, i), `run ${run.index} vertex ${i}`).toBeLessThan(Math.PI / 2);
+      }
+    }
+  });
+  // The junction between an arc and the leg it resumes on is one chord carrying whatever the fit
+  // missed, and the arc's half-spacing sampling makes its own endpoint the worst place to put it:
+  // the same angle reads as half the bend radius there that it would a vertex back along the leg.
+  it("holds every vertex at rhoMin across both of a fillet's junctions", () => {
+    const rhoMin = minBendRadius(0.022, 2);
+    for (const w of [0.08, 0.14, 0.2, 0.3]) {
+      const { runs } = cutIntoRuns(
+        [{ points: chamferedRect(w, 0.6, 0.023), surface: 'front' as const, closed: true }],
+        {
+          runs: 1,
+          minRun: 0,
+          corners: ALL_CONNECT,
+          radius: 0.022,
+          bend: 2,
+          spacing: 0.02,
+          seed: 0,
+        },
+      );
+      for (const run of runs) {
+        expect(tightestBend(run), `w ${w}, run ${run.index}`).toBeGreaterThanOrEqual(
+          rhoMin * (1 - 1e-6),
+        );
+      }
+    }
   });
 });
