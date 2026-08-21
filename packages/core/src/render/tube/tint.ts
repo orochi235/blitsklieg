@@ -26,6 +26,28 @@ function glslFloat(n: number): string {
 }
 
 /**
+ * `rimNdv`: 1 where the tube faces the camera, 0 at its silhouette. `normal` and `vViewPosition`
+ * are three's own — the emissive anchor sits after `normal_fragment_begin`, which resolves the
+ * double-sided flip a tube's inside faces need.
+ */
+const GRAZING = 'float rimNdv = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);';
+
+/**
+ * Below 1 the profile is a wash over the whole tube; at 5, Schlick's Fresnel exponent, it is a
+ * hairline the antialiased silhouette eats at sign size.
+ */
+const RIM_EXPONENT = 1.5;
+
+/**
+ * The emissive scale a limb rim asks for, 1 at the silhouette down to `1 - strength` head-on.
+ * It only ever darkens: a tuned neon look already clips its brightest channels, so brightening
+ * the edge is invisible where dimming the core is not.
+ */
+function limbFactor(strength: number): string {
+  return `(1.0 - ${glslFloat(strength)} * (1.0 - pow(1.0 - rimNdv, ${glslFloat(RIM_EXPONENT)})))`;
+}
+
+/**
  * GLSL assigning `gt`, in letter-placement space. Excludes the group's fit transform deliberately:
  * the fit re-settles on every layout pass, so a gradient riding it would slide on a browser resize.
  */
@@ -74,13 +96,22 @@ function positionalT(gradient: GradientSpec): string {
  * `ramp` lets a caller bake that texture once and share it across the letters of a word; the caller
  * then owns it. Without one this bakes its own, which nothing can reach to dispose — a shared ramp
  * is the supported path for anything that outlives a test.
+ *
+ * `rim` (0..1, emissive only) sinks the tube's head-on emissive by that fraction and leaves the
+ * silhouette where the look put it, so the glass reads as a lit cylinder rather than a ribbon.
+ * Absent or 0 emits the GLSL this shipped with, byte for byte.
  */
 export function tintByRunColor(
   material: THREE.Material,
   channel: TintChannel,
   gradient?: GradientSpec,
   ramp?: THREE.Texture,
+  rim?: number,
 ): void {
+  // Emissive only. `color_fragment` runs before three has a shading normal, and a cord is a solid
+  // body rather than a column of gas, so a rim there would be a knob with nothing behind it.
+  const limb =
+    channel === 'emissive' && Number.isFinite(rim) ? Math.min(Math.max(rim as number, 0), 1) : 0;
   const target = material as THREE.MeshPhysicalMaterial;
   if (channel === 'emissive') target.emissive = new THREE.Color(0xffffff);
   else target.color = new THREE.Color(0xffffff);
@@ -118,7 +149,9 @@ export function tintByRunColor(
     channel === 'emissive' ? '#include <emissivemap_fragment>' : '#include <color_fragment>';
   const write =
     channel === 'emissive'
-      ? `totalEmissiveRadiance *= ${tinted};`
+      ? limb > 0
+        ? `${GRAZING}\n  totalEmissiveRadiance *= ${tinted} * ${limbFactor(limb)};`
+        : `totalEmissiveRadiance *= ${tinted};`
       : `diffuseColor.rgb *= ${tinted};`;
 
   material.onBeforeCompile = (shader) => {
@@ -150,7 +183,9 @@ export function tintByRunColor(
         ? `-${(gradient.domain.at ?? [0.5, 0.5]).join(',')}`
         : '';
   material.customProgramCacheKey = () =>
-    `klieg-run-${channel}-${gradient ? `${gradient.domain.of}-${gradient.mode}${baked}` : 'flat'}`;
+    `klieg-run-${channel}-${gradient ? `${gradient.domain.of}-${gradient.mode}${baked}` : 'flat'}${
+      limb > 0 ? `-rim${limb}` : ''
+    }`;
   material.needsUpdate = true;
 }
 

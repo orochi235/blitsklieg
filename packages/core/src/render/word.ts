@@ -297,6 +297,7 @@ export class Word {
           tintChannelOf(decoration.look),
           decoration.gradient,
           this.gradientRamp ?? undefined,
+          decoration.look.rim,
         );
         if (decoration.gradient && positionalDomain(decoration.gradient)) {
           decorMaterial.userData[GRADIENT_BOUNDS_UNIFORM] = new THREE.Vector4(0, 0, 1, 1);

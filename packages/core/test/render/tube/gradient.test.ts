@@ -512,3 +512,70 @@ describe('the ramp texture a tint samples', () => {
     shared.dispose();
   });
 });
+
+describe('tintByRunColor with a limb rim', () => {
+  const fragmentFor = (
+    rim?: number,
+    gradient?: GradientSpec,
+    channel: 'emissive' | 'color' = 'emissive',
+  ) => {
+    const m = new THREE.MeshPhysicalMaterial();
+    tintByRunColor(m, channel, gradient, undefined, rim);
+    return compiled(m).fragmentShader;
+  };
+
+  const runGradient: GradientSpec = {
+    domain: { of: 'run' },
+    stops: [0xff0000, 0x0000ff],
+    mode: 'replace',
+  };
+
+  it('emits what no rim at all emits when the rim is 0', () => {
+    expect(fragmentFor(0)).toBe(fragmentFor(undefined));
+    expect(fragmentFor(0, runGradient)).toBe(fragmentFor(undefined, runGradient));
+  });
+
+  it('leaves the vertex shader alone, reading a normal three already interpolates', () => {
+    const a = new THREE.MeshPhysicalMaterial();
+    const b = new THREE.MeshPhysicalMaterial();
+    tintByRunColor(a, 'emissive');
+    tintByRunColor(b, 'emissive', undefined, undefined, 0.8);
+    expect(compiled(b).vertexShader).toBe(compiled(a).vertexShader);
+  });
+
+  it('reads the grazing angle from the view-space shading normal', () => {
+    expect(fragmentFor(0.8)).toContain('dot(normal, normalize(vViewPosition))');
+  });
+
+  it('samples the ramp once under replace, not once per term', () => {
+    const glsl = fragmentFor(0.8, runGradient);
+    expect(glsl.split('texture2D(uGradRamp').length - 1).toBe(1);
+  });
+
+  it('samples the ramp once under modulate, and still multiplies the run colour', () => {
+    const glsl = fragmentFor(0.8, { ...runGradient, mode: 'modulate' });
+    expect(glsl.split('texture2D(uGradRamp').length - 1).toBe(1);
+    expect(glsl).toContain('vRunColor * texture2D(uGradRamp');
+  });
+
+  it('is dropped on the colour channel, which has no shading normal yet and no glowing gas', () => {
+    expect(fragmentFor(0.8, undefined, 'color')).toBe(fragmentFor(undefined, undefined, 'color'));
+  });
+
+  it('parts the program cache from no rim, and from a different strength', () => {
+    const key = (rim?: number) => {
+      const m = new THREE.MeshPhysicalMaterial();
+      tintByRunColor(m, 'emissive', undefined, undefined, rim);
+      return m.customProgramCacheKey?.();
+    };
+    expect(key(0.8)).not.toBe(key(undefined));
+    expect(key(0.8)).not.toBe(key(0.4));
+    expect(key(0)).toBe(key(undefined));
+  });
+
+  it('clamps rather than emitting a negative core or a NaN', () => {
+    expect(fragmentFor(4)).toBe(fragmentFor(1));
+    expect(fragmentFor(-2)).toBe(fragmentFor(undefined));
+    expect(fragmentFor(Number.NaN)).toBe(fragmentFor(undefined));
+  });
+});
