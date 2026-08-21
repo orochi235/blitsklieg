@@ -363,10 +363,14 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
           target.removeEventListener('pointermove', move);
           target.removeEventListener('pointerup', up);
           target.removeEventListener('pointercancel', up);
+          target.removeEventListener('lostpointercapture', up);
         };
         target.addEventListener('pointermove', move);
         target.addEventListener('pointerup', up);
         target.addEventListener('pointercancel', up);
+        // Capture can go without a pointerup — a re-render that replaces the panel is enough — and
+        // after that neither move nor up fires here, so a buttonless hover keeps turning the letter.
+        target.addEventListener('lostpointercapture', up);
       },
       onDoubleClick: () => resetView(id, pose),
     }),
