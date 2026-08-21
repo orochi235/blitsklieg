@@ -1,0 +1,33 @@
+import * as THREE from 'three';
+import { describe, expect, it } from 'vitest';
+import { rampAt } from '../../../src/render/tube/gradient.js';
+
+describe('rampAt', () => {
+  it('returns the only stop when there is one', () => {
+    const c = rampAt([0xff2d95], 0.7);
+    expect(c.getHex()).toBe(0xff2d95);
+  });
+
+  it('returns the endpoints at 0 and 1', () => {
+    expect(rampAt([0xff0000, 0x0000ff], 0).getHex()).toBe(0xff0000);
+    expect(rampAt([0xff0000, 0x0000ff], 1).getHex()).toBe(0x0000ff);
+  });
+
+  it('clamps outside 0..1 rather than extrapolating', () => {
+    expect(rampAt([0xff0000, 0x0000ff], -3).getHex()).toBe(0xff0000);
+    expect(rampAt([0xff0000, 0x0000ff], 9).getHex()).toBe(0x0000ff);
+  });
+
+  it('lands on an interior stop exactly', () => {
+    const c = rampAt([0xff0000, 0x00ff00, 0x0000ff], 0.5);
+    expect(c.getHex()).toBe(0x00ff00);
+  });
+
+  it('interpolates in linear space, not sRGB', () => {
+    // The linear midpoint of black and white is mid-grey in LINEAR components, which is
+    // 0.5 -> #bcbcbc once written back out as sRGB. An sRGB lerp would give #808080.
+    const c = rampAt([0x000000, 0xffffff], 0.5);
+    expect(c.r).toBeCloseTo(0.5, 6);
+    expect(new THREE.Color().copy(c).getHexString()).toBe('bcbcbc');
+  });
+});
