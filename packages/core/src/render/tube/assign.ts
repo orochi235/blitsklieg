@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+import { type GradientSpec, perRunT, rampAt } from './gradient.js';
 import type { Run } from './runs.js';
 import type { SurfaceKind } from './surfaces.js';
 
@@ -31,6 +33,8 @@ export function assign(
   colors: number[],
   seed: number,
   surfaceColors?: Partial<Record<SurfaceKind, number[]>>,
+  surfaces: readonly SurfaceKind[] = [],
+  gradient?: GradientSpec,
 ): Run[] {
   if (runs.length === 0) return runs;
   // Blockout is paint, not selection: a return carries the tube past a corner unlit whatever
@@ -76,7 +80,7 @@ export function assign(
       run.color = palette[n % palette.length] as number;
       n++;
     }
-    return runs;
+    return applyPerRunGradient(runs, surfaces, surfaceColors !== undefined, gradient);
   }
 
   // A per-surface palette cycles on its own cursor, so a layer's colours run in order rather than
@@ -90,6 +94,41 @@ export function assign(
     const n = cursors.get(run.surface) ?? 0;
     run.color = use[n % use.length] as number;
     cursors.set(run.surface, n + 1);
+  }
+  return applyPerRunGradient(runs, surfaces, surfaceColors !== undefined, gradient);
+}
+
+/**
+ * Per-run domains only. A per-vertex or positional domain returns the runs untouched: its colour
+ * is resolved in the sweep or the shader, and the dealt colour is what `modulate` multiplies there.
+ */
+function applyPerRunGradient(
+  runs: Run[],
+  surfaces: readonly SurfaceKind[],
+  surfaceColorsGiven: boolean,
+  gradient?: GradientSpec,
+): Run[] {
+  if (!gradient) return runs;
+  // A per-layer palette names colours directly; the surface domain is the coarser way of asking
+  // for the same thing, so it yields rather than overwriting them.
+  if (gradient.domain.of === 'surface' && surfaceColorsGiven) return runs;
+  const lit = runs.filter((r) => r.lit);
+  const scratch = new THREE.Color();
+  for (let n = 0; n < lit.length; n++) {
+    const run = lit[n] as Run;
+    const t = perRunT(
+      gradient.domain,
+      { litOrdinal: n, litCount: lit.length, surface: run.surface },
+      surfaces,
+    );
+    if (t === null) return runs;
+    const ramp = rampAt(gradient.stops, t);
+    if (gradient.mode === 'replace') {
+      run.color = ramp.getHex();
+    } else {
+      scratch.setHex(run.color).multiply(ramp);
+      run.color = scratch.getHex();
+    }
   }
   return runs;
 }

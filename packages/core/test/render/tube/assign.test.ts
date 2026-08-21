@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { assign } from '../../../src/render/tube/assign.js';
+import { rampAt } from '../../../src/render/tube/gradient.js';
 import type { Run } from '../../../src/render/tube/runs.js';
 
 function runs(n: number): Run[] {
@@ -77,5 +78,73 @@ describe('assign', () => {
     // [red, green, red], which is the only case that tells the two apart.
     const out = assign(runs(6), { by: 'index', amount: 1, stride: 2 }, [0xff0000, 0x00ff00], 3);
     expect(out.filter((r) => r.lit).map((r) => r.color)).toEqual([0xff0000, 0x00ff00, 0xff0000]);
+  });
+});
+
+describe('assign with a per-run gradient', () => {
+  const RAMP = [0xff0000, 0x0000ff];
+
+  it('replaces the dealt colour with the ramp, spread over the lit runs', () => {
+    const out = assign(runs(5), { by: 'index', amount: 1 }, COLORS, 3, undefined, ['front'], {
+      domain: { of: 'runIndex' },
+      stops: RAMP,
+      mode: 'replace',
+    });
+    const lit = out.filter((r) => r.lit);
+    expect(lit[0]?.color).toBe(rampAt(RAMP, 0).getHex());
+    expect(lit[lit.length - 1]?.color).toBe(rampAt(RAMP, 1).getHex());
+  });
+
+  it('multiplies the dealt colour under modulate, so the deck survives', () => {
+    const out = assign(runs(5), { by: 'index', amount: 1 }, [0x8040c0], 3, undefined, ['front'], {
+      domain: { of: 'runIndex' },
+      stops: [0xffffff, 0xffffff],
+      mode: 'modulate',
+    });
+    // A white ramp is the identity: every run keeps the colour it was dealt.
+    for (const run of out.filter((r) => r.lit)) expect(run.color).toBe(0x8040c0);
+  });
+
+  it('darkens toward the ramp floor under modulate', () => {
+    const out = assign(runs(5), { by: 'index', amount: 1 }, [0xffffff], 3, undefined, ['front'], {
+      domain: { of: 'runIndex' },
+      stops: [0x000000, 0xffffff],
+      mode: 'modulate',
+    });
+    const lit = out.filter((r) => r.lit);
+    expect(lit[0]?.color).toBe(0x000000);
+    expect(lit[lit.length - 1]?.color).toBe(0xffffff);
+  });
+
+  it('leaves a non-per-run domain to the geometry, dealing as usual', () => {
+    const out = assign(runs(5), { by: 'index', amount: 1 }, COLORS, 3, undefined, ['front'], {
+      domain: { of: 'axis' },
+      stops: RAMP,
+      mode: 'replace',
+    });
+    expect(out.filter((r) => r.lit)[0]?.color).toBe(COLORS[0]);
+  });
+
+  it('lets surfaceColors win over a surface domain', () => {
+    const out = assign(
+      runs(4),
+      { by: 'index', amount: 1 },
+      COLORS,
+      3,
+      { front: [0x123456] },
+      ['front'],
+      {
+        domain: { of: 'surface' },
+        stops: RAMP,
+        mode: 'replace',
+      },
+    );
+    expect(out.filter((r) => r.lit).every((r) => r.color === 0x123456)).toBe(true);
+  });
+
+  it('deals exactly as before when no gradient is given', () => {
+    const before = assign(runs(7), { by: 'seed', amount: 0.6 }, COLORS, 11);
+    const after = assign(runs(7), { by: 'seed', amount: 0.6 }, COLORS, 11, undefined, ['front']);
+    expect(after.map((r) => [r.lit, r.color])).toEqual(before.map((r) => [r.lit, r.color]));
   });
 });
