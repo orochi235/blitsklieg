@@ -6,9 +6,7 @@ import * as THREE from 'three';
  * reads. Lerping sRGB components instead sends pink→cyan through grey.
  */
 export function rampAt(stops: readonly number[], t: number): THREE.Color {
-  if (stops.length === 0) return new THREE.Color(0xffffff);
-  const first = stops[0] as number;
-  if (stops.length === 1) return new THREE.Color(first);
+  if (stops.length === 1) return new THREE.Color(stops[0] as number);
 
   const u = Math.min(1, Math.max(0, t)) * (stops.length - 1);
   const i = Math.min(stops.length - 2, Math.floor(u));

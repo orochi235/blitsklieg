@@ -30,4 +30,10 @@ describe('rampAt', () => {
     expect(c.r).toBeCloseTo(0.5, 6);
     expect(new THREE.Color().copy(c).getHexString()).toBe('bcbcbc');
   });
+
+  it('falls back to white for an empty stop list, via THREE.Color leaving an undefined stop unset', () => {
+    // Not a guarded case: stops[-2] is `undefined` out of bounds, and `new THREE.Color(undefined)`
+    // quietly keeps three's own default (white) rather than throwing.
+    expect(rampAt([], 0.7).getHex()).toBe(0xffffff);
+  });
 });
