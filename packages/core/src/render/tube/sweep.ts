@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { isAuthored } from './bend.js';
 import type { Point2 } from './field.js';
 import { type Frame, rotationMinimizingFrames } from './frames.js';
+import { GRADIENT_T_ATTRIBUTE, type GradientDomain, perVertexT, type RunSpan } from './gradient.js';
 import { minCurvatureRadius3, smooth } from './resample.js';
 import type { Run } from './runs.js';
 import { RUN_COLOR_ATTRIBUTE } from './tint.js';
@@ -86,11 +87,18 @@ function ringsOf(points: THREE.Vector3[], radius: number): Ring[] {
   return [...cap(0, -1).reverse(), ...wall, ...cap(wall.length - 1, 1)];
 }
 
+/** The gradient's placement for one run, when the domain is resolved per vertex. */
+export interface GradientPlace {
+  domain: GradientDomain;
+  place: RunSpan;
+}
+
 function buildTubeGeometry(
   points: THREE.Vector3[],
   radius: number,
   segments: number,
   color: number,
+  gradient?: GradientPlace,
 ): THREE.BufferGeometry {
   const rings = ringsOf(points, radius);
   const ringCount = rings.length;
@@ -98,6 +106,7 @@ function buildTubeGeometry(
   const normals: number[] = [];
   const uvs: number[] = [];
   const colors: number[] = [];
+  const ts: number[] = [];
   const indices: number[] = [];
   // Linear, because `setHex` converts from sRGB and the shader works in linear space.
   const tint = new THREE.Color(color);
@@ -123,6 +132,10 @@ function buildTubeGeometry(
       );
       uvs.push(i / (ringCount - 1), j / segments);
       colors.push(tint.r, tint.g, tint.b);
+      if (gradient) {
+        const t = perVertexT(gradient.domain, i, ringCount, gradient.place);
+        if (t !== null) ts.push(t);
+      }
     }
   }
 
@@ -143,6 +156,9 @@ function buildTubeGeometry(
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setAttribute(RUN_COLOR_ATTRIBUTE, new THREE.Float32BufferAttribute(colors, 3));
+  if (ts.length > 0) {
+    geo.setAttribute(GRADIENT_T_ATTRIBUTE, new THREE.Float32BufferAttribute(ts, 1));
+  }
   geo.computeBoundingSphere();
   return geo;
 }
@@ -151,9 +167,10 @@ export function sweepRun(
   run: Run,
   requested: number,
   segments: number,
+  gradient?: GradientPlace,
 ): THREE.BufferGeometry | null {
   if (run.points.length < 2 || requested <= 0) return null;
   // Points are already arc-length spaced (resample.ts) and corner-cut (runs.ts), so a
   // Catmull-Rom re-resample bought nothing but a second parameterization to reason about.
-  return buildTubeGeometry(smoothedPoints(run), requested, segments, run.color);
+  return buildTubeGeometry(smoothedPoints(run), requested, segments, run.color, gradient);
 }

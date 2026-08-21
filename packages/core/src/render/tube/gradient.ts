@@ -57,3 +57,23 @@ export function perRunT(
   }
   return null;
 }
+
+export const GRADIENT_T_ATTRIBUTE = 'gradientT';
+
+/** Where a run sits inside its glyph's lit length, as a fraction. */
+export interface RunSpan {
+  start: number;
+  span: number;
+}
+
+/** Domains that vary along a run. Null for every other domain. */
+export function perVertexT(
+  domain: GradientDomain,
+  ring: number,
+  ringCount: number,
+  place: RunSpan,
+): number | null {
+  if (domain.of !== 'run' && domain.of !== 'letter') return null;
+  const along = ringCount <= 1 ? 0 : ring / (ringCount - 1);
+  return domain.of === 'run' ? along : place.start + place.span * along;
+}

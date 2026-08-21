@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { GRADIENT_T_ATTRIBUTE } from '../../../src/render/tube/gradient.js';
 import type { Run } from '../../../src/render/tube/runs.js';
 import { sweepRun, tightestBend } from '../../../src/render/tube/sweep.js';
 
@@ -107,6 +108,54 @@ describe('sweepRun', () => {
     for (let i = 0; i < array.length; i++) {
       expect(Number.isFinite(array[i])).toBe(true);
     }
+    geo?.dispose();
+  });
+});
+
+describe('sweepRun gradientT attribute', () => {
+  it('is absent when no gradient is asked for', () => {
+    const geo = sweepRun(arcRun(1, Math.PI / 2), 0.02, 8);
+    expect(geo?.getAttribute(GRADIENT_T_ATTRIBUTE)).toBeUndefined();
+  });
+
+  it('runs 0..1 along the run under the run domain', () => {
+    const geo = sweepRun(arcRun(1, Math.PI / 2), 0.02, 8, {
+      domain: { of: 'run' },
+      place: { start: 0, span: 1 },
+    });
+    const attr = geo?.getAttribute(GRADIENT_T_ATTRIBUTE);
+    expect(attr).toBeDefined();
+    expect(attr?.itemSize).toBe(1);
+    expect(attr?.getX(0)).toBeCloseTo(0, 6);
+    expect(attr?.getX((attr?.count ?? 1) - 1)).toBeCloseTo(1, 6);
+  });
+
+  it('confines the sweep to the run’s own slice under the letter domain', () => {
+    const geo = sweepRun(arcRun(1, Math.PI / 2), 0.02, 8, {
+      domain: { of: 'letter' },
+      place: { start: 0.4, span: 0.2 },
+    });
+    const attr = geo?.getAttribute(GRADIENT_T_ATTRIBUTE);
+    expect(attr?.getX(0)).toBeCloseTo(0.4, 6);
+    expect(attr?.getX((attr?.count ?? 1) - 1)).toBeCloseTo(0.6, 6);
+  });
+
+  it('is absent for a positional domain, which the shader resolves', () => {
+    const geo = sweepRun(arcRun(1, Math.PI / 2), 0.02, 8, {
+      domain: { of: 'axis' },
+      place: { start: 0, span: 1 },
+    });
+    expect(geo?.getAttribute(GRADIENT_T_ATTRIBUTE)).toBeUndefined();
+  });
+
+  it('writes exactly one value per vertex, matching the position attribute', () => {
+    const geo = sweepRun(arcRun(1, Math.PI / 2), 0.02, 8, {
+      domain: { of: 'run' },
+      place: { start: 0, span: 1 },
+    });
+    const attr = geo?.getAttribute(GRADIENT_T_ATTRIBUTE);
+    const position = geo?.getAttribute('position');
+    expect(attr?.count).toBe(position?.count);
     geo?.dispose();
   });
 });

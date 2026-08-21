@@ -93,3 +93,30 @@ describe('perRunT', () => {
     ).toBeNull();
   });
 });
+
+import { perVertexT } from '../../../src/render/tube/gradient.js';
+
+describe('perVertexT', () => {
+  const span = { start: 0.25, span: 0.5 };
+
+  it('runs 0..1 along the run and restarts, for the run domain', () => {
+    expect(perVertexT({ of: 'run' }, 0, 5, span)).toBeCloseTo(0, 6);
+    expect(perVertexT({ of: 'run' }, 4, 5, span)).toBeCloseTo(1, 6);
+    expect(perVertexT({ of: 'run' }, 2, 5, span)).toBeCloseTo(0.5, 6);
+  });
+
+  it('places the run inside the glyph, for the letter domain', () => {
+    expect(perVertexT({ of: 'letter' }, 0, 5, span)).toBeCloseTo(0.25, 6);
+    expect(perVertexT({ of: 'letter' }, 4, 5, span)).toBeCloseTo(0.75, 6);
+    expect(perVertexT({ of: 'letter' }, 2, 5, span)).toBeCloseTo(0.5, 6);
+  });
+
+  it('gives a one-ring run 0 rather than dividing by zero', () => {
+    expect(perVertexT({ of: 'run' }, 0, 1, span)).toBe(0);
+  });
+
+  it('is null for a domain that is not per vertex', () => {
+    expect(perVertexT({ of: 'runIndex' }, 2, 5, span)).toBeNull();
+    expect(perVertexT({ of: 'radial' }, 2, 5, span)).toBeNull();
+  });
+});
