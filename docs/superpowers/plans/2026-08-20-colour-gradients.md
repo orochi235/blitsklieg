@@ -588,6 +588,13 @@ git commit -m "write a per-vertex gradient parameter alongside the run colour"
 
 ---
 
+> **Correction, applied after Task 5 measured it.** `perVertexT` takes an arc-length fraction,
+> not `(ring, ringCount)`: `perVertexT(domain, along, place)`. `ringsOf` adds 4 cap rings at each
+> end covering only ~`radius` of length, so a ring-index parameter raced through the domes — a
+> 25-point run spent 25% of its range on caps that are 11% of its length, and the share moved with
+> point density. `buildTubeGeometry` now accumulates centre-to-centre distance and normalises.
+> The steps below describe the superseded signature; the committed code is the corrected one.
+
 ## Task 5: `TubeSpec.gradient`, and the glyph's lit spans
 
 **Files:**
