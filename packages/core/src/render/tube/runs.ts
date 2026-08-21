@@ -8,6 +8,7 @@ import {
   STYLE_FACTOR,
 } from './bend.js';
 import type { GeneratedPath } from './generators.js';
+import { minCurvatureRadius3 } from './resample.js';
 import type { SurfaceKind } from './surfaces.js';
 
 export interface Run {
@@ -401,12 +402,51 @@ function eatenBy(
   };
 }
 
+/** The bend the path takes at `mid`, in em. */
+function bendThrough(a: THREE.Vector3, mid: THREE.Vector3, b: THREE.Vector3): number {
+  return minCurvatureRadius3([a, mid, b].map((p) => ({ x: p.x, y: p.y, z: p.z })));
+}
+
+/**
+ * Where the leg resumes after a fillet: the last vertex whose own bend, taken across the junction
+ * into the arc, still clears `rhoMin`.
+ *
+ * The fit reads the shoulder as straight where it is still turning, so the vertex nearest the
+ * tangent point sits off the leg line the arc is tangent to — by up to half a sample step. That
+ * offset is worst exactly there: the arc is sampled at half `spacing`, so a junction chord meets a
+ * step half as long as its own, and the circumradius of the two is the junction chord over twice
+ * the sine of the turn. Stepping back lengthens that chord faster than the offset grows.
+ */
+function resumeAt(
+  leg: THREE.Vector3[],
+  from: number,
+  step: 1 | -1,
+  tangent: THREE.Vector3,
+  second: THREE.Vector3,
+  along: THREE.Vector3,
+  rhoMin: number,
+  spacing: number,
+): number {
+  for (let i = from; i >= 0 && i < leg.length; i += step) {
+    const p = leg[i] as THREE.Vector3;
+    const before = leg[i - step] as THREE.Vector3 | undefined;
+    if (legGap(p, tangent, along) < spacing) continue;
+    if (bendThrough(p, tangent, second) < rhoMin) continue;
+    // Both vertices of the junction, not only the one on the arc: stepping back moves the residual
+    // onto the leg, and a resume that clears at the tangent point can fail at itself.
+    if (before && bendThrough(before, p, tangent) < rhoMin) continue;
+    return i;
+  }
+  return step === 1 ? leg.length : -1;
+}
+
 /** Appends `next` onto `target`, which already ends at the shared corner. */
 function mergeArc(
   target: THREE.Vector3[],
   next: THREE.Vector3[],
   decision: CornerDecision,
   fillet: Fillet | null,
+  rhoMin: number,
   spacing: number,
 ): void {
   if (fillet) {
@@ -426,18 +466,16 @@ function mergeArc(
     // shorter than one sample step, and would leave the stretch's own vertices in the path.
     for (let i = 0; i <= decision.groupBefore && target.length > 0; i++) target.pop();
     trimTail(target, fillet.setback, fillet.corner);
-    // The leg has to resume a full sample clear of the tangent point. A point closer than that is
-    // still off the leg line by whatever the fit missed, and over a short step that reads as a kink
-    // rather than as the slight offset it is.
-    while (target.length > 0 && legGap(target[target.length - 1], entry, into) < spacing) {
-      target.pop();
-    }
+    const second = fillet.points[1] as THREE.Vector3;
+    const keep = resumeAt(target, target.length - 1, -1, entry, second, into, rhoMin, spacing);
+    target.length = keep + 1;
 
     decision.at = fillet.points[n >> 1];
     for (const p of fillet.points) target.push(p);
 
-    let from = indexPast(next, decision.groupAfter + 1, fillet.setback, fillet.corner);
-    while (from < next.length && legGap(next[from], exit, outOf) < spacing) from++;
+    const start = indexPast(next, decision.groupAfter + 1, fillet.setback, fillet.corner);
+    const penult = fillet.points[n - 2] as THREE.Vector3;
+    const from = resumeAt(next, start, 1, exit, penult, outOf, rhoMin, spacing);
     for (let i = from; i < next.length; i++) {
       target.push(next[i] as THREE.Vector3);
     }
@@ -551,7 +589,7 @@ function stitchPath(
         spans.push({ points: dropTail(current, decision.groupBefore + 1) });
         current = dropHead(next.slice(), decision.groupAfter + 1);
       } else {
-        mergeArc(current, next, decision, decision.fillet ?? null, spacing);
+        mergeArc(current, next, decision, decision.fillet ?? null, rhoMin, spacing);
         if (decision.strategy === 'return' && decision.fillet) {
           const [head, dark, tail] = splitReturn(current, decision.fillet, spacing);
           spans.push(head, dark);
@@ -576,7 +614,7 @@ function stitchPath(
     const mid = Math.max(1, Math.min(first.length - 2, first.length >> 1));
     let current = first.slice(mid);
     const walk = (decision: CornerDecision, arc: THREE.Vector3[]) => {
-      mergeArc(current, arc, decision, decision.fillet ?? null, spacing);
+      mergeArc(current, arc, decision, decision.fillet ?? null, rhoMin, spacing);
       if (decision.strategy === 'return' && decision.fillet) {
         const [head, dark, tail] = splitReturn(current, decision.fillet, spacing);
         closedSpans.push(head, dark);
@@ -609,6 +647,7 @@ function stitchPath(
         arcs[arcIdx] as THREE.Vector3[],
         decision,
         decision.fillet ?? null,
+        rhoMin,
         spacing,
       );
       if (decision.strategy === 'return' && decision.fillet) {

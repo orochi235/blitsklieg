@@ -506,4 +506,29 @@ describe('a closed contour with no break anywhere', () => {
       }
     }
   });
+  // The junction between an arc and the leg it resumes on is one chord carrying whatever the fit
+  // missed, and the arc's half-spacing sampling makes its own endpoint the worst place to put it:
+  // the same angle reads as half the bend radius there that it would a vertex back along the leg.
+  it("holds every vertex at rhoMin across both of a fillet's junctions", () => {
+    const rhoMin = minBendRadius(0.022, 2);
+    for (const w of [0.08, 0.14, 0.2, 0.3]) {
+      const { runs } = cutIntoRuns(
+        [{ points: chamferedRect(w, 0.6, 0.023), surface: 'front' as const, closed: true }],
+        {
+          runs: 1,
+          minRun: 0,
+          corners: ALL_CONNECT,
+          radius: 0.022,
+          bend: 2,
+          spacing: 0.02,
+          seed: 0,
+        },
+      );
+      for (const run of runs) {
+        expect(tightestBend(run), `w ${w}, run ${run.index}`).toBeGreaterThanOrEqual(
+          rhoMin * (1 - 1e-6),
+        );
+      }
+    }
+  });
 });
