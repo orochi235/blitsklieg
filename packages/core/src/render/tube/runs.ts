@@ -7,7 +7,6 @@ import {
   minBendRadius,
   STYLE_FACTOR,
 } from './bend.js';
-import { seedNormal } from './frames.js';
 import type { GeneratedPath } from './generators.js';
 import type { SurfaceKind } from './surfaces.js';
 

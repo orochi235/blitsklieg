@@ -1,7 +1,6 @@
 import type * as THREE from 'three';
 import type { MaterialSpec } from '../decoration.js';
 import { assign, type SelectSpec } from './assign.js';
-import { minBendRadius } from './bend.js';
 import { generateConnectors, generatePaths, type PathSource } from './generators.js';
 import type { GradientSpec } from './gradient.js';
 import { type CornerRecord, type CornerWeights, cutIntoRuns, type Run } from './runs.js';
