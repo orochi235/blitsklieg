@@ -37,3 +37,59 @@ describe('rampAt', () => {
     expect(rampAt([], 0.7).getHex()).toBe(0xffffff);
   });
 });
+
+import { perRunT } from '../../../src/render/tube/gradient.js';
+
+describe('perRunT', () => {
+  it('spreads runIndex across the lit runs', () => {
+    expect(
+      perRunT({ of: 'runIndex' }, { litOrdinal: 0, litCount: 5, surface: 'front' }, ['front']),
+    ).toBeCloseTo(0, 6);
+    expect(
+      perRunT({ of: 'runIndex' }, { litOrdinal: 4, litCount: 5, surface: 'front' }, ['front']),
+    ).toBeCloseTo(1, 6);
+    expect(
+      perRunT({ of: 'runIndex' }, { litOrdinal: 2, litCount: 5, surface: 'front' }, ['front']),
+    ).toBeCloseTo(0.5, 6);
+  });
+
+  it('gives a lone lit run 0 rather than dividing by zero', () => {
+    expect(
+      perRunT({ of: 'runIndex' }, { litOrdinal: 0, litCount: 1, surface: 'front' }, ['front']),
+    ).toBe(0);
+  });
+
+  it('spreads surface across the layers the spec enables', () => {
+    const layers = ['front', 'back', 'wall'] as const;
+    expect(
+      perRunT({ of: 'surface' }, { litOrdinal: 0, litCount: 9, surface: 'front' }, layers),
+    ).toBeCloseTo(0, 6);
+    expect(
+      perRunT({ of: 'surface' }, { litOrdinal: 3, litCount: 9, surface: 'back' }, layers),
+    ).toBeCloseTo(0.5, 6);
+    expect(
+      perRunT({ of: 'surface' }, { litOrdinal: 7, litCount: 9, surface: 'wall' }, layers),
+    ).toBeCloseTo(1, 6);
+  });
+
+  it('gives 0 for a lone enabled surface even though it is listed', () => {
+    expect(
+      perRunT({ of: 'surface' }, { litOrdinal: 0, litCount: 4, surface: 'front' }, ['front']),
+    ).toBe(0);
+  });
+
+  it('gives a surface the spec does not list 0', () => {
+    expect(
+      perRunT({ of: 'surface' }, { litOrdinal: 0, litCount: 4, surface: 'connector' }, ['front']),
+    ).toBe(0);
+  });
+
+  it('is null for a domain that is not per run', () => {
+    expect(
+      perRunT({ of: 'run' }, { litOrdinal: 1, litCount: 4, surface: 'front' }, ['front']),
+    ).toBeNull();
+    expect(
+      perRunT({ of: 'axis' }, { litOrdinal: 1, litCount: 4, surface: 'front' }, ['front']),
+    ).toBeNull();
+  });
+});

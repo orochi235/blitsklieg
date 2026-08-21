@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { SurfaceKind } from './surfaces.js';
 
 /**
  * A colour the ramp passes through at `t`. Stops are sRGB hex; the returned colour is in three's
@@ -14,4 +15,45 @@ export function rampAt(stops: readonly number[], t: number): THREE.Color {
   const a = new THREE.Color(stops[i] as number);
   const b = new THREE.Color(stops[i + 1] as number);
   return a.lerp(b, f);
+}
+
+export type GradientDomain =
+  | { of: 'run' }
+  | { of: 'letter' }
+  | { of: 'runIndex' }
+  | { of: 'surface' }
+  | { of: 'axis'; angle?: number }
+  | { of: 'radial'; at?: [number, number] };
+
+export interface GradientSpec {
+  domain: GradientDomain;
+  /** Colours the sweep runs through, in order. Two is a fade; more is a ramp. */
+  stops: number[];
+  /** `replace` paints the ramp; `modulate` multiplies the run's own colour by it. */
+  mode: 'replace' | 'modulate';
+}
+
+/** What a per-run domain needs to know about the run it is colouring. */
+export interface RunPlace {
+  /** The run's ordinal among the lit runs. */
+  litOrdinal: number;
+  litCount: number;
+  surface: SurfaceKind;
+}
+
+/** Domains whose value is constant within a run. Null for every other domain. */
+export function perRunT(
+  domain: GradientDomain,
+  place: RunPlace,
+  surfaces: readonly SurfaceKind[],
+): number | null {
+  if (domain.of === 'runIndex') {
+    return place.litCount <= 1 ? 0 : place.litOrdinal / (place.litCount - 1);
+  }
+  if (domain.of === 'surface') {
+    const i = surfaces.indexOf(place.surface);
+    if (i < 0 || surfaces.length <= 1) return 0;
+    return i / (surfaces.length - 1);
+  }
+  return null;
 }
