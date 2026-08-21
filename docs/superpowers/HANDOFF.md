@@ -78,9 +78,15 @@ fidelity, and the spec covers both; the rest are independent.
   path reverses, 174 degrees at 0.32r. `spikes/join-geometry.mjs` prints a failing run per vertex.
   This is not independent of path fidelity — it gates it, because the grid's blur is what was
   holding it to a few percent.
-- **`sequin` and `pyrite` both waste ~30% of their chunk pool on the back cap** (`decoration.ts:227`).
-  Rejecting back-facing samples changes which pool indices exist, so it changes how both published
-  looks render. That is a decision, not a patch.
+- **The back-cap chunk waste is not worth fixing — measured, and struck from this list.** The
+  ~30% is real (27.9% `pyrite`, 25.1% `sequin`), but it costs nothing: real-GPU median frame time is
+  2.2–2.3 ms whether `pyrite` draws 55 chunks or 1. Rejecting back-facing samples would raise
+  visible chunks per letter by 39% and leave only 8.8% of positions surviving the reseed — a look
+  change dressed as an optimization. The back cap is also genuinely on screen during two shipped
+  enters.
+- **`flip` drops opacity 171° from rest**, so the letter fades in nearly back-on — the opposite of
+  what the step's own comment claims. `easeOutCubic(s)` hits 0.05 far later than the author expected.
+  Small, self-contained, and a real defect rather than a taste question.
 
 ## What was learned that is not in the plan
 
@@ -208,9 +214,14 @@ other, faces parallel within a grain because they share a lattice.
 More crystals will not fix that. Three changes to the placement model would do more than raising the
 count 30x: **vary size** (crystal beds are power-law, and that scale variation is most of what makes a
 texture read as grown rather than applied); **vary embedding** (`proud` is one value for every chunk,
-so all of them sit the same fraction out, which is precisely the glued look); and **allow
-interpenetration** (`chunkMatrices` draws sample points without replacement, so chunks can never
-overlap — combined with the existing `align`, overlap is what turns scattered dice into one mass).
+so all of them sit the same fraction out, which is precisely the glued look); and **weight
+placement by area** (`pyrite` puts 12.9% of its chunks on the front cap against 59.2% on the
+extrusion band, so it reads as an outline effect rather than a grown surface — measured, and the
+largest single defect).
+
+Interpenetration was on this list and is struck: drawing sample points without replacement stops two
+chunks sharing a *point*, not from overlapping, and 66.6% of `pyrite`'s chunks already certainly
+intersect a neighbour (mean nearest neighbour 0.0722 em against a 0.075 em edge).
 
 If a respec still leaves it not worth shipping, killing it is the owner's call — but note that is a
 breaking change, since `pyrite` has been in the published `LookName` union since 0.4.0. Separately,
