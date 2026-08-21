@@ -448,6 +448,23 @@ function mergeArc(
 
 const EPS = 1e-9;
 
+/**
+ * Closes a walk that began mid-leg, onto the span that starts there. The last corner's fillet can
+ * reach past the point the walk started at, and closing onto it anyway runs the path back along the
+ * arc it has just left; the head advances instead, moving the seam rather than reversing at it.
+ */
+function closeLoop(current: THREE.Vector3[], head: THREE.Vector3[], spacing: number): void {
+  const last = current[current.length - 1] as THREE.Vector3 | undefined;
+  const prev = current[current.length - 2] as THREE.Vector3 | undefined;
+  const origin = head[0] as THREE.Vector3 | undefined;
+  if (!last || !prev || !origin || last.distanceTo(origin) <= EPS) return;
+  const along = last.clone().sub(prev).normalize();
+  while (head.length > 2 && legGap(head[0], last, along) < spacing) head.shift();
+  // A seam still inside the arc leaves the cord a gap of at most one sample; a reversal there
+  // would read as a bend tighter than anything the fillet was drawn to avoid.
+  if (legGap(head[0], last, along) > 0) current.push(head[0] as THREE.Vector3);
+}
+
 /** Draws a strategy for each corner and stitches the raw arcs into final spans accordingly. */
 interface Span {
   points: THREE.Vector3[];
@@ -568,8 +585,10 @@ function stitchPath(
     };
     for (let k = 1; k < n; k++) walk(decisions[k] as CornerDecision, arcs[k] as THREE.Vector3[]);
     walk(decisions[0] as CornerDecision, first.slice(0, mid + 1));
-    const start = first[mid] as THREE.Vector3;
-    if ((current[current.length - 1] as THREE.Vector3).distanceTo(start) > EPS) current.push(start);
+    // A return has already split the span the walk started on off from `current`; the loop closes
+    // onto whichever span still begins at the seam.
+    const head = closedSpans[0]?.points ?? current;
+    closeLoop(current, head, spacing);
     closedSpans.push({ points: current });
     return { spans: closedSpans, decisions };
   }

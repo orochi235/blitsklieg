@@ -419,6 +419,50 @@ describe('the blockout return', () => {
   });
 });
 
+/**
+ * A rectangle sampled at the pipeline's spacing with every corner cut off, so a corner is a stretch
+ * of two vertices rather than one — which is what resampling a real outline always produces.
+ */
+function chamferedRect(w: number, h: number, cut: number): THREE.Vector3[] {
+  const box = [
+    [0, 0],
+    [w, 0],
+    [w, h],
+    [0, h],
+  ];
+  const sampled: THREE.Vector3[] = [];
+  for (let c = 0; c < 4; c++) {
+    const [ax, ay] = box[c] as number[];
+    const [bx, by] = box[(c + 1) % 4] as number[];
+    const n = Math.round(
+      Math.hypot((bx as number) - (ax as number), (by as number) - (ay as number)) / 0.02,
+    );
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      sampled.push(
+        new THREE.Vector3(
+          (ax as number) + ((bx as number) - (ax as number)) * t,
+          (ay as number) + ((by as number) - (ay as number)) * t,
+          0,
+        ),
+      );
+    }
+  }
+  const n = sampled.length;
+  const out: THREE.Vector3[] = [];
+  for (let i = 0; i < n; i++) {
+    const cur = sampled[i] as THREE.Vector3;
+    const a = cur
+      .clone()
+      .sub(sampled[(i - 1 + n) % n] as THREE.Vector3)
+      .normalize();
+    const b = (sampled[(i + 1) % n] as THREE.Vector3).clone().sub(cur).normalize();
+    if (a.angleTo(b) < 0.5) out.push(cur);
+    else out.push(cur.clone().addScaledVector(a, -cut), cur.clone().addScaledVector(b, cut));
+  }
+  return out;
+}
+
 describe('a closed contour with no break anywhere', () => {
   it('fillets the corner its own seam falls on', () => {
     const { runs } = cutIntoRuns([PATH(squarePath())], {
@@ -447,5 +491,19 @@ describe('a closed contour with no break anywhere', () => {
     const step = (b.distanceTo(a) + c.distanceTo(b)) / 2;
     const rho = turn < 1e-9 ? Number.POSITIVE_INFINITY : step / (2 * Math.sin(turn / 2));
     expect(rho).toBeGreaterThanOrEqual(rhoMin * 0.95);
+  });
+  // The walk starts mid-leg and has to come back to where it started. The last corner's fillet can
+  // reach past that point, and closing onto it anyway runs the path back along the arc it just left.
+  it('closes onto a point the last fillet has not already passed', () => {
+    const { runs } = cutIntoRuns(
+      [{ points: chamferedRect(0.14, 0.6, 0.023), surface: 'front' as const, closed: true }],
+      { runs: 1, minRun: 0, corners: ALL_CONNECT, radius: 0.022, bend: 2, spacing: 0.02, seed: 0 },
+    );
+    expect(runs).toHaveLength(1);
+    for (const run of runs) {
+      for (let i = 1; i + 1 < run.points.length; i++) {
+        expect(turnAt(run.points, i), `run ${run.index} vertex ${i}`).toBeLessThan(Math.PI / 2);
+      }
+    }
   });
 });
