@@ -15,7 +15,7 @@ export const GRADIENT_ORIGIN_UNIFORM = 'uGradOrigin';
 const GRADIENT_RAMP_UNIFORM = 'uGradRamp';
 
 /** Domains the shader resolves from the vertex's own position rather than from an attribute. */
-function positional(gradient: GradientSpec): boolean {
+export function positionalDomain(gradient: GradientSpec): boolean {
   return gradient.domain.of === 'axis' || gradient.domain.of === 'radial';
 }
 
@@ -86,7 +86,7 @@ export function tintByRunColor(
   else target.color = new THREE.Color(0xffffff);
 
   const texture = gradient ? (ramp ?? rampTexture(gradient.stops)) : undefined;
-  const onPosition = gradient !== undefined && positional(gradient);
+  const onPosition = gradient !== undefined && positionalDomain(gradient);
   // Held across compiles: three re-runs onBeforeCompile on every needsUpdate, and rebuilding these
   // would silently discard the bounds the caller had set.
   const boundsUniform = { value: new THREE.Vector4(0, 0, 1, 1) };

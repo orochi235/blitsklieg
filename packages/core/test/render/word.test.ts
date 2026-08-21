@@ -1108,12 +1108,24 @@ describe('positional gradient bounds', () => {
     return (cell.children[1] as THREE.Mesh).material as THREE.Material;
   }
 
+  /**
+   * Read off the compiled uniform rather than out of userData, so an update that reassigns instead
+   * of mutating is visible here: a compiled letter holds the object it was handed.
+   */
   function boundsOf(cell: THREE.Group): THREE.Vector4 {
-    return decorMaterial(cell).userData.uGradBounds as THREE.Vector4;
+    return uniformsOf(cell).uGradBounds?.value as THREE.Vector4;
   }
 
   function originOf(cell: THREE.Group): THREE.Vector2 {
-    return decorMaterial(cell).userData.uGradOrigin as THREE.Vector2;
+    return uniformsOf(cell).uGradOrigin?.value as THREE.Vector2;
+  }
+
+  /** Settles the cells onto their laid-out positions, which a regroup leaves to the next pose. */
+  function settle(word: Word): void {
+    word.apply(
+      timelineOf(() => ({})),
+      0,
+    );
   }
 
   /** Runs the tint's shader patch against a stand-in shader and returns the uniforms it registered. */
@@ -1235,6 +1247,72 @@ describe('positional gradient bounds', () => {
     word.dispose();
 
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the letters through a regroup, which does move them', () => {
+    const word = new Word('ABCD', stubFont(), SWEPT, ROOMY);
+    settle(word);
+    const [a, b] = groups(word) as THREE.Group[];
+    const bounds = boundsOf(a as THREE.Group);
+    const origin = originOf(a as THREE.Group);
+    const before = bounds.toArray();
+
+    word.regroup((letter) => letter.index < 2, 'stack');
+    settle(word);
+
+    const want = new THREE.Box2().union(runsOf(a as THREE.Group)).union(runsOf(b as THREE.Group));
+    expect(bounds.toArray()).not.toEqual(before);
+    expect(bounds.x).toBeCloseTo(want.min.x, 5);
+    expect(bounds.y).toBeCloseTo(want.min.y, 5);
+    expect(bounds.z).toBeCloseTo(want.max.x, 5);
+    expect(bounds.w).toBeCloseTo(want.max.y, 5);
+    // Not toEqual: a settled cell holds +0 where the layout wrote -0.
+    expect(origin.x).toBeCloseTo((a as THREE.Group).position.x, 10);
+    expect(origin.y).toBeCloseTo((a as THREE.Group).position.y, 10);
+    expect(originOf(b as THREE.Group).x).toBeCloseTo((b as THREE.Group).position.x, 10);
+    expect(originOf(b as THREE.Group).y).toBeCloseTo((b as THREE.Group).position.y, 10);
+    expect(origin.y).not.toBeCloseTo(originOf(b as THREE.Group).y, 3);
+  });
+
+  it('spans the letters a regroup kept, not the ones it dropped', () => {
+    const word = new Word('ABCD', stubFont(), SWEPT, ROOMY);
+    settle(word);
+    const cells = groups(word) as THREE.Group[];
+    const leaving = cells[3] as THREE.Group;
+    const leavingOrigin = originOf(leaving);
+    const before = leavingOrigin.toArray();
+    const bounds = boundsOf(cells[0] as THREE.Group);
+
+    word.regroup((letter) => letter.index < 2);
+    settle(word);
+
+    const want = new THREE.Box2()
+      .union(runsOf(cells[0] as THREE.Group))
+      .union(runsOf(cells[1] as THREE.Group));
+    expect(bounds.x).toBeCloseTo(want.min.x, 5);
+    expect(bounds.z).toBeCloseTo(want.max.x, 5);
+    // A dropped letter stands where it stood until it retires, and reads the ramp from there.
+    expect(leavingOrigin.toArray()).toEqual(before);
+    expect(bounds.z).toBeLessThan(leaving.position.x);
+  });
+
+  it('keeps the slots aligned when a regroup carries a blank glyph', () => {
+    const word = new Word('AB CD', stubFont(), SWEPT, ROOMY);
+    settle(word);
+    const cells = groups(word) as THREE.Group[];
+    const bounds = boundsOf(cells[0] as THREE.Group);
+
+    word.regroup((letter) => letter.index < 3, 'stack');
+    settle(word);
+
+    const want = new THREE.Box2()
+      .union(runsOf(cells[0] as THREE.Group))
+      .union(runsOf(cells[1] as THREE.Group));
+    expect(word.letterCount).toBe(5);
+    expect(bounds.x).toBeCloseTo(want.min.x, 5);
+    expect(bounds.y).toBeCloseTo(want.min.y, 5);
+    expect(bounds.z).toBeCloseTo(want.max.x, 5);
+    expect(bounds.w).toBeCloseTo(want.max.y, 5);
   });
 
   it('leaves a look without a gradient entirely alone', () => {

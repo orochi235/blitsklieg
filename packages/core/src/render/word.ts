@@ -37,6 +37,7 @@ import { rampTexture } from './tube/gradient.js';
 import {
   GRADIENT_BOUNDS_UNIFORM,
   GRADIENT_ORIGIN_UNIFORM,
+  positionalDomain,
   tintByRunColor,
   tintChannelOf,
 } from './tube/tint.js';
@@ -198,14 +199,17 @@ export class Word {
   /**
    * Positional gradients live in the letter-placement space — a letter's own coordinates plus its
    * offset in the word — deliberately excluding the group's fit transform, so a resize cannot
-   * slide the sweep across the sign.
+   * slide the sweep across the sign. A regroup does move the letters, so it re-runs this.
+   *
+   * The span covers the live letters only; one a regroup dropped keeps the offset it is still
+   * standing at, so it reads the ramp where it sits while its exit plays.
    */
   private setGradientBounds(): void {
     const word = new THREE.Box2();
     const at = new THREE.Vector2();
     for (let i = 0; i < this.tubeBounds.length; i++) {
       const box = this.tubeBounds[i];
-      if (!box) continue;
+      if (!box || this.leavingAt(i)) continue;
       const dx = this.baseX[i] as number;
       const dy = this.baseY[i] as number;
       word.expandByPoint(at.set(box.min.x + dx, box.min.y + dy));
@@ -214,18 +218,17 @@ export class Word {
     if (word.isEmpty()) return;
 
     for (let i = 0; i < this.decorMaterials.length; i++) {
-      const material = this.decorMaterials[i];
-      if (!material) continue;
-      material.userData[GRADIENT_BOUNDS_UNIFORM] = new THREE.Vector4(
-        word.min.x,
-        word.min.y,
-        word.max.x,
-        word.max.y,
-      );
-      material.userData[GRADIENT_ORIGIN_UNIFORM] = new THREE.Vector2(
-        this.baseX[i] as number,
-        this.baseY[i] as number,
-      );
+      const data = this.decorMaterials[i]?.userData;
+      const bounds = data?.[GRADIENT_BOUNDS_UNIFORM];
+      const origin = data?.[GRADIENT_ORIGIN_UNIFORM];
+      // Set, never reassigned: the shader patch aliases these very objects into its uniforms at
+      // compile time, so a fresh one would leave a compiled letter on the pre-regroup mapping.
+      if (bounds instanceof THREE.Vector4) {
+        bounds.set(word.min.x, word.min.y, word.max.x, word.max.y);
+      }
+      if (origin instanceof THREE.Vector2) {
+        origin.set(this.baseX[i] as number, this.baseY[i] as number);
+      }
     }
   }
 
@@ -295,6 +298,10 @@ export class Word {
           decoration.gradient,
           this.gradientRamp ?? undefined,
         );
+        if (decoration.gradient && positionalDomain(decoration.gradient)) {
+          decorMaterial.userData[GRADIENT_BOUNDS_UNIFORM] = new THREE.Vector4(0, 0, 1, 1);
+          decorMaterial.userData[GRADIENT_ORIGIN_UNIFORM] = new THREE.Vector2(0, 0);
+        }
       }
       decorMaterial.transparent = true;
       // A yawed or curved tube can turn its inside surface toward the camera; FrontSide
@@ -454,6 +461,7 @@ export class Word {
       kept.map((i) => this.geoMaxY[i] ?? null),
       this.budget,
     );
+    this.setGradientBounds();
 
     return { kept, dropped, delta };
   }
