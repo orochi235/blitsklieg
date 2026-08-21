@@ -111,12 +111,22 @@ function buildTubeGeometry(
   // Linear, because `setHex` converts from sRGB and the shader works in linear space.
   const tint = new THREE.Color(color);
 
+  // Ring index alone would spend a fixed share of the gradient on the domed caps regardless of
+  // their physical length; cumulative centre distance keeps it proportional instead.
+  const arcLength: number[] = [0];
+  for (let i = 1; i < ringCount; i++) {
+    const d = (rings[i] as Ring).centre.distanceTo((rings[i - 1] as Ring).centre);
+    arcLength.push((arcLength[i - 1] as number) + d);
+  }
+  const totalLength = arcLength[ringCount - 1] ?? 0;
+
   for (let i = 0; i < ringCount; i++) {
     const ring = rings[i] as Ring;
     const frame = ring.frame;
     const p = ring.centre;
     const radial = Math.cos(ring.tilt);
     const axial = Math.sin(ring.tilt);
+    const along = totalLength > 0 ? (arcLength[i] as number) / totalLength : 0;
     for (let j = 0; j <= segments; j++) {
       const v = (j / segments) * Math.PI * 2;
       const sin = Math.sin(v);
@@ -133,7 +143,7 @@ function buildTubeGeometry(
       uvs.push(i / (ringCount - 1), j / segments);
       colors.push(tint.r, tint.g, tint.b);
       if (gradient) {
-        const t = perVertexT(gradient.domain, i, ringCount, gradient.place);
+        const t = perVertexT(gradient.domain, along, gradient.place);
         if (t !== null) ts.push(t);
       }
     }

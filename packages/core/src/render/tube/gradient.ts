@@ -66,14 +66,8 @@ export interface RunSpan {
   span: number;
 }
 
-/** Domains that vary along a run. Null for every other domain. */
-export function perVertexT(
-  domain: GradientDomain,
-  ring: number,
-  ringCount: number,
-  place: RunSpan,
-): number | null {
+/** Domains that vary along a run. `along` is the arc-length fraction from the sweep. Null for every other domain. */
+export function perVertexT(domain: GradientDomain, along: number, place: RunSpan): number | null {
   if (domain.of !== 'run' && domain.of !== 'letter') return null;
-  const along = ringCount <= 1 ? 0 : ring / (ringCount - 1);
   return domain.of === 'run' ? along : place.start + place.span * along;
 }

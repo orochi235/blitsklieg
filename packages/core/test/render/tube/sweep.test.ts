@@ -29,6 +29,19 @@ function depthArcRun(radius: number, sweep: number): Run {
   return { points, surface: 'front', length, index: 0, lit: true, color: 0xffffff };
 }
 
+/**
+ * A straight run along x with points bunched near the start rather than evenly spaced — so the
+ * physical midpoint doesn't fall on the wall's own middle index, the way it would for an
+ * evenly-spaced run (whose index-middle happens to be its arc-length middle too).
+ */
+function unevenRun(length: number, n: number): Run {
+  const points = Array.from({ length: n }, (_, i) => {
+    const u = i / (n - 1);
+    return new THREE.Vector3(u * u * length, 0, 0);
+  });
+  return { points, surface: 'front', length, index: 0, lit: true, color: 0xffffff };
+}
+
 describe('tightestBend', () => {
   it("reports an arc's own radius, not a radius to draw at", () => {
     expect(tightestBend(arcRun(1, Math.PI / 2))).toBeCloseTo(1, 2);
@@ -156,6 +169,59 @@ describe('sweepRun gradientT attribute', () => {
     const attr = geo?.getAttribute(GRADIENT_T_ATTRIBUTE);
     const position = geo?.getAttribute('position');
     expect(attr?.count).toBe(position?.count);
+    geo?.dispose();
+  });
+
+  it('is proportional to arc length, not ring index, along an unevenly-spaced run', () => {
+    // A short, unevenly-spaced run: ring-index parameterization would put its physical midpoint
+    // ring at t=0.656 (25-point) or t=0.588 (10-point) instead of 0.5, because the domed caps
+    // consume a fixed share of ring count regardless of how little length they physically cover.
+    for (const [n, length] of [
+      [25, 0.479],
+      [10, 0.1],
+    ] as const) {
+      const radius = 0.03;
+      const run = unevenRun(length, n);
+      const geo = sweepRun(run, radius, 8, { domain: { of: 'run' }, place: { start: 0, span: 1 } });
+      const position = geo?.getAttribute('position');
+      const attr = geo?.getAttribute(GRADIENT_T_ATTRIBUTE);
+      const vertsPerRing = 9; // segments 8 -> 9 verts/ring
+      const ringCount = (position?.count ?? 0) / vertsPerRing;
+      // The run lies along x, and the cross-section offset is purely in the normal/binormal
+      // plane (perpendicular to x), so a ring's x-coordinate equals its centre's x exactly.
+      const xMin = position?.getX(0) ?? 0;
+      const xMax = position?.getX((ringCount - 1) * vertsPerRing) ?? 0;
+      const xMid = (xMin + xMax) / 2;
+      let bestRing = 0;
+      let bestDist = Number.POSITIVE_INFINITY;
+      for (let ring = 0; ring < ringCount; ring++) {
+        const d = Math.abs((position?.getX(ring * vertsPerRing) ?? 0) - xMid);
+        if (d < bestDist) {
+          bestDist = d;
+          bestRing = ring;
+        }
+      }
+      expect(attr?.getX(bestRing * vertsPerRing)).toBeCloseTo(0.5, 1);
+      geo?.dispose();
+    }
+  });
+
+  it('is finite everywhere for a fully degenerate (coincident-point) run', () => {
+    // Every ring centre collapses toward the same point, so cumulative arc length approaches
+    // zero from below the caps' own contribution. This is the closest reachable case to the
+    // zero-length-total guard: `sweepRun` never allows radius <= 0, and `rotationMinimizingFrames`
+    // never yields an exactly-zero tangent, so the guard's literal branch isn't reachable through
+    // this public API — this instead confirms nothing goes non-finite as the input degenerates.
+    const points = Array.from({ length: 5 }, () => new THREE.Vector3(0, 0, 0));
+    const run: Run = { points, surface: 'front', length: 0, index: 0, lit: true, color: 0xffffff };
+    const geo = sweepRun(run, 0.02, 6, { domain: { of: 'run' }, place: { start: 0, span: 1 } });
+    const attr = geo?.getAttribute(GRADIENT_T_ATTRIBUTE);
+    expect(attr).toBeDefined();
+    for (let i = 0; i < (attr?.count ?? 0); i++) {
+      expect(Number.isFinite(attr?.getX(i))).toBe(true);
+    }
+    expect(attr?.getX(0)).toBeCloseTo(0, 6);
+    expect(attr?.getX((attr?.count ?? 1) - 1)).toBeCloseTo(1, 6);
     geo?.dispose();
   });
 });
