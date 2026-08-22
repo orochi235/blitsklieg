@@ -40,6 +40,16 @@ sealed, a corner can carry the tube past the light unlit rather than cutting it,
 strategy is gone. One run of 225 on `tubing` and one of 49 on `piping` still bend tighter than
 their look's minimum, against every `piping` run clamped before.
 
+**The lab runs on labkit now**, which owns the tiling: `WorkspaceGrid` gives it a windease grid with
+draggable seams and drag-to-reorder, and klieg's own split tree and direct windease dependency are
+gone. The renderer is unchanged — sixteen panels, one WebGL context, a scissor rect each — but the
+rects are measured from the tiles rather than read from placements.
+
+**`@weasel-js/labkit` is a `file:` dependency on `~/src/weasel/packages/labkit`**, because the
+windease tiling is not published yet. `npm install` here needs that checkout present and built
+(`npm run build -w @weasel-js/labkit` in weasel). Swap the dependency to a registry version once it
+ships.
+
 Run it with `npm run dev:tube-lab -w klieg` — sixteen panels on one WebGL context, one letter
 each, `beauty` / `skeleton` / `ramp`, with a rail that tunes the whole `TubeSpec`. Every control
 carries a hover hint saying what it does and what it interacts with badly, which is the fastest way

@@ -20,11 +20,9 @@ lab touches the store once the grid owns it.
 is identified by position, so closing one shifts every id after it and the panes inherit each
 other's dragged extents.
 
-**Persistence.** `persist.ts` splits in two: tile extents ride `layout` / `onLayoutChange`, and
-letters, spec and look go through `useExperimentState` with `localStorageAdapter`. Read the
-existing key once and migrate, rather than stranding saved sessions.
-
-**Shell.** `LabShell` replaces the lab's own frame.
+**Tile extents.** They ride `layout` / `onLayoutChange`. The rest of the saved session stays
+klieg's — see the rail section. Read the existing key once and migrate, rather than stranding saved
+sessions.
 
 ## What klieg keeps
 
@@ -41,10 +39,10 @@ placements read directly.
 
 ## The rail
 
-`PropertyPanel` for the shell and row layout, but `@weasel-js/ui`'s `Slider` inside it rather than
-labkit's `SliderRow`, which fires live. `Slider` splits `onInput` (during the drag) from `onChange`
-(on release), and release is the only one the lab can afford: a spec change rebuilds all sixteen
-cells, 1.45 s front-only and 2.85 s with back, wall and connectors.
+`@weasel-js/ui`'s `Slider` rather than labkit's `SliderRow`, which fires live. `Slider` splits
+`onInput` (during the drag) from `onChange` (on release), and release is the only one the lab can
+afford: a spec change rebuilds all sixteen cells, 1.45 s front-only and 2.85 s with back, wall and
+connectors.
 
 Two things the rail needs and neither package has, so klieg wraps them for now:
 
@@ -54,6 +52,17 @@ Two things the rail needs and neither package has, so klieg wraps them for now:
 
 Both are filed against labkit (`packages/labkit/docs/IDEAS.md`), along with lens binding, inert-with-
 a-reason and computed bounds. If they land, the wrapper collapses.
+
+**labkit's `PropertyRow` was tried for the row layout and reverted.** It stacks a label over a
+control for a sidebar; the rail is a seven-column strip with a 108px control basis, and fitting one
+to the other meant override selectors reaching into labkit's internals. The rail keeps its own rows.
+
+**Persistence stayed klieg's own.** `useExperimentState` is per workspace tile, and what needs
+saving here is per lab — one spec, one letter string, one look, across every panel. `persist.ts`
+keeps that.
+
+**`LabShell` was not adopted.** The lab's frame is a stage over a rail, and the shell brings a
+header and sidebar it has no use for.
 
 ## Traps
 
@@ -65,6 +74,11 @@ nothing rather than by erroring.
 **A tile rect is CSS pixels; the drawing buffer is device pixels.** The lab already scales by DPR
 for its own canvas, but rects now arrive from `getBoundingClientRect`, so the conversion moves. A
 display change alters DPR without altering any rect.
+
+**Two Reacts.** labkit is linked from a local checkout until its windease tiling is published, and a
+linked package resolves React out of its own tree. The failure is an "invalid hook call" thrown from
+inside labkit, which points nowhere near the cause; the lab's vite config dedupes react and
+react-dom to prevent it.
 
 **Nothing measures in jsdom**, and a windease container renders no children at a zero measurement.
 `WorkspaceGrid` takes a `viewport` prop for that; any test that mounts the grid needs it.
