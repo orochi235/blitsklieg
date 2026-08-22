@@ -1,48 +1,27 @@
+import '@weasel-js/labkit/styles.css';
 import { createRoot } from 'react-dom/client';
-import { asNodeId, createPanel, createZone, type NodeId, Store, splitStrategy } from 'windease';
-import { DragProvider, Provider, StrategyRegistryProvider } from 'windease/react';
-import 'windease/styles.css';
-import { App, ZONE } from './App.js';
-import { DEFAULT_LETTERS, seedPanels } from './panels.js';
+import { App } from './App.js';
+import { DEFAULT_LETTERS, type PanelRecord, seedPanels } from './panels.js';
 import { restore } from './persist.js';
 import { tubeSpecOf } from './spec.js';
 import './styles.css';
-import { balancedTree } from './tree.js';
 
-function seed(store: Store): void {
-  store.registerNode(
-    createZone({ id: ZONE, strategyId: 'split', config: { recursive: true, gutterSize: 6 } }),
-  );
-  store.showNode(ZONE);
-
-  const ids: NodeId[] = [];
-  let counter = 0;
-  for (const meta of seedPanels(DEFAULT_LETTERS)) {
-    const id = asNodeId(`p${counter++}`);
-    store.registerNode(createPanel({ id, parentId: ZONE, meta: { ...meta } }));
-    store.showNode(id);
-    ids.push(id);
-  }
-  store.setContainerState(ZONE, balancedTree(ids));
+function seed(letters: string): PanelRecord[] {
+  return seedPanels(letters).map((meta, i) => ({ id: `p${i}`, ...meta }));
 }
 
-const store = new Store();
-const saved = restore(store);
-if (!saved) seed(store);
+const saved = restore();
+const letters = saved?.letters ?? DEFAULT_LETTERS;
 
 const host = document.getElementById('root');
 if (!host) throw new Error('tube lab: the page has no #root');
 
 createRoot(host).render(
-  <Provider store={store}>
-    <StrategyRegistryProvider strategies={{ split: splitStrategy }}>
-      <DragProvider>
-        <App
-          letters={saved?.letters ?? DEFAULT_LETTERS}
-          spec={saved?.spec ?? tubeSpecOf('tubing')}
-          look={saved?.look ?? 'tubing'}
-        />
-      </DragProvider>
-    </StrategyRegistryProvider>
-  </Provider>,
+  <App
+    panels={saved?.panels ?? seed(letters)}
+    layout={saved?.layout ?? {}}
+    letters={letters}
+    spec={saved?.spec ?? tubeSpecOf('tubing')}
+    look={saved?.look ?? 'tubing'}
+  />,
 );

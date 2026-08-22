@@ -1,3 +1,4 @@
+import { WorkspaceGrid } from '@weasel-js/labkit';
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -6,64 +7,38 @@ import {
   useRef,
   useState,
 } from 'react';
-import { asNodeId, createPanel, type NodeId, type SplitNode, type Store } from 'windease';
-import {
-  type ChromeArgs,
-  Container,
-  DragHandle,
-  useContainerLayout,
-  useStore,
-} from 'windease/react';
 import { specOf } from '../../../src/render/looks.js';
 import type { TubeSpec } from '../../../src/render/tube/index.js';
 import type { LoadedFont } from '../../../src/text/font.js';
 import { DEFAULT_GLYPH_OPTIONS, glyphToShapes } from '../../../src/text/glyphs.js';
 import { labFont } from './font.js';
 import {
-  isPanelMode,
-  isPose,
-  isRampSource,
-  type PanelMeta,
   type PanelMode,
   type PanelRecord,
   type Pose,
   RAMP_SOURCES,
+  type RampSource,
   reconcileLetters,
 } from './panels.js';
-import { clear, save } from './persist.js';
+import { clear, save, type WorkspaceLayout } from './persist.js';
 import { Rail } from './Rail.js';
 import { buildCell, type Cell } from './render/cell.js';
-import { LabRenderer, type PanelDraw } from './render/lab.js';
+import { LabRenderer, type PanelDraw, type PanelRect } from './render/lab.js';
 import { rampOverride } from './render/ramp.js';
 import { buildSkeleton } from './render/skeleton.js';
 import { type TubeLook, tubeSpecOf } from './spec.js';
-import { balancedTree, withLeaf, withoutLeaf } from './tree.js';
-
-export const ZONE = asNodeId('zone');
-
-export function metaOf(raw: Record<string, unknown> | undefined): PanelMeta {
-  const letter = typeof raw?.letter === 'string' ? raw.letter : '?';
-  const mode = isPanelMode(raw?.mode) ? raw.mode : 'beauty';
-  const pose = isPose(raw?.pose) ? raw.pose : 'head-on';
-  const source = isRampSource(raw?.source) ? raw.source : 'depth';
-  return { letter, mode, pose, source };
-}
 
 let nextPanel = 0;
 
 /**
- * Registers the panel and returns its id; the caller grafts it into the tree. The id is never
- * recycled: a view is held against it, and a fresh panel inheriting a dead one's turn and zoom is
- * indistinguishable from a bug in the pose.
+ * A fresh id, never recycled: a view is held against it, and a new panel inheriting a dead one's
+ * turn and zoom is indistinguishable from a bug in the pose.
  */
-function addPanel(store: Store, meta: PanelMeta): NodeId {
-  const taken = new Set<string>(store.getChildren(ZONE).map((node) => node.id));
+export function mintPanelId(taken: Iterable<string>): string {
+  const used = new Set(taken);
   let id = `n${nextPanel++}`;
-  while (taken.has(id)) id = `n${nextPanel++}`;
-  const node = asNodeId(id);
-  store.registerNode(createPanel({ id: node, parentId: ZONE, meta: { ...meta } }));
-  store.showNode(node);
-  return node;
+  while (used.has(id)) id = `n${nextPanel++}`;
+  return id;
 }
 
 /** How a panel is being looked at. In memory only, unlike the layout. */
@@ -89,86 +64,94 @@ const ZOOM_MAX = 4;
 const WHEEL_STEP = 500;
 const PINCH_STEP = 100;
 
+/** Long enough to outlast a tile's own move, short enough that a stuck layout stops costing frames. */
+const SETTLE_FRAMES = 40;
+
 interface ViewProps {
   'data-view': string;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onDoubleClick: () => void;
 }
 
-function chromeFor(
-  store: Store,
-  reports: Record<string, string>,
-  onChange: () => void,
-  viewProps: (id: string, pose: Pose) => ViewProps,
-  onReset: (id: string, pose: Pose) => void,
-) {
-  return function chrome({ node }: ChromeArgs) {
-    const meta = metaOf(node.meta);
-    const summary = reports[node.id];
-    return (
-      <div className="panel">
-        <DragHandle nodeId={node.id}>
-          <div className="panel__bar">
-            <span className="panel__letter">{meta.letter}</span>
-            <span className="panel__mode">{meta.mode}</span>
-            {meta.mode === 'ramp' ? (
-              // stopPropagation, or the enclosing DragHandle reads a click on the select as a drag.
-              <select
-                value={meta.source}
-                onChange={(e) => {
-                  store.setMeta(node.id, { source: e.target.value });
-                  onChange();
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                {RAMP_SOURCES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-          </div>
-        </DragHandle>
-        <div className="panel__body" {...viewProps(node.id, meta.pose)}>
-          <button
-            type="button"
-            className="panel__reset"
-            aria-label={`reset the ${meta.letter} ${meta.pose} ${meta.mode} view`}
-            // The button sits on the drag surface: without this a click starts a turn instead.
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onReset(node.id, meta.pose)}
-          >
-            <svg
-              viewBox="0 0 16 16"
-              width="12"
-              height="12"
-              aria-hidden="true"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M14 8a6 6 0 1 1-1.8-4.3" />
-              <path d="M12.2 3.7 8.9 3.1M12.2 3.7 11.5 6.6" />
-            </svg>
-          </button>
-          {summary ? <p className="panel__readout">{summary}</p> : null}
-        </div>
+interface PanelTileProps {
+  record: PanelRecord;
+  summary: string | undefined;
+  onSource: (id: string, source: RampSource) => void;
+  viewProps: (id: string, pose: Pose) => ViewProps;
+  onReset: (id: string, pose: Pose) => void;
+  /** Hands the panel's own element up, so the lab can scissor the canvas to where it sits. */
+  onMount: (id: string, element: HTMLDivElement | null) => void;
+}
+
+function PanelTile({ record, summary, onSource, viewProps, onReset, onMount }: PanelTileProps) {
+  const { id, letter, mode, pose, source } = record;
+  return (
+    <div
+      className="panel"
+      ref={(el) => {
+        onMount(id, el);
+      }}
+    >
+      <div className="panel__bar">
+        <span className="panel__letter">{letter}</span>
+        <span className="panel__mode">{mode}</span>
+        {mode === 'ramp' ? (
+          <select value={source} onChange={(e) => onSource(id, e.target.value as RampSource)}>
+            {RAMP_SOURCES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </div>
-    );
-  };
+      <div className="panel__body" {...viewProps(id, pose)}>
+        <button
+          type="button"
+          className="panel__reset"
+          aria-label={`reset the ${letter} ${pose} ${mode} view`}
+          // The button sits on the drag surface: without this a click starts a turn instead.
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onReset(id, pose)}
+        >
+          <svg
+            viewBox="0 0 16 16"
+            width="12"
+            height="12"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 8a6 6 0 1 1-1.8-4.3" />
+            <path d="M12.2 3.7 8.9 3.1M12.2 3.7 11.5 6.6" />
+          </svg>
+        </button>
+        {summary ? <p className="panel__readout">{summary}</p> : null}
+      </div>
+    </div>
+  );
 }
 
 export interface AppProps {
+  panels: PanelRecord[];
+  layout: WorkspaceLayout;
   letters: string;
   spec: TubeSpec;
   look: TubeLook;
 }
 
-export function App({ letters: initialLetters, spec: initialSpec, look: initialLook }: AppProps) {
-  const store = useStore();
+export function App({
+  panels: initialPanels,
+  layout: initialLayout,
+  letters: initialLetters,
+  spec: initialSpec,
+  look: initialLook,
+}: AppProps) {
+  const [panels, setPanels] = useState(initialPanels);
+  const [layout, setLayout] = useState(initialLayout);
   const [letters, setLetters] = useState(initialLetters);
   const [spec, setSpec] = useState(initialSpec);
   const [lookName, setLookName] = useState(initialLook);
@@ -176,6 +159,7 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
   const look = useMemo(() => specOf(lookName), [lookName]);
   // Bloom stays out of the key: the renderer reads it per draw, so toggling it costs a draw.
   const specKey = `${JSON.stringify(spec)}|${lookName}`;
+  const ids = useMemo(() => panels.map((p) => p.id), [panels]);
 
   /** Changing look reseeds the rail, so the controls keep reading as that look's own tuning. */
   const changeLook = useCallback((next: TubeLook) => {
@@ -183,48 +167,49 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
     setSpec(tubeSpecOf(next));
   }, []);
 
-  const panels = useCallback((): PanelRecord[] => {
-    return store.getChildren(ZONE).map((node) => ({ id: node.id, ...metaOf(node.meta) }));
-  }, [store]);
+  const applyLetters = useCallback((next: string) => {
+    setLetters(next);
+    setPanels((prev) => {
+      const { add, remove } = reconcileLetters(prev, next);
+      const dropped = new Set(remove);
+      const kept = prev.filter((p) => !dropped.has(p.id));
+      const taken = kept.map((p) => p.id);
+      const added = add.map((meta) => {
+        const id = mintPanelId(taken);
+        taken.push(id);
+        return { id, ...meta };
+      });
+      return [...kept, ...added];
+    });
+  }, []);
 
-  const applyLetters = useCallback(
-    (next: string) => {
-      setLetters(next);
-      const { add, remove } = reconcileLetters(panels(), next);
-      // The store and the tree move together: a panel missing from the tree is silently not laid
-      // out, and a leaf left behind holds space no panel is using.
-      const current = store.getContainerState(ZONE);
-      if (!current) throw new Error('tube lab: the zone lost its layout tree');
-      let tree = current as SplitNode;
-      for (const id of remove) {
-        store.unregisterNode(asNodeId(id));
-        tree = withoutLeaf(tree, id);
-      }
-      // Read after the removals and before the adds: an emptied zone has nothing to graft onto.
-      const refilling = store.getChildren(ZONE).length === 0;
-      const added = add.map((meta) => addPanel(store, meta));
-      tree = refilling ? balancedTree(added) : added.reduce((t, id) => withLeaf(t, id), tree);
-      if (store.getChildren(ZONE).length > 0) store.setContainerState(ZONE, tree);
-    },
-    [panels, store],
-  );
+  /** The rail's own add: one panel, outside the letters reconcile. */
+  const addPanel = useCallback((letter: string, mode: PanelMode) => {
+    setPanels((prev) => [
+      ...prev,
+      { id: mintPanelId(prev.map((p) => p.id)), letter, mode, pose: 'head-on', source: 'depth' },
+    ]);
+  }, []);
 
-  /** The rail's own add: one panel, outside the letters reconcile, grafted into the largest pane. */
-  const addPanelAndGraft = useCallback(
-    (letter: string, mode: PanelMode) => {
-      const refilling = store.getChildren(ZONE).length === 0;
-      const id = addPanel(store, { letter, mode, pose: 'head-on', source: 'depth' });
-      const tree = store.getContainerState(ZONE) as SplitNode | undefined;
-      store.setContainerState(ZONE, refilling || !tree ? balancedTree([id]) : withLeaf(tree, id));
-    },
-    [store],
-  );
+  const setSource = useCallback((id: string, source: RampSource) => {
+    setPanels((prev) => prev.map((p) => (p.id === id ? { ...p, source } : p)));
+  }, []);
+
+  const reorder = useCallback((next: readonly string[]) => {
+    setPanels((prev) => {
+      const byId = new Map(prev.map((p) => [p.id, p]));
+      const ordered = next.flatMap((id) => byId.get(id) ?? []);
+      // A drop reports every id, but trust the panels rather than the report: anything the grid
+      // did not name would otherwise vanish from the lab entirely.
+      return ordered.length === prev.length ? ordered : prev;
+    });
+  }, []);
 
   useEffect(() => {
     let timer = 0;
     const flush = () => {
       timer = 0;
-      save(store, letters, spec, lookName);
+      save(panels, layout, letters, spec, lookName);
     };
     // Clear before flushing, or the armed timer fires later and writes this closure's stale values.
     const flushPending = () => {
@@ -232,33 +217,33 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
       clearTimeout(timer);
       flush();
     };
-    save(store, letters, spec, lookName);
-    // A gutter drag never changes `letters` or `spec`, so the store itself has to say when to save.
-    const unsubscribe = store.subscribe(() => {
-      if (timer) clearTimeout(timer);
-      timer = window.setTimeout(flush, 200);
-    });
+    timer = window.setTimeout(flush, 200);
     // A reload does not unmount, so the cleanup alone would drop a drag made inside the window.
     window.addEventListener('pagehide', flushPending);
     return () => {
-      unsubscribe();
       window.removeEventListener('pagehide', flushPending);
       flushPending();
     };
-  }, [store, letters, spec, lookName]);
+  }, [panels, layout, letters, spec, lookName]);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const labRef = useRef<LabRenderer | null>(null);
   const cellsRef = useRef(new Map<string, Cell>());
   const views = useRef(new Map<string, View>());
+  const elements = useRef(new Map<string, HTMLDivElement>());
+  const rects = useRef(new Map<string, PanelRect>());
+  const observer = useRef<ResizeObserver | null>(null);
+  const measureFrame = useRef(0);
+  const quiet = useRef(0);
   const oneFrame = useRef(0);
   const dirty = useRef<string | null>(null);
   const frame = useRef(0);
   const latest = useRef<() => void>(() => {});
   const [font, setFont] = useState<LoadedFont | null>(null);
   const [reports, setReports] = useState<Record<string, string>>({});
-  const { placements } = useContainerLayout(ZONE, stageRef);
+  /** Bumped when a tile moves or resizes; the draw effect reads the rects themselves from a ref. */
+  const [placed, setPlaced] = useState(0);
 
   const setReport = useCallback((id: string, summary: string) => {
     setReports((prev) => (prev[id] === summary ? prev : { ...prev, [id]: summary }));
@@ -268,20 +253,115 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
     labFont().then(setFont, (err: unknown) => console.error('tube lab: font failed', err));
   }, []);
 
+  /**
+   * Tiles are positioned by the grid, so their rects are read from the DOM rather than handed over.
+   * A seam drag resizes two tiles and a reorder moves several without resizing any, so every tile
+   * is re-measured whenever one of them reports.
+   */
+  const measure = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return false;
+    const base = stage.getBoundingClientRect();
+    let changed = false;
+    for (const [id, el] of elements.current) {
+      const box = el.getBoundingClientRect();
+      const next: PanelRect = {
+        x: box.left - base.left,
+        y: box.top - base.top,
+        w: box.width,
+        h: box.height,
+      };
+      const prev = rects.current.get(id);
+      if (
+        prev &&
+        prev.x === next.x &&
+        prev.y === next.y &&
+        prev.w === next.w &&
+        prev.h === next.h
+      ) {
+        continue;
+      }
+      rects.current.set(id, next);
+      changed = true;
+    }
+    for (const id of [...rects.current.keys()]) {
+      if (elements.current.has(id)) continue;
+      rects.current.delete(id);
+      changed = true;
+    }
+    if (changed) setPlaced((n) => n + 1);
+    return changed;
+  }, []);
+
+  /**
+   * Measures until the rects hold still. The canvas cannot tween with the DOM, so it has to land
+   * where the tiles land: a size change is observed, but a tile that only moves reports nothing.
+   */
+  const scheduleMeasure = useCallback(() => {
+    if (measureFrame.current) {
+      quiet.current = 0;
+      return;
+    }
+    quiet.current = 0;
+    let frames = 0;
+    const step = () => {
+      quiet.current = measure() ? 0 : quiet.current + 1;
+      frames += 1;
+      if (quiet.current >= 2 || frames > SETTLE_FRAMES) {
+        measureFrame.current = 0;
+        return;
+      }
+      measureFrame.current = requestAnimationFrame(step);
+    };
+    measureFrame.current = requestAnimationFrame(step);
+  }, [measure]);
+
+  useEffect(() => {
+    const ro = new ResizeObserver(scheduleMeasure);
+    observer.current = ro;
+    for (const el of elements.current.values()) ro.observe(el);
+    const stage = stageRef.current;
+    if (stage) ro.observe(stage);
+    return () => {
+      ro.disconnect();
+      observer.current = null;
+    };
+  }, [scheduleMeasure]);
+
+  const mountTile = useCallback(
+    (id: string, el: HTMLDivElement | null) => {
+      const known = elements.current.get(id);
+      if (known && known !== el) observer.current?.unobserve(known);
+      if (el) {
+        elements.current.set(id, el);
+        observer.current?.observe(el);
+      } else {
+        elements.current.delete(id);
+      }
+      scheduleMeasure();
+    },
+    [scheduleMeasure],
+  );
+
+  // A tile that only moves reports nothing, so re-measure whenever the arrangement itself changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ids and layout are the signal that tiles moved, not values this reads
+  useEffect(scheduleMeasure, [scheduleMeasure, ids, layout]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // The zone does not clip: it carries only the lab's own `zone` class, never windease's
-    // `windease-zone`, so that stylesheet's `overflow: hidden` never applies. The canvas is sized
-    // to `.stage` instead, and each panel's rect scissors its own draw.
+    // The canvas spans `.stage` and sits behind the grid rather than inside its zone, so the zone's
+    // `overflow: hidden` never reaches it. Each panel's measured rect scissors its own draw.
     const lab = new LabRenderer(canvas);
     labRef.current = lab;
     const cells = cellsRef.current;
     return () => {
       if (frame.current) cancelAnimationFrame(frame.current);
       if (oneFrame.current) cancelAnimationFrame(oneFrame.current);
+      if (measureFrame.current) cancelAnimationFrame(measureFrame.current);
       frame.current = 0;
       oneFrame.current = 0;
+      measureFrame.current = 0;
       for (const cell of cells.values()) cell.dispose();
       cells.clear();
       lab.dispose();
@@ -318,7 +398,7 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
         const lab = labRef.current;
         if (!target || !lab) return;
         const cell = cellsRef.current.get(target);
-        const rect = placements.get(asNodeId(target));
+        const rect = rects.current.get(target);
         if (!cell || !rect) return;
         pose(cell, target, rect.w / rect.h);
         lab.draw([
@@ -326,7 +406,7 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
         ]);
       });
     },
-    [bloom, placements, pose],
+    [bloom, pose],
   );
 
   const resetView = useCallback(
@@ -399,13 +479,9 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
     return () => stage.removeEventListener('wheel', onWheel);
   }, [drawOne]);
 
-  const chromeWithReports = useMemo(
-    () => chromeFor(store, reports, drawAll, viewProps, resetView),
-    [store, reports, drawAll, viewProps, resetView],
-  );
-
   // The frame calls the newest body, never the one that queued it: coalescing on the call would
   // drop the later layout and leave the canvas at rects nothing reschedules.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `placed` is the signal that measured rects changed; the rects are read from a ref
   useEffect(() => {
     latest.current = () => {
       const lab = labRef.current;
@@ -416,23 +492,23 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
 
       const draws: PanelDraw[] = [];
       const live = new Set<string>();
-      for (const [id, rect] of placements) {
-        const node = store.getNode(id);
-        if (!node) continue;
-        const meta = metaOf(node.meta);
-        const key = `${id}|${meta.mode}|${meta.letter}|${meta.source}|${specKey}`;
+      for (const record of panels) {
+        const rect = rects.current.get(record.id);
+        if (!rect) continue;
+        const id = record.id;
+        const key = `${id}|${record.mode}|${record.letter}|${record.source}|${specKey}`;
         live.add(id);
         // Against the id, not the cell: a cell is rebuilt on every spec change, and a slider drag
         // must not walk every panel back to head-on. Ids are never recycled, so this is safe.
-        if (!views.current.has(id)) views.current.set(id, initialView(meta.pose));
+        if (!views.current.has(id)) views.current.set(id, initialView(record.pose));
         let cell = cellsRef.current.get(id);
         if (!cell || cell.key !== key) {
           cell?.dispose();
-          if (meta.mode === 'skeleton') {
-            const shapes = glyphToShapes(font.font, meta.letter, 1);
+          if (record.mode === 'skeleton') {
+            const shapes = glyphToShapes(font.font, record.letter, 1);
             const skeleton = buildSkeleton(shapes, spec, DEFAULT_GLYPH_OPTIONS.depth);
             cell = buildCell({
-              meta,
+              meta: record,
               look: { ...look, decoration: spec },
               font,
               environment: lab.environmentTexture,
@@ -445,9 +521,9 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
             };
             setReport(id, skeleton.report.summary);
           } else {
-            const ramp = meta.mode === 'ramp' ? rampOverride(meta.source) : null;
+            const ramp = record.mode === 'ramp' ? rampOverride(record.source) : null;
             cell = buildCell({
-              meta,
+              meta: record,
               look: { ...look, decoration: spec },
               font,
               environment: lab.environmentTexture,
@@ -477,13 +553,33 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
       lab.draw(draws);
     };
     drawAll();
-  }, [drawAll, font, placements, spec, specKey, look, bloom, store, setReport, pose]);
+  }, [drawAll, font, panels, placed, spec, specKey, look, bloom, setReport, pose]);
 
   return (
     <div className="lab">
       <div className="stage" ref={stageRef}>
         <canvas ref={canvasRef} />
-        <Container className="zone" parentId={ZONE} chrome={chromeWithReports} affordances />
+        <WorkspaceGrid
+          ids={ids}
+          resizable
+          reorderable
+          onReorder={reorder}
+          layout={layout}
+          onLayoutChange={setLayout}
+          gap={6}
+        >
+          {panels.map((record) => (
+            <PanelTile
+              key={record.id}
+              record={record}
+              summary={reports[record.id]}
+              onSource={setSource}
+              viewProps={viewProps}
+              onReset={resetView}
+              onMount={mountTile}
+            />
+          ))}
+        </WorkspaceGrid>
       </div>
       <Rail
         spec={spec}
@@ -494,7 +590,7 @@ export function App({ letters: initialLetters, spec: initialSpec, look: initialL
         onBloom={setBloom}
         letters={letters}
         onLetters={applyLetters}
-        onAddPanel={addPanelAndGraft}
+        onAddPanel={addPanel}
         onReset={() => {
           clear();
           location.reload();
