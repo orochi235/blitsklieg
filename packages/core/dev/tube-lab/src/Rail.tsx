@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Slider } from '@weasel-js/ui/components/Slider';
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 import type {
   CornerWeights,
   GradientSpec,
@@ -238,7 +239,6 @@ interface RangeProps {
 
 function Range({ label, min, max, step, value, disabled, stops, hint, onCommit }: RangeProps) {
   const { shown, edit, commit } = useDeferred(value, onCommit);
-  const listId = useId();
   // A detent worth 3% of the track: narrower is unhittable at this width, wider swallows the
   // values next to the stop and makes them unreachable.
   const grab = Math.max(step, (max - min) * 0.03);
@@ -254,30 +254,49 @@ function Range({ label, min, max, step, value, disabled, stops, hint, onCommit }
     }
     return best;
   };
+  const marks = stops ?? [];
   return (
-    <label title={hint}>
-      {label}
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={shown}
-        list={stops && stops.length > 0 ? listId : undefined}
-        disabled={disabled}
-        onChange={(e) => edit(snap(Number(e.target.value)))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-      />
-      {stops && stops.length > 0 ? (
-        <datalist id={listId}>
-          {stops.map((stop) => (
-            <option key={stop} value={stop} />
-          ))}
-        </datalist>
-      ) : null}
-    </label>
+    // `title` is the hint: nothing in labkit's field schema carries one, and the hints are how the
+    // rail says what a control interacts with badly.
+    // A div rather than a label: the slider is not a native input, and its own `ariaLabel` is what
+    // names it.
+    <div className={`rail__field${disabled ? ' rail__row--off' : ''}`} title={hint}>
+      <span>{label}</span>
+      <div className="rail__slider">
+        <Slider
+          thumbs={[{ value: shown }]}
+          min={min}
+          max={max}
+          step={step}
+          ariaLabel={label}
+          trackHeight={8}
+          // onInput runs the drag, onChange lands it: a spec change rebuilds every cell, so a drag
+          // has to cost one rebuild rather than one per frame.
+          onInput={(next) => {
+            if (disabled) return;
+            edit(snap(next[0]?.value ?? shown));
+          }}
+          onChange={() => {
+            if (!disabled) commit();
+          }}
+          renderTrack={({ valueToFraction }) =>
+            marks.map((stop) => (
+              <span
+                key={stop}
+                className="rail__stop"
+                // Only the position is inline, and only because it is a computed fraction of the
+                // track; everything about how a stop looks stays in the stylesheet.
+                style={
+                  {
+                    ['--rail-stop']: `${(valueToFraction(stop) * 100).toFixed(3)}%`,
+                  } as CSSProperties
+                }
+              />
+            ))
+          }
+        />
+      </div>
+    </div>
   );
 }
 

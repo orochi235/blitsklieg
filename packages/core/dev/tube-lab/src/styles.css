@@ -151,7 +151,8 @@ body {
   text-transform: uppercase;
   color: #d8b25f;
 }
-.rail label {
+.rail label,
+.rail__field {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -193,4 +194,28 @@ body {
 }
 .rail button:hover {
   border-color: #d8b25f;
+}
+
+.rail__slider {
+  position: relative;
+  flex: 0 1 108px;
+  min-width: 0;
+}
+/* The slider measures its own track, so it has to be given the width rather than shrink to fit. */
+.rail__slider > * {
+  width: 100%;
+}
+/* A stop the drag catches, drawn on the track it belongs to. */
+.rail__stop {
+  position: absolute;
+  top: 50%;
+  left: var(--rail-stop);
+  width: 2px;
+  height: 9px;
+  transform: translate(-50%, -50%);
+  background: #6c7891;
+  pointer-events: none;
+}
+.rail__row--off {
+  opacity: 0.45;
 }
